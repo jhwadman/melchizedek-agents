@@ -13,11 +13,47 @@ and — critically for anyone deploying an agent to real users — how memory is
 
 Raw conversation histories grow linearly; token counts explode and early
 context falls out of the attention window. Melchizedek instead compresses
-past conversations into discrete "facts", embeds them as vectors, and
-retrieves only the most relevant facts when a new query arrives — RAG over
-the agent's own experience.
+past conversations into discrete **structured memory records**, embeds
+them as vectors, and retrieves the most relevant records when a new query
+arrives — RAG over the agent's own experience, with enough structure that
+the record can be **evolved** (corrected, superseded, contradicted) rather
+than only appended to.
 
-## 2. The core pipeline
+## 2. The record format
+
+Each stored record is one structured line — the whole line is embedded, so
+its dates, units, and sources all participate in semantic recall:
+
+```
+[TAG | date: YYYY-MM-DD | source: <who asserted it> | status: active|historical | keys: k1, k2] record text
+```
+
+- **TAG** — `[FACT]`, `[PREFERENCE]`, `[DECISION]`, `[ACTION]`,
+  `[CONTEXT]`, `[INSIGHT]`, `[CORRECTION]`, or `[EPISODE]` (one narrative
+  session summary per ingestion — the semantic thread between discrete
+  records).
+- **date** — the date the record is *about*, converted from relative to
+  absolute at write time ("last Tuesday" is stored as its YYYY-MM-DD).
+- **source** — who asserted it: the user, a named clinician/counterparty,
+  a document, a report. The model's own general knowledge is never stored.
+- **status** — `active` or `historical`; a third value, `superseded`, is
+  applied by the store itself when a later correction retires the row.
+- **keys** — 1–5 lowercase entity index terms (names, medications,
+  metrics, topics) connecting the record to future queries.
+- **supersedes** (corrections only) — a short quote of the outdated claim,
+  used to find and retire the old row.
+- **Values keep their units** exactly as stated ("25 mg twice daily",
+  "1.4 mg/dL") — never rounded or restated from model knowledge.
+- **Unresolved contradictions are kept, not resolved**: both records are
+  stored plus a `[CONTEXT]` record naming the conflict (key:
+  `contradiction`). Silently picking a side would falsify the record.
+
+The header fields are also parsed into dedicated columns (`tag`,
+`fact_date`, `source`, `status`, `keys`, `superseded_by`) so recall can use
+more than similarity (see Phase 2). Schema: base tables in the root README;
+upgrades via [`db/memory_v2.sql`](../../db/memory_v2.sql).
+
+## 3. The core pipeline
 
 ### Phase 1: Ingestion (`addSessionToMemory`)
 
@@ -26,29 +62,48 @@ the A2A server) after every completed task:
 
 1. **Serialization** — session events (user prompts, orchestrator
    responses) are flattened into a text transcript.
-2. **Fact extraction** — the transcript goes to the extraction model with
-   `FACT_EXTRACTION_PROMPT`, which pulls discrete, self-contained facts
-   tagged `[PREFERENCE]`, `[FACT]`, `[DECISION]`, etc., discarding filler.
-3. **Embedding** — each fact is embedded individually by
+2. **Record extraction** — the transcript goes to the extraction model
+   with `FACT_EXTRACTION_PROMPT`, which distills structured records in the
+   format above (discarding filler, converting dates, preserving units,
+   attributing sources). Malformed lines are dropped, never stored.
+3. **Embedding** — each record line is embedded individually by
    `gemini-embedding-001` at **768 dimensions** (embedding whole
-   transcripts produces "muddy" averaged vectors; single facts produce
+   transcripts produces "muddy" averaged vectors; single records produce
    sharp semantic clusters).
-4. **Storage** — fact text + vector are inserted into `adk_memory_facts`,
-   tagged with the **`user_key`** (see §3). Inserts are **deduplicated**
-   against facts already stored for that key, so re-ingesting the same
-   conversation (which stateless A2A callers do every turn) never
-   duplicates rows.
+4. **Storage** — record + vector + parsed columns are inserted into
+   `adk_memory_facts`, tagged with the **`user_key`** (see §4). Inserts
+   are **deduplicated** against records already stored for that key, so
+   re-ingesting the same conversation (which stateless A2A callers do
+   every turn) never duplicates rows.
+5. **Supersession** — each `[CORRECTION]` record then retires the rows it
+   corrects: the `supersedes` quote is embedded and similarity-searched
+   against the user's active rows; candidates that are semantically close
+   *and* share an index key (or are near-exact matches) are marked
+   `status='superseded'` and linked via `superseded_by`. Retired rows are
+   kept, not deleted — the record's history stays inspectable.
 
 ### Phase 2: Retrieval (`searchMemory`)
 
-1. The query is embedded with the same model/dimensionality.
-2. The `match_memory_facts` Postgres RPC runs a cosine-similarity KNN
-   search **filtered by `user_key` inside the database**.
-3. The top 10 facts are injected into the orchestrator's context via the
-   ADK `preload_memory` (automatic) or `load_memory` (explicit tool call)
-   mechanisms.
+Recall is **hybrid** — three channels connect a query to the history:
 
-## 3. Multi-user siloing (read this before deploying to real users)
+1. **Similarity** — the query is embedded and the `match_memory_facts`
+   RPC runs a cosine KNN search **filtered by `user_key` inside the
+   database**, returning a candidate pool (top 24) with the structured
+   columns.
+2. **Index keys** — candidates whose `keys` appear in the query text are
+   boosted (the "metoprolol" question finds the metoprolol records even
+   when phrasing diverges).
+3. **Dates** — candidates whose `fact_date` matches a month/year named in
+   the query are boosted ("the March labs" finds `2026-03` records).
+
+Active records get a rank boost over retired ones; superseded records that
+still surface are **relabeled** (`status: SUPERSEDED by a later
+correction`) so an outdated claim can never masquerade as current state.
+The top 10 re-ranked records are injected into the orchestrator's context
+via the ADK `preload_memory` (automatic) or `load_memory` (explicit tool
+call) mechanisms.
+
+## 4. Multi-user siloing (read this before deploying to real users)
 
 Every fact and every session row is keyed by:
 
@@ -149,12 +204,16 @@ Understand what each tier buys — this is the part most setups get wrong:
 Never ship the `service_role` key to a browser or mobile client under any
 tier. It belongs to the server environment only.
 
-## 4. Gotchas
+## 5. Gotchas
 
 - **Embedding dimensionality is a hard coupling.** `embedding vector(768)`
   in the table schema must match `EMBEDDING_DIMENSIONS` in `lib/config.ts`.
   Changing the embedding model means dropping and recreating the table and
   index.
+- **Structured columns require the v2 schema.** Inserts write `tag`,
+  `fact_date`, `source`, `status`, `keys` — a database still on the v1
+  table shape will reject them. Run `db/memory_v2.sql` (or the v2 create
+  block in the README) before upgrading the code.
 - **Extraction is lossy and costs one model call per ingestion.** What the
   extractor discards is gone; what it stores wrong persists wrong. On the
   A2A server, ingestion runs after the reply is delivered so it never adds

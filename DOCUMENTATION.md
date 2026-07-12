@@ -114,9 +114,13 @@ Two Supabase tables carry the two kinds of remembering:
 
 - **`adk_sessions`** — the running transcript (events + state), so a
   conversation survives process restarts.
-- **`adk_memory_facts`** — distilled facts with 768-d embeddings,
-  recalled by cosine similarity. Written at session end (`exit`, SIGINT,
-  or one-shot completion), keyed per syndicate + user.
+- **`adk_memory_facts`** — distilled structured records: each carries
+  its 768-d embedding plus the date it is about, the source who asserted
+  it, active/superseded status, and entity index keys. Written at
+  session end (`exit`, SIGINT, or one-shot completion), keyed per
+  syndicate + user. Corrections supersede old rows (kept as linked
+  history); recall is cosine similarity re-ranked by keys and dates.
+  Full pipeline: [`lib/memory/README.md`](./lib/memory/README.md).
 
 Provision both in the Supabase SQL Editor:
 
@@ -137,42 +141,68 @@ CREATE TABLE adk_sessions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 3. Memory facts
+-- 3. Memory facts (structured records: date, source, status, index keys
+--    live beside the embedding — see lib/memory/README.md)
 CREATE TABLE adk_memory_facts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_key TEXT NOT NULL,
   fact TEXT NOT NULL,
   embedding vector(768),
+  tag TEXT,
+  fact_date DATE,
+  source TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  keys TEXT[] NOT NULL DEFAULT '{}',
+  superseded_by UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 4. Similarity index
+-- 4. Indexes: similarity, entity keys, dates
 CREATE INDEX ON adk_memory_facts USING ivfflat (embedding vector_cosine_ops)
 WITH (lists = 100);
+CREATE INDEX adk_memory_facts_keys_idx ON adk_memory_facts USING gin (keys);
+CREATE INDEX adk_memory_facts_date_idx ON adk_memory_facts (user_key, fact_date);
 
--- 5. Cosine-similarity RPC
+-- 5. Cosine-similarity RPC (returns the structured columns so the
+--    service can re-rank by keys/dates and relabel superseded records).
+--    filter_user_key is REQUIRED: a NULL key would return every user's facts.
 CREATE OR REPLACE FUNCTION match_memory_facts (
   query_embedding vector(768),
-  match_count int DEFAULT 10,
-  filter_user_key text DEFAULT NULL
+  filter_user_key text,
+  match_count int DEFAULT 10
 ) RETURNS TABLE (
   id UUID,
   user_key TEXT,
   fact TEXT,
+  tag TEXT,
+  fact_date DATE,
+  source TEXT,
+  status TEXT,
+  keys TEXT[],
+  created_at TIMESTAMPTZ,
   similarity float
 )
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  IF filter_user_key IS NULL THEN
+    RAISE EXCEPTION 'filter_user_key is required';
+  END IF;
   RETURN QUERY
   SELECT
     adk_memory_facts.id,
     adk_memory_facts.user_key,
     adk_memory_facts.fact,
+    adk_memory_facts.tag,
+    adk_memory_facts.fact_date,
+    adk_memory_facts.source,
+    adk_memory_facts.status,
+    adk_memory_facts.keys,
+    adk_memory_facts.created_at,
     1 - (adk_memory_facts.embedding <=> query_embedding) AS similarity
   FROM adk_memory_facts
-  WHERE (filter_user_key IS NULL OR adk_memory_facts.user_key = filter_user_key)
+  WHERE adk_memory_facts.user_key = filter_user_key
   ORDER BY adk_memory_facts.embedding <=> query_embedding
   LIMIT match_count;
 END;
@@ -180,7 +210,9 @@ $$;
 ```
 
 Then run [`db/hardening.sql`](./db/hardening.sql) (RLS deny-by-default;
-see §8). `npm run db:purge` clears both tables.
+see §8). Upgrading an existing project to the structured columns:
+[`db/memory_v2.sql`](./db/memory_v2.sql). `npm run db:purge` clears both
+tables.
 
 A memory store is a PII store: key facts to users, honor deletion, set
 retention deliberately. Vectorization is not anonymization — the

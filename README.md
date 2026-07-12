@@ -56,8 +56,10 @@ your own.
 - **Multi-model** — Gemini natively; Claude through `lib/models/claudeLlm.ts`.
   Any agent in a graph can run on a different provider.
 - **Persistent sessions & semantic memory** — Supabase-backed sessions and
-  pgvector long-term memory: session transcripts are distilled into tagged
-  facts, embedded, and recalled by similarity in future sessions.
+  pgvector long-term memory: session transcripts are distilled into
+  structured records (date, source, units, status, index keys), embedded,
+  and recalled by similarity plus keys and dates in future sessions;
+  corrections supersede old records, which are kept as linked history.
 - **Native tools** — web search, image generation, and a blind
   image-inventory tool whose file-path-only signature makes expectation
   bias structurally impossible (see module 05).
