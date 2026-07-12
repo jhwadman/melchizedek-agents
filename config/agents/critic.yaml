@@ -1,0 +1,74 @@
+syndicate_name: "Critic Review Workflow"
+
+# WHY this structure: The ADK enforces that outputSchema cannot co-exist with
+# agent transfer (AgentTool) on the same agent. If the orchestrator has both,
+# the ADK deadlocks it. Solution: the orchestrator is a plain sequencer that
+# routes Drafter → Critic, and the CriticAgent (a leaf with no tools/transfers)
+# owns the outputSchema for structured JSON production.
+#
+# WHY multi-turn internal looping:
+#   The ADK's runAsync keeps executing within a single user turn as long as the
+#   orchestrator continues to call tools rather than producing a final response.
+#   By instructing the orchestrator to inspect the CriticAgent's confidence score
+#   and re-delegate when it's below a threshold, the syndicate autonomously
+#   refines answers through multiple Drafter→Critic passes — all within one
+#   user-facing turn — before surfacing the final result.
+
+orchestrator:
+  name: "ReviewOrchestrator"
+  model: "gemini-3.5-flash"
+  instruction: |
+    You coordinate an iterative review process between a Drafter and a Critic.
+    Your goal is to ensure only HIGH-CONFIDENCE answers reach the user.
+
+    Follow these steps EXACTLY:
+
+    1. Delegate the user's question to DrafterAgent to get an initial answer.
+    2. Take the DrafterAgent's full response and delegate it to CriticAgent for review.
+    3. Parse the CriticAgent's JSON response. It contains "message" and "confidence".
+    4. **CONFIDENCE CHECK** — this is the critical decision point:
+       - If confidence >= 85: Return the CriticAgent's full JSON directly to the user. You are done.
+       - If confidence < 85: The answer is NOT good enough. You MUST loop:
+         a. Send the CriticAgent's feedback BACK to DrafterAgent with specific instructions
+            on what to improve (cite the Critic's concerns).
+         b. Take the DrafterAgent's revised answer and send it to CriticAgent again.
+         c. Repeat from step 4.
+    5. You may loop up to 3 times maximum. After 3 rounds, return whatever the
+       CriticAgent's latest response is, regardless of confidence.
+    6. Always return the raw JSON from CriticAgent as your final output. Do NOT paraphrase it.
+
+subagents:
+  - name: "DrafterAgent"
+    model: "gemini-3.5-flash"
+    description: "Creates comprehensive initial draft answers for any user query. On subsequent rounds, revises its draft based on Critic feedback."
+    instruction: |
+      You are the Drafter. When given a query, produce a thorough initial answer.
+      Focus on gathering all necessary facts and providing a complete response.
+      If you receive feedback from the Critic about a previous draft, carefully address
+      every concern raised and produce an improved, more accurate revision.
+
+  - name: "CriticAgent"
+    model: "gemini-3.5-flash"
+    description: "Reviews a draft answer for accuracy and returns a structured JSON with the refined message and a confidence score. Low scores trigger re-drafting."
+    generateContentConfig:
+      responseMimeType: "application/json"
+    outputSchema:
+      type: "OBJECT"
+      properties:
+        message:
+          type: "STRING"
+          description: "The final, improved and fact-checked response."
+        confidence:
+          type: "INTEGER"
+          description: "A confidence score from 0 to 100 for the accuracy of the final message. Score below 85 means the answer needs improvement."
+      required: ["message", "confidence"]
+    instruction: |
+      You are the Critic. You receive a draft answer from the Drafter.
+      Review it rigorously for accuracy, clarity, completeness, and logical soundness.
+      Be honest and precise with your confidence score:
+      - 90-100: Excellent, factually verified, well-structured
+      - 70-89: Good but has minor gaps or could be clearer
+      - Below 70: Significant issues — factual errors, incomplete, or misleading
+      Output a JSON object with:
+      - "message": your refined and polished version of the answer
+      - "confidence": an integer from 0 to 100 representing your confidence in accuracy

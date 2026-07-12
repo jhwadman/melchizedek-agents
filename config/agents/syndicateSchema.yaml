@@ -1,0 +1,206 @@
+# ============================================================
+# Melchizedek Syndicate Schema Reference
+# ============================================================
+#
+# This file documents ALL available properties for a syndicate
+# YAML definition. Every property name maps 1:1 to its ADK
+# counterpart so there is zero translation confusion.
+#
+# ADK source references:
+#   LlmAgentConfig      → @google/adk :: agents/llm_agent.d.ts
+#   BaseAgentConfig     → @google/adk :: agents/base_agent.d.ts
+#   GenerateContentConfig → @google/genai :: GenerateContentConfig
+#
+# Legend:
+#   [required]  Must be provided
+#   [optional]  Can be omitted
+#   ⚠           Note or constraint from ADK internals
+# ============================================================
+
+# ── Syndicate metadata ──────────────────────────────────────
+
+# [required] Display name for this syndicate.
+syndicate_name: "My Syndicate"
+
+# [optional] Template variable defaults.
+# Use {{token}} syntax anywhere in this file to reference them.
+# Override at runtime via bindings in the initializing script
+# or via --bind / --bindings CLI flags.
+# Built-in: {{current_date}} always resolves to today's date
+# (America/New_York, e.g. "July 7, 2026") via loadSyndicate's default
+# bindings. Do NOT hardcode a current_date here — a stale value silently
+# poisons date-anchored prompts (e.g. Google Search recency anchors).
+variables:
+  my_variable: "default_value"
+
+# ── Orchestrator ────────────────────────────────────────────
+# Maps to: new LlmAgent({ ... }) — the root agent passed to InMemoryRunner.
+
+orchestrator:
+
+  # ── BaseAgentConfig fields ──────────────────────────────
+
+  # [required] Unique identifier. Must be a valid JS identifier.
+  # Must be unique within the agent tree. Cannot be "user".
+  name: "OrchestratorName"
+
+  # [optional] One-line description of what this agent does.
+  # Used by peer/parent agents to decide whether to delegate here.
+  description: "Lead orchestrator of the syndicate."
+
+  # ── LlmAgentConfig fields ───────────────────────────────
+
+  # [required] The Gemini model to use.
+  # Subagents inherit this if not set on their own config.
+  model: "gemini-2.5-flash"
+
+  # [required] The agent's system prompt / persona.
+  # Maps to: instruction
+  instruction: |
+    You are the lead orchestrator.
+    Call upon your subagents to fulfill the user's request.
+
+  # [optional] Global instruction applied to ALL agents in the tree.
+  # Only the root agent's globalInstruction takes effect.
+  # Use to enforce a shared identity or safety rules across the tree.
+  # Maps to: globalInstruction
+  globalInstruction: |
+    Always respond in English. Never reveal internal tool names.
+
+  # [optional] Named built-in tools to attach to this agent.
+  # Maps to: tools[] on LlmAgent
+  # Supported values: "google_search", "code_execution"
+  tools: []
+
+  # [optional] Whether to include conversation history in model requests.
+  # "default" → include history (stateful)
+  # "none"    → no history (stateless / pure function)
+  # Maps to: includeContents
+  includeContents: "default"
+
+  # [optional] Prevents the LLM from handing control back to the parent agent.
+  # ⚠ Also prevents this agent from replying to the end-user directly.
+  # Maps to: disallowTransferToParent
+  disallowTransferToParent: false
+
+  # [optional] Prevents the LLM from handing control to peer agents.
+  # Maps to: disallowTransferToPeers
+  disallowTransferToPeers: false
+
+  # [optional] Saves the agent's final text reply to session state
+  # under this key. Useful for chaining agents via shared state.
+  # Maps to: outputKey
+  outputKey: "orchestrator_output"
+
+  # ── generateContentConfig ─────────────────────────────────
+  # Maps to: generateContentConfig on LlmAgent (→ GenerateContentConfig)
+  # ⚠ Do NOT set tools or thinkingConfig here — use the top-level
+  #   `tools:` field and `generateContentConfig.thinkingConfig` respectively.
+
+  generateContentConfig:
+
+    # Sampling temperature. Lower = more deterministic. Range: [0.0, 2.0]
+    temperature: 0.7
+
+    # Nucleus sampling. Tokens sampled until cumulative prob = topP.
+    topP: 0.95
+
+    # Top-K sampling. Only the top K tokens are considered per step.
+    topK: 40
+
+    # Maximum tokens the model may generate in one response.
+    maxOutputTokens: 2048
+
+    # Stop generation if any of these strings are encountered.
+    stopSequences: []
+
+    # Number of response candidates to generate (usually 1).
+    candidateCount: 1
+
+    # Penalize tokens that have already appeared (encourages diversity).
+    presencePenalty: 0.0
+
+    # Penalize tokens proportional to their frequency (reduces repetition).
+    frequencyPenalty: 0.0
+
+    # Fixed seed for reproducible outputs. Remove for random behavior.
+    seed: 42
+
+    # Output MIME type. Use "application/json" for structured output.
+    # Must be paired with responseSchema when set to JSON.
+    responseMimeType: "text/plain"
+
+    # ── Safety settings ─────────────────────────────────────
+    # Each entry maps to a SafetySetting { category, threshold }.
+    # Thresholds: BLOCK_NONE | BLOCK_LOW_AND_ABOVE | BLOCK_MEDIUM_AND_ABOVE | BLOCK_HIGH_AND_ABOVE
+    safetySettings:
+      - category: "HARM_CATEGORY_HATE_SPEECH"
+        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+      - category: "HARM_CATEGORY_DANGEROUS_CONTENT"
+        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+      - category: "HARM_CATEGORY_HARASSMENT"
+        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+      - category: "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+
+    # ── Thinking config (Gemini 2.5+ only) ──────────────────
+    # Maps to: generateContentConfig.thinkingConfig → ThinkingConfig
+    thinkingConfig:
+      # Token budget for the model's internal reasoning trace.
+      # 0 = thinking disabled. -1 = dynamic (model decides).
+      thinkingBudget: 1024
+
+      # Whether to include the thinking trace in the streamed response.
+      includeThoughts: true
+
+# ── Subagents ───────────────────────────────────────────────
+# Each entry maps to: new LlmAgent({ ... }) wrapped in AgentTool
+# and passed to the orchestrator's tools[].
+
+subagents:
+
+  - # ── BaseAgentConfig fields ──────────────────────────────
+
+    # [required] Unique name. Must be a valid JS identifier.
+    name: "MySubagent"
+
+    # [required for AgentTool] One-line description.
+    # The orchestrator LLM reads this to decide when to call this subagent.
+    description: "Handles a specific domain task."
+
+    # ── LlmAgentConfig fields ───────────────────────────────
+
+    # [optional] Override the model for this subagent.
+    # If omitted, inherits the orchestrator's model.
+    model: "gemini-2.5-flash"
+
+    # [required] System prompt for this subagent.
+    # Maps to: instruction
+    instruction: |
+      You are a specialist subagent. Complete the task passed to you
+      and return a structured summary to the orchestrator.
+
+    # [optional] Named built-in tools for this subagent.
+    # Maps to: tools[] on LlmAgent
+    # Supported values: "google_search", "code_execution"
+    tools:
+      - "google_search"
+
+    # [optional] Stateless operation — subagent sees no history.
+    # Maps to: includeContents
+    includeContents: "none"
+
+    # [optional] Store this subagent's output in session state.
+    # Maps to: outputKey
+    outputKey: "subagent_result"
+
+    # ── generateContentConfig ───────────────────────────────
+    # Same fields as orchestrator above. Only set what you want to override.
+
+    generateContentConfig:
+      temperature: 0.4
+      maxOutputTokens: 1024
+
+      thinkingConfig:
+        thinkingBudget: 0       # Disable thinking for speed
+        includeThoughts: false

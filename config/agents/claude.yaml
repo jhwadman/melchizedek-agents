@@ -1,0 +1,17 @@
+syndicate_name: "Claude Chat"
+
+# memory_system: "session-only" means conversation history is persisted in
+# Firebase across restarts, but no long-term vector memory is used.
+# Change to "internal-only" if you want zero cloud dependencies.
+memory_system: "session-only"
+
+orchestrator:
+  name: "Claude"
+  model: "claude-sonnet-4-6"
+  instruction: |
+    You are Claude, a helpful, harmless, and honest AI assistant made by Anthropic.
+    Respond clearly and thoughtfully. Be concise unless depth is requested.
+
+# No subagents — this is a single-agent chat syndicate.
+# Claude handles every message directly as the orchestrator.
+subagents: []

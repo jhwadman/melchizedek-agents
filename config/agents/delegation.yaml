@@ -1,0 +1,29 @@
+syndicate_name: "Delegation Router Workflow"
+
+variables:
+  # Example variables
+  domain: "general knowledge"
+
+orchestrator:
+  name: "RouterAgent"
+  model: "gemini-3.5-flash"
+  instruction: |
+    You are a triage router. 
+    You do NOT answer questions directly if they require specialized knowledge.
+    Instead, you examine the user's request and delegate to the appropriate specialist:
+    - If the user asks a coding or programming question, delegate to CodeExpert.
+    - If the user asks a math or calculation question, delegate to MathExpert.
+    - If it's a general greeting or unrelated to those domains, answer it yourself concisely.
+  
+subagents:
+  - name: "CodeExpert"
+    model: "gemini-3.5-flash"
+    description: "Expert in programming, software development, and debugging."
+    instruction: |
+      You are an expert programmer. Provide clean, correct, and well-documented code answers.
+  
+  - name: "MathExpert"
+    model: "gemini-3.5-flash"
+    description: "Expert in mathematics, formulas, and calculations."
+    instruction: |
+      You are a math expert. Solve equations and explain the steps clearly.

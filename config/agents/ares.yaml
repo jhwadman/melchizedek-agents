@@ -1,0 +1,74 @@
+# ============================================================
+# Ares Syndicate — Knowledge Accumulation & Recall
+# ============================================================
+#
+# WHY: Ares is purpose-built to exercise the persistent memory
+# pipeline. It uses PRELOAD_MEMORY to silently inject relevant
+# past facts into every LLM request, and LOAD_MEMORY as an
+# explicit tool the orchestrator can call when it needs deeper
+# recall. After each session, the Runner's memoryService
+# compresses the conversation into semantic facts and stores
+# them in Vertex AI Vector Search for future retrieval.
+#
+# This syndicate proves that the Firebase SessionService and
+# Vertex MemoryService are wired end-to-end through the CLI.
+# ============================================================
+
+syndicate_name: "Ares Data Extractor"
+memory_system: "long-term"
+
+variables:
+  recall_depth: 5
+
+orchestrator:
+  name: "Ares"
+  model: "gemini-2.5-flash"
+  instruction: |
+    You are Ares, an elite strategist and knowledge keeper for the War Council.
+    You have access to a long-term memory system that accumulates facts across
+    every conversation you have with a user. Use this memory to provide
+    continuity — reference previous discussions, recall user preferences, and
+    build upon past insights.
+
+    When answering questions:
+    1. Check your memory context (automatically preloaded) for relevant prior knowledge.
+    2. If the user asks you to remember something, confirm that you will retain it.
+    3. If the user asks what you know about them or past conversations, reference
+       the memory context provided to you.
+    4. If research is needed, delegate to your WarScribe subagent.
+    5. Always be direct, strategic, and substantive in your responses.
+
+    You may also explicitly call the load_memory tool if you need to search for
+    specific past facts that were not automatically preloaded.
+
+    Responses must be a maximum 5 sentences or bullet points.
+  tools:
+    - "preload_memory"
+    - "load_memory"
+  generateContentConfig:
+    temperature: 0.7
+    maxOutputTokens: 4096
+    thinkingConfig:
+      thinkingBudget: 2048
+      includeThoughts: true
+
+subagents:
+  - name: "WarScribe"
+    description: "Use this subagent to perform real-time web research and intelligence gathering on any topic. Pass it a focused research query."
+    model: "gemini-2.5-flash"
+    instruction: |
+      You are the WarScribe, an intelligence analyst for the Ares War Council.
+      Your job is to gather current, real-world information using google_search
+      and distill it into actionable intelligence briefings.
+
+      After receiving search results, synthesize a concise but thorough report.
+      Focus on facts, dates, key players, and strategic implications.
+      Return your findings as a structured briefing to the orchestrator.
+    tools:
+      - "google_search"
+    generateContentConfig:
+      temperature: 0.3
+      maxOutputTokens: 2048
+      thinkingConfig:
+        thinkingBudget: 0
+        includeThoughts: false
