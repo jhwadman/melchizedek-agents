@@ -1,5 +1,7 @@
 -- ============================================================
--- Melchizedek — Database Hardening (run AFTER the schema SQL in README.md)
+-- Melchizedek — Database Hardening (run AFTER the schema SQL in README.md
+-- and, if upgrading, after db/memory_v2.sql — order with memory_v2 does
+-- not matter; the function revoke below handles either signature).
 -- Paste into the Supabase SQL Editor and run once per project.
 -- ============================================================
 --
@@ -39,8 +41,21 @@ REVOKE ALL ON adk_memory_facts FROM anon, authenticated;
 REVOKE ALL ON adk_sessions     FROM anon, authenticated;
 
 -- The vector-search RPC must not be callable from the public API either
--- (it reads adk_memory_facts on behalf of whoever calls it).
-REVOKE ALL ON FUNCTION match_memory_facts(vector, int, text) FROM anon, authenticated;
+-- (it reads adk_memory_facts on behalf of whoever calls it). The revoke
+-- resolves every existing overload by name, so it works on any schema
+-- version (the v1 signature, memory_v2's, or both side by side).
+DO $$
+DECLARE fn regprocedure;
+BEGIN
+  FOR fn IN
+    SELECT p.oid::regprocedure
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'match_memory_facts'
+  LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM anon, authenticated', fn);
+  END LOOP;
+END $$;
 
 -- ── Boot-time verification hook ──────────────────────────────────────────
 -- The server calls this to confirm hardening is applied. SECURITY DEFINER
