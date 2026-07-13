@@ -28,6 +28,9 @@ npm run chat:syndicate  # interactive REPL with the default syndicate
 Full setup — including the optional Supabase database for persistent
 sessions and long-term memory — lives in [`QUICKSTART.md`](./QUICKSTART.md).
 The complete reference is [`DOCUMENTATION.md`](./DOCUMENTATION.md).
+Working with a coding agent? [`AGENT_SETUP.md`](./AGENT_SETUP.md) is a
+paste-ready prompt that splits the setup between your agent's steps and
+yours, then walks first tests and app integration.
 
 ## The syndicates
 
