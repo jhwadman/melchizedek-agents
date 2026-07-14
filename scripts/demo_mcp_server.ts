@@ -26,6 +26,7 @@
  */
 
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -214,7 +215,9 @@ function buildServer(): Server {
       case 'borrow_scroll': {
         const s = catalog.find((x) => x.id === args.id);
         if (!s) return text(`No scroll with id "${args.id}".`);
-        const borrower = String(args.borrower ?? '').trim();
+        // Cap write sizes: a tool argument is untrusted input even from a
+        // well-meaning agent, and this file persists to disk.
+        const borrower = String(args.borrower ?? '').trim().slice(0, 100);
         if (borrower === '') {
           s.status = 'available';
           s.borrower = null;
@@ -235,7 +238,10 @@ function buildServer(): Server {
       case 'annotate_scroll': {
         const s = catalog.find((x) => x.id === args.id);
         if (!s) return text(`No scroll with id "${args.id}".`);
-        s.notes.push(String(args.note ?? ''));
+        if (s.notes.length >= 50) {
+          return text(`Refused: ${s.id} already carries 50 notes — the margin is full.`);
+        }
+        s.notes.push(String(args.note ?? '').slice(0, 500));
         saveCatalog(catalog);
         return text(`Updated: ${s.id} now carries ${s.notes.length} note(s).`);
       }
@@ -253,6 +259,11 @@ function buildServer(): Server {
 
 const app = express();
 const transports = new Map<string, SSEServerTransport>();
+
+// Model good defaults even on a loopback demo — this file gets copied.
+// 240 requests/min is generous for an agent making a handful of tool
+// calls per turn, and a hard ceiling against a runaway loop.
+app.use(rateLimit({ windowMs: 60_000, limit: 240, standardHeaders: true, legacyHeaders: false }));
 
 app.get('/sse', async (_req, res) => {
   const transport = new SSEServerTransport('/messages', res);
