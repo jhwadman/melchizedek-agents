@@ -15,10 +15,12 @@ import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a
 import { Runner, LlmAgent, AgentTool, InMemorySessionService, Gemini, getFunctionCalls, getFunctionResponses, setLogLevel, LogLevel } from '@google/adk';
 import { loadSyndicate } from '../lib/loadSyndicate.ts';
 import type { SyndicateYamlConfig } from '../lib/loadSyndicate.ts';
-import { DEFAULT_GEMINI_MODEL, DEFAULT_CLAUDE_MODEL } from '../lib/config.ts';
+import { DEFAULT_GEMINI_MODEL, DEFAULT_CLAUDE_MODEL, DEFAULT_OLLAMA_MODEL } from '../lib/config.ts';
 import { traceAgentRun } from '../lib/observability/tracer.ts';
 import { ClaudeLlm } from '../lib/models/claudeLlm.ts';
+import { OllamaLlm } from '../lib/models/ollamaLlm.ts';
 import { resolveTools as resolveNamedTools } from '../lib/toolRegistry.ts';
+import { createMcpTools } from '../lib/tools/mcpToolFactory.ts';
 import { hasSupabaseCredentials, createSupabaseServices } from '../lib/persistence/supabaseProvider.ts';
 import type { BaseSessionService, BaseMemoryService } from '@google/adk';
 import type { SupabaseVectorMemoryService } from '../lib/memory/supabaseMemoryService.ts';
@@ -152,6 +154,14 @@ class SyndicateExecutor implements AgentExecutor {
       // Build model resolver based on provider
       const resolveModel = (modelName?: string) => {
         const provider = authContext.provider.toLowerCase();
+        // ollama/* model ids always route locally, whatever the provider
+        // header says — the id itself names the runtime.
+        if (modelName?.startsWith('ollama/')) {
+          return new OllamaLlm({ model: modelName });
+        }
+        if (provider === 'ollama') {
+          return new OllamaLlm({ model: modelName || DEFAULT_OLLAMA_MODEL });
+        }
         if (provider === 'anthropic') {
           return new ClaudeLlm({ model: modelName || DEFAULT_CLAUDE_MODEL, apiKey: authContext.apiKey });
         }
@@ -174,6 +184,15 @@ class SyndicateExecutor implements AgentExecutor {
           }
 
           const subTools = resolveTools(subCfg.tools);
+          if (subCfg.mcp_server_url) {
+            console.log(`[A2A] Loading MCP tools: ${subCfg.mcp_server_url}`);
+            const mcpTools = await createMcpTools(subCfg.mcp_server_url);
+            for (const mcpTool of mcpTools) {
+              if (!subTools.some(t => t.name === mcpTool.name)) {
+                subTools.push(mcpTool);
+              }
+            }
+          }
 
           return new AgentTool({
             agent: new LlmAgent({

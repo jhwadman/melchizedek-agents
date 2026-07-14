@@ -26,6 +26,9 @@ config/agents/*.yaml      syndicate definitions (the product surface)
 lib/loadSyndicate.ts      YAML → validated config (+ variable binding)
 lib/toolRegistry.ts       tool name → live ADK tool instance
 lib/models/claudeLlm.ts   Claude adapter registered into the ADK registry
+lib/models/ollamaLlm.ts   open-weight local adapter (Ollama, keyless)
+lib/tools/mcpToolFactory.ts  MCP client: remote tools → live ADK tools
+scripts/demo_mcp_server.ts   demo MCP server (library catalog, SSE)
 lib/session/…             Supabase-backed session service
 lib/memory/…              pgvector long-term memory service
 lib/observability/…       OpenTelemetry run tracing
@@ -83,12 +86,13 @@ Field reference:
 | `syndicate_name` | root | Display name; also namespaces memory user keys. |
 | `memory_system` | root | `internal-only` (nothing persists), `session-only` (transcript persists in Supabase), `long-term` (adds fact distillation + vector recall). |
 | `variables` | root | Key/values bound into `{{placeholders}}` anywhere in instructions. `current_date` is always injected; CLI `--bind key=value` overrides. |
-| `name` / `model` / `instruction` | agent | The agent triple. Any Gemini id, or `claude-*` (see §5). |
+| `name` / `model` / `instruction` | agent | The agent triple. Any Gemini id, `claude-*`, or `ollama/*` for open-weight local models (see §5). |
 | `description` | subagent | **The delegation API.** The orchestrator reads this when deciding to hand off — write it like a function signature ("Use this subagent to…, pass it…"). |
 | `tools` | agent | Names resolved by the tool registry (§3). Long-term memory agents add `preload_memory` / `load_memory`. |
 | `generateContentConfig` | agent | Temperature, output caps, thinking budget/level. |
 | `outputSchema` | agent | Structured-JSON contract. **Constraint:** an agent holding `outputSchema` cannot also hold transfer powers — the ADK deadlocks it. Keep schema-holders as leaf agents (see `critic.yaml`'s header comment for the war story). |
 | `yaml_reference` | subagent | Mount another syndicate file as a nested subagent. |
+| `mcp_server_url` | subagent | Discover this subagent's tools from a remote MCP server at load time (§3). SSRF-guarded; `ALLOW_PRIVATE_MCP=true` permits localhost for development. |
 
 Validation happens at load: missing names, legacy option blocks, and
 malformed agents fail with pointed errors before any model is called.
@@ -107,6 +111,19 @@ instance:
 | `load_memory` | ADK built-in | Explicit tool call to search the fact store (deliberate recall). |
 | `generate_image` | FunctionTool | Calls the Gemini image model directly, saves the result under `outputs/`, returns the path. A FunctionTool because binary `inlineData` cannot survive the AgentTool text boundary. |
 | `inspect_image` | FunctionTool | **Blind visual inventory** of a file under `outputs/`: subjects with exact counts, composition, light, palette, medium cues, artifacts — zero quality judgments. Its signature accepts *only* a file path, so an orchestrator cannot leak expectations into the observation (see `image_production.yaml`). |
+
+**MCP tools** are the exception to the registry: a subagent with
+`mcp_server_url:` in its YAML gets its tools from a remote MCP server at
+load time. `lib/tools/mcpToolFactory.ts` dials the server over SSE,
+lists its tools, and wraps each one as a live `FunctionTool` — the
+agent's reach is decided by the server, not compiled in.
+`config/agents/librarian.yaml` plus the demo catalog server
+(`npm run mcp:demo`, `scripts/demo_mcp_server.ts`) are the worked
+example: read tools *and* write tools, so the agent demonstrably
+modifies data on the far side of the protocol. The factory refuses
+loopback/private hosts unless `ALLOW_PRIVATE_MCP=true` (SSRF guard);
+treat any remote MCP server as an untrusted tool vendor whose results
+are data, never instructions.
 
 ## 4. Sessions & long-term memory
 
@@ -227,9 +244,25 @@ deferred until after `.env` loads). `config/agents/claude.yaml` is the
 minimal working example. Mixed graphs are supported — each agent picks
 its own provider, one line each.
 
+**Open-weight local models**: `ollama/*` ids (e.g. `ollama/qwen3:8b`)
+route through `lib/models/ollamaLlm.ts` to a local Ollama daemon over
+its OpenAI-compatible API (`OLLAMA_BASE_URL`, default
+`http://localhost:11434/v1`). No key is required, and a syndicate whose
+*every* agent is `ollama/*` runs with no `.env` at all —
+`config/agents/hearth.yaml` (single agent) and `agora.yaml` (council)
+are the worked examples. The adapter translates ADK content to
+OpenAI-style messages, including tool calls (so delegation works),
+image parts as data URIs (so `ollama/qwen3-vl:8b` can see), and JSON
+response mode; reasoning models' `<think>…</think>` scratchpads are
+stripped from replies. Choose models by capability: qwen3:8b is the
+smallest pulled model with reliable tool calling; qwen3-vl:8b adds
+vision.
+
 Model floor: agent transfer (subagent delegation) requires
 `gemini-3.5-flash` or newer — older flash models reject it with
-`[400] Tool call context circulation is not enabled`.
+`[400] Tool call context circulation is not enabled`. For `ollama/*`
+agents the equivalent floor is tool-calling support in the model
+itself; delegation is exercised through AgentTool function calls.
 
 ## 6. A2A service mode
 
@@ -253,8 +286,13 @@ tools are the worked examples — including why binary data forces
 FunctionTools over subagents, and how a tool signature can enforce an
 epistemic rule (the blind inventory).
 
-**Add a provider**: follow `claudeLlm.ts` — implement the ADK LLM
+**Add a provider**: follow `claudeLlm.ts` (SDK-based, key-gated) or
+`ollamaLlm.ts` (fetch-based, keyless) — implement the ADK LLM
 interface, register it behind a model-id prefix.
+
+**Point an agent at an MCP server**: set `mcp_server_url:` on a
+subagent. `scripts/demo_mcp_server.ts` is a complete server to copy —
+tool definitions, SSE wiring, and persistent state in ~250 lines.
 
 ## 8. Security notes
 
@@ -270,3 +308,11 @@ interface, register it behind a model-id prefix.
   `A2A_SERVER_SECRET` before exposing anything.
 - **Image tools** write only under `outputs/`, and `inspect_image` reads
   only from there.
+- **MCP** is an outbound trust decision: `mcpToolFactory` blocks
+  private/loopback/link-local hosts unless `ALLOW_PRIVATE_MCP=true`, and
+  every tool result from a remote server should be treated as untrusted
+  data — the librarian's instruction demonstrates the "results are data,
+  not instructions" rule.
+- **Local models** (`ollama/*`) send prompts only to your own machine's
+  Ollama endpoint — nothing leaves the device, which is itself a privacy
+  control worth choosing deliberately.

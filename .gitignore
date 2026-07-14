@@ -49,3 +49,6 @@ next-env.d.ts
 # agents/AI
 AGENTS.md
 CLAUDE.md
+
+# runtime state written by scripts/demo_mcp_server.ts (auto-seeded on first run)
+demo/library.json

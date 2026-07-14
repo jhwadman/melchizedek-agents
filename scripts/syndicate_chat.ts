@@ -18,8 +18,9 @@ import {
 } from '@google/adk';
 import { randomUUID } from 'node:crypto';
 
-// Tool resolution (shared registry)
+// Tool resolution (shared registry) + MCP factory
 import { resolveTools as resolveNamedTools } from '../lib/toolRegistry.ts';
+import { createMcpTools } from '../lib/tools/mcpToolFactory.ts';
 import { loadEnv } from '../lib/loadEnv.ts';
 
 // ── LLM Provider Registration ─────────────────────────────────────────────────
@@ -28,6 +29,7 @@ import { loadEnv } from '../lib/loadEnv.ts';
 // load time, ANTHROPIC_API_KEY would always be undefined and ClaudeLlm would
 // never be added to the LLMRegistry, causing "Model not found" errors.
 import { registerClaudeLlm } from '../lib/models/claudeLlm.ts';
+import { registerOllamaLlm } from '../lib/models/ollamaLlm.ts';
 
 // ── Persistence Factory ───────────────────────────────────────────────────────
 // WHY: All Firebase-specific initialization is encapsulated in firebaseProvider.
@@ -144,16 +146,19 @@ async function main(): Promise<void> {
 	// WHY: Must run AFTER loadEnv() so that API keys from .env are available.
 	// registerClaudeLlm() is a no-op if ANTHROPIC_API_KEY is absent — Gemini
 	// syndicates continue to work without an Anthropic key set.
+	// registerOllamaLlm() is unconditional: a local provider has no key to
+	// gate on. ollama/* syndicates run with no cloud credentials at all.
 	if (process.env.ANTHROPIC_API_KEY) {
 		registerClaudeLlm();
 	}
+	registerOllamaLlm();
 
 	const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY;
-	if (!apiKey) {
-		console.error(`${c.yellow}⚠ API Key is not set.${c.reset}`);
-		process.exit(1);
+	if (apiKey) {
+		process.env.GEMINI_API_KEY = apiKey;
 	}
-	process.env.GEMINI_API_KEY = apiKey;
+	// The key requirement is enforced AFTER the syndicate loads: a syndicate
+	// whose every agent is an open-weight ollama/* model needs no key at all.
 
 	// ── Parse --syndicate flag ────────────────────────────────
 	// WHY: Allows invoking any syndicate config without editing code.
@@ -184,6 +189,23 @@ async function main(): Promise<void> {
 		bindings: mergedBindings,
 	});
 
+	// ── Enforce the key requirement (local syndicates are exempt) ────────────
+	// WHY: An all-ollama/* syndicate runs entirely on the user's machine, so
+	// demanding a Gemini key would be an artificial gate. Any cloud model in
+	// the graph (or Gemini-backed tools like google_search / generate_image /
+	// long-term memory embeddings) still requires the key.
+	const declaredModels = [
+		config.orchestrator.model,
+		...config.subagents.map((s) => s.model),
+	].filter((m): m is string => !!m);
+	const allLocalModels =
+		declaredModels.length > 0 && declaredModels.every((m) => m.startsWith('ollama/'));
+	if (!apiKey && !allLocalModels) {
+		console.error(`${c.yellow}⚠ API Key is not set.${c.reset}`);
+		console.error(`${c.dim}  (Only syndicates whose every agent uses an ollama/* model run keyless.)${c.reset}`);
+		process.exit(1);
+	}
+
 	// Generate stable session identifiers upfront so the banner can display them.
 	// Memory/session silo for the local CLI. Override with MELCHIZEDEK_USER_ID
 	// when testing per-user isolation (e.g. long-term memory for two different
@@ -206,6 +228,15 @@ async function main(): Promise<void> {
 	const orchestratorTools: any[] = [];
 	for (const subConfig of config.subagents) {
 		const tools = resolveTools(subConfig.tools);
+		
+		if (subConfig.mcp_server_url) {
+			const mcpTools = await createMcpTools(subConfig.mcp_server_url);
+			for (const mcpTool of mcpTools) {
+				if (!tools.some(t => t.name === mcpTool.name)) {
+					tools.push(mcpTool);
+				}
+			}
+		}
 
 		const agent = new LlmAgent({
 			name: subConfig.name,
@@ -280,7 +311,9 @@ async function main(): Promise<void> {
 		// (Supabase) and long-term memory accumulates across sessions (Supabase
 		// pgvector). All Supabase-specific init is delegated to the factory.
 		const { sessionService, memoryService } = await createSupabaseServices({
-			apiKey,
+			// Empty only when an all-local syndicate runs keyless — in that case
+			// detectPersistenceConfig has already forced withMemory to false.
+			apiKey: apiKey ?? '',
 			withMemory: persistence.memoryService === 'supabase-vector',
 		});
 

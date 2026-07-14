@@ -43,6 +43,13 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 /**
+ * Default open-weight model, served locally by Ollama (lib/models/ollamaLlm.ts).
+ * qwen3:8b is the smallest pulled model that supports tool calling — the
+ * floor capability for syndicate delegation. Vision work uses ollama/qwen3-vl:8b.
+ */
+export const DEFAULT_OLLAMA_MODEL = 'ollama/qwen3:8b';
+
+/**
  * Model used by SupabaseVectorMemoryService to extract discrete facts
  * from a session transcript before embedding them.
  *

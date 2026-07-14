@@ -97,6 +97,7 @@ export interface AgentYamlConfig {
   outputSchema?: Record<string, unknown>;
 
   // ── Melchizedek-internal ──
+  mcp_server_url?: string;
   orchestration?: {
     role?: 'primary' | 'sub-agent';
     delegates?: string[];
@@ -349,9 +350,9 @@ export function validateRegistryConfig(config: Record<string, any>): void {
     throw new Error(`[Validation Error] Legacy 'options' object found. Model parameters must reside in 'generateContentConfig'.`);
   }
 
-  // 2. Tool references are resolved at runtime by lib/toolRegistry.ts;
-  // unknown names are skipped there with a warning, so no strict
-  // validation happens here.
+  // 2. Validate declared tool references (Relaxed for MCP compatibility)
+  // We no longer strictly validate against VALID_SYSTEM_TOOLS because tools may be
+  // dynamically provided by an external MCP server.
 
   // 3. Ensure core ADK properties exist
   if (!config.name || (!config.yaml_reference && (!config.model || !config.instruction))) {

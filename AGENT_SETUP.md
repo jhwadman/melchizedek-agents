@@ -48,10 +48,16 @@ conversation's history forever. The stop-conditions keep the agent from
 
 After the agent reports back:
 
-1. **Get a Gemini API key** (free): https://aistudio.google.com →
+1. **Optional — zero keys, fully local**: install Ollama
+   (https://ollama.com) and run `ollama pull qwen3:8b`. The two
+   open-weight syndicates (`npm run syndicate:hearth`, `npm run
+   syndicate:agora`) then run with an empty `.env` — every agent is a
+   local model, nothing leaves your machine. This is the Part 1 course
+   path; the cloud syndicates below still want a key.
+2. **Get a Gemini API key** (free): https://aistudio.google.com →
    create key → open `.env` in your editor and set
-   `GOOGLE_GENAI_API_KEY`. This one key runs every text syndicate.
-2. **Optional — persistent memory** (free, needed for the two memory
+   `GOOGLE_GENAI_API_KEY`. This one key runs every cloud text syndicate.
+3. **Optional — persistent memory** (free, needed for the two memory
    syndicates): create a project at https://supabase.com, copy the
    Project URL and `service_role` key into `SUPABASE_URL` and
    `SUPABASE_SERVICE_ROLE_KEY`, then paste the schema SQL from
@@ -59,11 +65,20 @@ After the agent reports back:
    SQL Editor and run it — followed by `db/hardening.sql`, which locks
    the tables away from Supabase's public API. Do the SQL steps
    yourself, in the dashboard, so you know what your database holds.
-3. **Optional — Claude models** (paid, usage-billed): set
+4. **Optional — Claude models** (paid, usage-billed): set
    `ANTHROPIC_API_KEY` only if you want `claude-*` model ids in your
    syndicates. Nothing requires it.
 
 ## 3. First tests — meet the agents
+
+Keyless, if you installed Ollama:
+
+```bash
+npm run syndicate:hearth      # one open-weight agent: paste material, be taught
+npm run syndicate:agora       # advocate/skeptic council, all local
+```
+
+With your Gemini key:
 
 ```bash
 npm run chat:syndicate        # default: Global Synthesis Council REPL
@@ -97,6 +112,19 @@ npm run syndicate:advocate    # new session: it remembers
 Correct a fact you told it in the second session, exit, and start a
 third — the old record is superseded, not duplicated. That's the
 structured memory pipeline working end to end.
+
+And the newest capability — an agent whose tools live on the far side
+of a protocol (set `ALLOW_PRIVATE_MCP=true` in `.env` first, since the
+demo server runs on localhost):
+
+```bash
+npm run mcp:demo              # terminal 1: a small MCP library catalog
+npm run syndicate:librarian   # terminal 2: ask it to find and borrow a scroll
+```
+
+Watch the agent discover the catalog's tools at runtime, search it, and
+write a borrow record back through MCP — fetching and modifying data it
+was never compiled to know about.
 
 ## 4. Integration — putting a syndicate inside your app
 
