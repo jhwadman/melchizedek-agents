@@ -125,6 +125,16 @@ loopback/private hosts unless `ALLOW_PRIVATE_MCP=true` (SSRF guard);
 treat any remote MCP server as an untrusted tool vendor whose results
 are data, never instructions.
 
+> **⚠ Known bug — MCP tools require a Gemini agent.** The factory emits
+> Gemini-style UPPERCASE schema types (`'OBJECT'`, `'STRING'`, …), and
+> the Claude adapter forwards them unnormalized, so the Anthropic API
+> rejects any `claude-*` agent carrying MCP tools
+> (`400 … input_schema.type: Input should be 'object'`). The adapter
+> prints a loud warning when this combination is attempted. Until
+> `claudeLlm.ts` lowercases schema types, put `mcp_server_url` only on
+> Gemini agents, or deep-lowercase each tool's schema `type` values
+> before building the agent (see §5).
+
 ## 4. Sessions & long-term memory
 
 Two Supabase tables carry the two kinds of remembering:
@@ -242,7 +252,9 @@ Gemini model ids work natively. `claude-*` ids route through
 registry at startup (it requires `ANTHROPIC_API_KEY`; registration is
 deferred until after `.env` loads). `config/agents/claude.yaml` is the
 minimal working example. Mixed graphs are supported — each agent picks
-its own provider, one line each.
+its own provider, one line each. One provider-specific caveat: a
+`claude-*` agent cannot yet carry MCP-discovered tools — see the known
+bug in §3.
 
 **Open-weight local models**: `ollama/*` ids (e.g. `ollama/qwen3:8b`)
 route through `lib/models/ollamaLlm.ts` to a local Ollama daemon over

@@ -25,6 +25,20 @@
  *     native extended thinking via the Anthropic SDK config instead (see below).
  *   - generate_image tool uses the Gemini image model directly and is not
  *     affected by the inference model choice.
+ *   - KNOWN BUG — MCP-discovered tools (mcp_server_url) do not work on
+ *     claude-* agents yet. lib/tools/mcpToolFactory.ts emits Gemini-style
+ *     UPPERCASE schema types ('OBJECT', 'STRING', …), and this adapter
+ *     forwards tool.parameters verbatim as Anthropic's input_schema, which
+ *     requires lowercase JSON-Schema types. Anthropic rejects the request:
+ *       400 invalid_request_error: tools.N.custom.input_schema.type:
+ *       Input should be 'object'
+ *     This is a translation gap, not a protocol incompatibility — the fix is
+ *     to deep-lowercase `type` values when building anthropicTools below
+ *     (without mutating the shared tool object, which a Gemini agent may
+ *     also hold). Until then this adapter emits a loud warning (see
+ *     warnOnGeminiStyleSchemas) and the workaround is: run MCP-tool agents
+ *     on a Gemini model, or lowercase the schema types on the FunctionTool
+ *     before building the agent. See DOCUMENTATION.md §7.1.
  *
  * CONTENT FORMAT TRANSLATION:
  *   The ADK uses Google GenAI Content/Part objects internally. This adapter
@@ -50,6 +64,68 @@ type AnthropicContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; tool_use_id: string; content: string };
+
+// ── Gemini-style schema detection ────────────────────────────────────────────
+// KNOWN BUG (see LIMITATIONS in the header): tools built for Gemini — every
+// MCP-discovered tool from lib/tools/mcpToolFactory.ts, and any FunctionTool
+// declared with UPPERCASE schema types — will be rejected by the Anthropic
+// API. Until the adapter normalizes them, fail LOUDLY and actionably instead
+// of letting the user hit a cryptic 400.
+
+/** Recursively find one UPPERCASE `type` value in a JSON schema, or null. */
+function findUppercaseSchemaType(node: unknown): string | null {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const hit = findUppercaseSchemaType(item);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (!node || typeof node !== 'object') return null;
+  const obj = node as Record<string, unknown>;
+  if (typeof obj.type === 'string' && /^[A-Z]+$/.test(obj.type)) return obj.type;
+  for (const value of Object.values(obj)) {
+    const hit = findUppercaseSchemaType(value);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+let schemaWarningPrinted = false;
+
+function warnOnGeminiStyleSchemas(model: string, anthropicTools: Array<{ name: string; input_schema: unknown }>): void {
+  const offending = anthropicTools
+    .map((t) => ({ name: t.name, badType: findUppercaseSchemaType(t.input_schema) }))
+    .filter((t): t is { name: string; badType: string } => t.badType !== null);
+  if (offending.length === 0 || schemaWarningPrinted) return;
+  schemaWarningPrinted = true;
+  const names = offending.map((t) => `"${t.name}" (type: '${t.badType}')`).join(', ');
+  console.warn(
+    [
+      '',
+      '╔════════════════════════════════════════════════════════════════════╗',
+      '║  ⚠  CLAUDE + MCP TOOLS: THIS REQUEST WILL BE REJECTED              ║',
+      '╚════════════════════════════════════════════════════════════════════╝',
+      `  Agent model "${model}" declares tools with Gemini-style UPPERCASE`,
+      `  schema types: ${names}.`,
+      "  The Anthropic API requires lowercase JSON-Schema types ('object',",
+      "  'string', …) and will refuse the call with:",
+      "    400 invalid_request_error: tools.N.custom.input_schema.type:",
+      "        Input should be 'object'",
+      '',
+      '  This affects EVERY claude-* agent whose tools were discovered from an',
+      '  MCP server (lib/tools/mcpToolFactory.ts emits uppercase types for',
+      '  Gemini compatibility). It is a known melchizedek bug, not an Anthropic',
+      '  outage. Workarounds until the adapter normalizes schema types:',
+      '    • run MCP-tool agents on a gemini-* model, or',
+      '    • deep-lowercase the schema `type` values on each FunctionTool',
+      '      before building the LlmAgent.',
+      '  Details: DOCUMENTATION.md §7.1 "Using Claude Models" and the',
+      '  LIMITATIONS header of lib/models/claudeLlm.ts.',
+      '',
+    ].join('\n'),
+  );
+}
 
 // ── ClaudeLlm ─────────────────────────────────────────────────────────────────
 
@@ -173,6 +249,7 @@ export class ClaudeLlm extends BaseLlm {
         });
       }
     }
+    warnOnGeminiStyleSchemas(this.model, anthropicTools);
 
     // ── Call Anthropic API ────────────────────────────────────────────────────
     const maxTokens =
