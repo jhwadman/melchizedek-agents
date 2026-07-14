@@ -271,7 +271,10 @@ app.post('/messages', async (req, res) => {
   await transport.handlePostMessage(req, res);
 });
 
-app.listen(PORT, () => {
+// Loopback only, deliberately: this demo server has no auth, so it must
+// never be reachable from another machine. Put real MCP servers behind
+// real authentication before binding wider.
+app.listen(PORT, '127.0.0.1', () => {
   console.log(
     `Lyceum library catalog (MCP) listening on http://localhost:${PORT}/sse`,
   );
