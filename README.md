@@ -56,7 +56,7 @@ worked specimen for a curriculum module:
 
 | Syndicate | Pattern | Course module |
 |---|---|---|
-| `hearth.yaml` — Hearth Tutor | one open-weight agent, no keys; the instruction block anatomy | [1.01 · agent design](https://lyceumagents.com/curriculum/agent-design/) |
+| `hearth.yaml` — Peripatetic Tutor | one open-weight agent, no keys; the instruction block anatomy | [1.01 · agent design](https://lyceumagents.com/curriculum/agent-design/) |
 | `agora.yaml` — Agora Council | first orchestration, fully local: advocate/skeptic council | [1.04 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
 | `critic.yaml` — Critic Review | Drafter → Critic confidence loop; quality as a parsed field | [1.03 · testing & refinement](https://lyceumagents.com/curriculum/testing-and-refinement/) |
 | `delegation.yaml` — Router | triage to specialists; descriptions as the routing API | [1.04 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |

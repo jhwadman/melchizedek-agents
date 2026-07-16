@@ -24,7 +24,7 @@ machine — every agent in them is an open-weight model served by Ollama:
 ```bash
 npm install
 ollama pull qwen3:8b        # after installing Ollama
-npm run syndicate:hearth    # one agent: the Hearth Tutor
+npm run syndicate:hearth    # one agent: the Peripatetic Tutor
 npm run syndicate:agora     # three agents: the Agora Council
 ```
 
