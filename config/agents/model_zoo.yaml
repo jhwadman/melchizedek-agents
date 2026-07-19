@@ -1,0 +1,75 @@
+# ============================================================
+# MODEL ZOO — one lightweight agent per provider.
+#
+# This file is the proof of model optionality: five agents whose
+# ONLY meaningful difference is the `model:` line. The framework
+# reads that string and routes each agent to the right provider:
+#
+#   ollama/qwen3:8b   → local Ollama   (keyless — nothing leaves your machine)
+#   claude-*          → Anthropic      (ANTHROPIC_API_KEY)
+#   grok-*            → xAI            (XAI_API_KEY)
+#   gpt-*             → OpenAI         (OPENAI_API_KEY)
+#   gemini-*          → Google         (GOOGLE_GENAI_API_KEY)
+#
+# Run the proof:  npm run demo:models        (scripts/demo_model_optionality.ts
+#   sends "explain quantum mechanics" to every agent whose provider is
+#   available, and prints input, thinking, output, and a token/latency trace.
+#   Providers without a key are skipped, never fatal.)
+#
+# Or chat with the zoo:  npm run chat:syndicate -- --syndicate model_zoo
+#   (the orchestrator delegates your question to a provider you name).
+# ============================================================
+
+syndicate_name: "Model Zoo"
+memory_system: "session-only"
+
+orchestrator:
+  name: "Zookeeper"
+  model: "gemini-3.1-flash-lite"
+  instruction: |
+    You are the Zookeeper, coordinator of a menagerie of language models from
+    five different providers. When the user asks a question, delegate it to
+    the subagent they name (qwen_local, claude, grok, gpt, or gemini) — or,
+    if they name none, pick one and say which you chose. Return the
+    subagent's answer verbatim, attributed to it.
+
+subagents:
+  - name: "qwen_local"
+    description: "Qwen 3 (8B), an open-weight model running locally via Ollama. Keyless."
+    model: "ollama/qwen3:8b"
+    instruction: |
+      You are a concise explainer. Answer in three short paragraphs at most,
+      plain language first, one concrete example, no headings.
+
+  - name: "claude"
+    description: "Claude Sonnet, by Anthropic."
+    model: "claude-sonnet-4-6"
+    instruction: |
+      You are a concise explainer. Answer in three short paragraphs at most,
+      plain language first, one concrete example, no headings.
+    # Extended thinking: the adapter maps thinkingBudget to Anthropic's
+    # thinking parameter and surfaces the scratchpad as THINKING output.
+    generateContentConfig:
+      thinkingConfig:
+        thinkingBudget: 2048
+
+  - name: "grok"
+    description: "Grok 4.1 Fast (reasoning), by xAI."
+    model: "grok-4-1-fast-reasoning"
+    instruction: |
+      You are a concise explainer. Answer in three short paragraphs at most,
+      plain language first, one concrete example, no headings.
+
+  - name: "gpt"
+    description: "GPT-5 mini, by OpenAI."
+    model: "gpt-5-mini"
+    instruction: |
+      You are a concise explainer. Answer in three short paragraphs at most,
+      plain language first, one concrete example, no headings.
+
+  - name: "gemini"
+    description: "Gemini Flash Lite, by Google."
+    model: "gemini-3.1-flash-lite"
+    instruction: |
+      You are a concise explainer. Answer in three short paragraphs at most,
+      plain language first, one concrete example, no headings.

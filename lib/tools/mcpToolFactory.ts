@@ -54,25 +54,38 @@ export async function createMcpTools(mcpServerUrl: string): Promise<FunctionTool
     // Fetch available tools from the MCP server
     const toolsResponse = await client.listTools();
     
+    // MCP servers describe tools in standard lowercase JSON Schema; the ADK
+    // is Gemini-native and expects UPPERCASE type names. Uppercase deeply,
+    // preserving enum/description/required and nested properties/items —
+    // non-Gemini adapters normalize back to lowercase at request-build time
+    // via lib/models/schemaNormalize.ts.
+    const toGeminiSchema = (node: any): any => {
+      if (Array.isArray(node)) return node.map(toGeminiSchema);
+      if (!node || typeof node !== 'object') return node;
+      const out: Record<string, any> = {};
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'type') {
+          out[key] = typeof value === 'string' ? value.toUpperCase() : value;
+        } else if (key === 'enum' || key === 'required') {
+          out[key] = value; // value lists, not schema nodes
+        } else {
+          out[key] = toGeminiSchema(value);
+        }
+      }
+      return out;
+    };
+
     return toolsResponse.tools.map(tool => {
-      // We map the JSON Schema input schema to ADK's expected TypeSchema.
-      // Assuming tool.inputSchema is a valid JSON schema for the tool arguments.
-      // ADK uses 'object', 'string', etc.
-      
       const properties: Record<string, any> = {};
       const required: string[] = tool.inputSchema?.required || [];
-      
+
       if (tool.inputSchema?.properties) {
         for (const [key, prop] of Object.entries<any>(tool.inputSchema.properties)) {
-          properties[key] = {
-            type: prop.type ? String(prop.type).toUpperCase() : 'STRING',
+          properties[key] = toGeminiSchema({
+            ...prop,
+            type: prop.type ?? 'string',
             description: prop.description || ''
-          };
-          if (prop.items) {
-            properties[key].items = {
-              type: prop.items.type ? String(prop.items.type).toUpperCase() : 'STRING'
-            };
-          }
+          });
         }
       }
 

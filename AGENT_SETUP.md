@@ -65,9 +65,16 @@ After the agent reports back:
    SQL Editor and run it — followed by `db/hardening.sql`, which locks
    the tables away from Supabase's public API. Do the SQL steps
    yourself, in the dashboard, so you know what your database holds.
-4. **Optional — Claude models** (paid, usage-billed): set
-   `ANTHROPIC_API_KEY` only if you want `claude-*` model ids in your
-   syndicates. Nothing requires it.
+4. **Optional — other cloud providers** (paid, usage-billed): each
+   provider key unlocks its model-id family, and nothing requires any
+   of them — set only what you'll declare in YAML:
+   `ANTHROPIC_API_KEY` for `claude-*` (https://console.anthropic.com),
+   `OPENAI_API_KEY` for `gpt-*` (https://platform.openai.com/api-keys),
+   `XAI_API_KEY` for `grok-*` (https://console.x.ai). Verify the whole
+   multi-provider surface at any time with `npm run demo:models` — it
+   sends one prompt to every provider you've configured (plus the local
+   model) and prints per-request token/latency traces; unconfigured
+   providers are skipped.
 
 ## 3. First tests — meet the agents
 

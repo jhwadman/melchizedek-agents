@@ -14,31 +14,30 @@
  *        npm install @anthropic-ai/sdk
  *   2. Add your API key to .env:
  *        ANTHROPIC_API_KEY=sk-ant-...
- *   3. Import and call registerClaudeLlm() once at the start of your script
- *      (syndicate_chat.ts already does this automatically when the key is set).
+ *   3. registerAvailableProviders() (lib/models/registry.ts) registers this
+ *      adapter automatically when the key is set.
  *   4. Set model: "claude-sonnet-4-6" (or any claude-* id) in your YAML.
  *
+ * CAPABILITIES:
+ *   - Tools: FunctionTools AND MCP-discovered tools work. Tool schemas are
+ *     normalized from the ADK/Gemini UPPERCASE dialect to the lowercase
+ *     JSON-Schema types Anthropic requires (lib/models/schemaNormalize.ts).
+ *   - web_search: declaring the `web_search` tool in YAML enables Anthropic's
+ *     native web_search server tool — searches run on Anthropic's side.
+ *   - Extended thinking: generateContentConfig.thinkingConfig.thinkingBudget
+ *     maps to Anthropic's thinking parameter. Thinking blocks are surfaced
+ *     as { text, thought: true } parts (display-only; kept out of session
+ *     history). NOTE: thinking + tool use in the same agent is NOT supported
+ *     this pass — Anthropic requires signed thinking blocks to be replayed
+ *     on tool loops; the raw blocks are stashed in customMetadata
+ *     ['anthropic.thinking'] for a future upgrade.
+ *   - Token usage: response.usage is mapped to LlmResponse.usageMetadata, so
+ *     traceAgentRun / llm.request spans count Claude tokens like Gemini's.
+ *
  * LIMITATIONS vs Gemini:
- *   - GOOGLE_SEARCH grounding is not available for Claude agents. Remove the
- *     google_search tool from any subagent that switches to Claude.
- *   - thinkingConfig in generateContentConfig is Gemini-only. Use Claude's
- *     native extended thinking via the Anthropic SDK config instead (see below).
  *   - generate_image tool uses the Gemini image model directly and is not
  *     affected by the inference model choice.
- *   - KNOWN BUG — MCP-discovered tools (mcp_server_url) do not work on
- *     claude-* agents yet. lib/tools/mcpToolFactory.ts emits Gemini-style
- *     UPPERCASE schema types ('OBJECT', 'STRING', …), and this adapter
- *     forwards tool.parameters verbatim as Anthropic's input_schema, which
- *     requires lowercase JSON-Schema types. Anthropic rejects the request:
- *       400 invalid_request_error: tools.N.custom.input_schema.type:
- *       Input should be 'object'
- *     This is a translation gap, not a protocol incompatibility — the fix is
- *     to deep-lowercase `type` values when building anthropicTools below
- *     (without mutating the shared tool object, which a Gemini agent may
- *     also hold). Until then this adapter emits a loud warning (see
- *     warnOnGeminiStyleSchemas) and the workaround is: run MCP-tool agents
- *     on a Gemini model, or lowercase the schema types on the FunctionTool
- *     before building the agent. See DOCUMENTATION.md §7.1.
+ *   - Live/bidirectional streaming (connect) is not supported.
  *
  * CONTENT FORMAT TRANSLATION:
  *   The ADK uses Google GenAI Content/Part objects internally. This adapter
@@ -50,6 +49,16 @@
 import { BaseLlm, LLMRegistry } from '@google/adk';
 import type { LlmRequest, LlmResponse } from '@google/adk';
 import type { BaseLlmConnection } from '@google/adk';
+
+import {
+  traceLlmGeneration,
+  setLlmSpanAttribute,
+} from '../observability/tracer.ts';
+import {
+  wantsWebSearch,
+  isWebSearchSentinel,
+} from '../tools/webSearchTool.ts';
+import { toLowercaseJsonSchema } from './schemaNormalize.ts';
 
 // ── Type aliases to avoid @anthropic-ai/sdk import errors when not installed ─
 // We use dynamic import inside the methods so the rest of the framework still
@@ -65,66 +74,38 @@ type AnthropicContentBlock =
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; tool_use_id: string; content: string };
 
-// ── Gemini-style schema detection ────────────────────────────────────────────
-// KNOWN BUG (see LIMITATIONS in the header): tools built for Gemini — every
-// MCP-discovered tool from lib/tools/mcpToolFactory.ts, and any FunctionTool
-// declared with UPPERCASE schema types — will be rejected by the Anthropic
-// API. Until the adapter normalizes them, fail LOUDLY and actionably instead
-// of letting the user hit a cryptic 400.
+/** Anthropic's minimum extended-thinking budget. */
+const MIN_THINKING_BUDGET = 1024;
 
-/** Recursively find one UPPERCASE `type` value in a JSON schema, or null. */
-function findUppercaseSchemaType(node: unknown): string | null {
-  if (Array.isArray(node)) {
-    for (const item of node) {
-      const hit = findUppercaseSchemaType(item);
-      if (hit) return hit;
+// ── Request building (exported for offline tests) ────────────────────────────
+
+/** ADK toolsDict → Anthropic tool definitions (lowercase schemas; the
+ *  web_search sentinel becomes Anthropic's native server tool). */
+export function buildAnthropicTools(llmRequest: LlmRequest): any[] {
+  const anthropicTools: any[] = [];
+  for (const [, tool] of Object.entries(llmRequest.toolsDict ?? {})) {
+    if (isWebSearchSentinel(tool)) continue; // added as a server tool below
+    const t = tool as any;
+    if (t.name && t.description) {
+      anthropicTools.push({
+        name: t.name,
+        description: t.description,
+        input_schema: toLowercaseJsonSchema(
+          t.parameters ?? { type: 'object', properties: {} },
+        ),
+      });
     }
-    return null;
   }
-  if (!node || typeof node !== 'object') return null;
-  const obj = node as Record<string, unknown>;
-  if (typeof obj.type === 'string' && /^[A-Z]+$/.test(obj.type)) return obj.type;
-  for (const value of Object.values(obj)) {
-    const hit = findUppercaseSchemaType(value);
-    if (hit) return hit;
+  if (wantsWebSearch(llmRequest)) {
+    // Anthropic-native server tool: search runs on Anthropic's side, results
+    // are grounded into the reply — no client-side execution.
+    anthropicTools.push({
+      type: 'web_search_20250305',
+      name: 'web_search',
+      max_uses: 5,
+    });
   }
-  return null;
-}
-
-let schemaWarningPrinted = false;
-
-function warnOnGeminiStyleSchemas(model: string, anthropicTools: Array<{ name: string; input_schema: unknown }>): void {
-  const offending = anthropicTools
-    .map((t) => ({ name: t.name, badType: findUppercaseSchemaType(t.input_schema) }))
-    .filter((t): t is { name: string; badType: string } => t.badType !== null);
-  if (offending.length === 0 || schemaWarningPrinted) return;
-  schemaWarningPrinted = true;
-  const names = offending.map((t) => `"${t.name}" (type: '${t.badType}')`).join(', ');
-  console.warn(
-    [
-      '',
-      '╔════════════════════════════════════════════════════════════════════╗',
-      '║  ⚠  CLAUDE + MCP TOOLS: THIS REQUEST WILL BE REJECTED              ║',
-      '╚════════════════════════════════════════════════════════════════════╝',
-      `  Agent model "${model}" declares tools with Gemini-style UPPERCASE`,
-      `  schema types: ${names}.`,
-      "  The Anthropic API requires lowercase JSON-Schema types ('object',",
-      "  'string', …) and will refuse the call with:",
-      "    400 invalid_request_error: tools.N.custom.input_schema.type:",
-      "        Input should be 'object'",
-      '',
-      '  This affects EVERY claude-* agent whose tools were discovered from an',
-      '  MCP server (lib/tools/mcpToolFactory.ts emits uppercase types for',
-      '  Gemini compatibility). It is a known melchizedek bug, not an Anthropic',
-      '  outage. Workarounds until the adapter normalizes schema types:',
-      '    • run MCP-tool agents on a gemini-* model, or',
-      '    • deep-lowercase the schema `type` values on each FunctionTool',
-      '      before building the LlmAgent.',
-      '  Details: DOCUMENTATION.md §7.1 "Using Claude Models" and the',
-      '  LIMITATIONS header of lib/models/claudeLlm.ts.',
-      '',
-    ].join('\n'),
-  );
+  return anthropicTools;
 }
 
 // ── ClaudeLlm ─────────────────────────────────────────────────────────────────
@@ -148,11 +129,22 @@ export class ClaudeLlm extends BaseLlm {
    *
    * We translate ADK's LlmRequest (Google Content format) → Anthropic
    * MessageParam format, call the Anthropic Messages API, then translate
-   * the response back to LlmResponse.
+   * the response back to LlmResponse. The whole call is wrapped in an
+   * llm.request OpenTelemetry span (provider/model/tokens/latency).
    */
   async *generateContentAsync(
     llmRequest: LlmRequest,
     stream = false,
+  ): AsyncGenerator<LlmResponse, void> {
+    yield* traceLlmGeneration(
+      { provider: 'anthropic', model: this.model },
+      this.generateInner(llmRequest, stream),
+    );
+  }
+
+  private async *generateInner(
+    llmRequest: LlmRequest,
+    stream: boolean,
   ): AsyncGenerator<LlmResponse, void> {
     const apiKey = this.apiKey || process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -202,6 +194,10 @@ export class ClaudeLlm extends BaseLlm {
       const blocks: AnthropicContentBlock[] = [];
       for (const part of content.parts ?? []) {
         const p = part as any;
+        if (p.thought) {
+          // Prior-turn scratchpad is display-only; never replay it as text.
+          continue;
+        }
         if (p.text) {
           blocks.push({ type: 'text', text: p.text });
         } else if (p.functionCall) {
@@ -238,99 +234,132 @@ export class ClaudeLlm extends BaseLlm {
     }
 
     // ── Build Anthropic tool definitions from ADK toolsDict ──────────────────
-    const anthropicTools: any[] = [];
-    for (const [, tool] of Object.entries(llmRequest.toolsDict ?? {})) {
-      const t = tool as any;
-      if (t.name && t.description) {
-        anthropicTools.push({
-          name: t.name,
-          description: t.description,
-          input_schema: t.parameters ?? { type: 'object', properties: {} },
-        });
-      }
+    const anthropicTools = buildAnthropicTools(llmRequest);
+    if (wantsWebSearch(llmRequest)) {
+      setLlmSpanAttribute('llm.web_search.native', true);
     }
-    warnOnGeminiStyleSchemas(this.model, anthropicTools);
+
+    // ── Extended thinking (Gemini thinkingConfig → Anthropic thinking) ───────
+    const cfg = (llmRequest.config as any) ?? {};
+    let maxTokens: number = cfg.maxOutputTokens ?? 4096;
+    let thinking: { type: 'enabled'; budget_tokens: number } | undefined;
+    const requestedBudget = cfg.thinkingConfig?.thinkingBudget;
+    if (typeof requestedBudget === 'number' && requestedBudget > 0) {
+      const budget = Math.max(requestedBudget, MIN_THINKING_BUDGET);
+      thinking = { type: 'enabled', budget_tokens: budget };
+      // Anthropic requires max_tokens to exceed the thinking budget.
+      maxTokens = Math.max(maxTokens, budget + 2048);
+    }
+
+    const requestBase = {
+      model: this.model,
+      max_tokens: maxTokens,
+      system: systemParts.join('\n\n') || undefined,
+      messages,
+      tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+      ...(thinking ? { thinking } : {}),
+    };
 
     // ── Call Anthropic API ────────────────────────────────────────────────────
-    const maxTokens =
-      (llmRequest.config as any)?.maxOutputTokens ?? 4096;
-
     try {
       if (stream) {
         // Streaming path
-        const streamResponse = await client.messages.stream({
-          model: this.model,
-          max_tokens: maxTokens,
-          system: systemParts.join('\n\n') || undefined,
-          messages,
-          tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-        });
+        const streamResponse = await client.messages.stream(requestBase);
 
-        let buffer = '';
         for await (const chunk of streamResponse) {
-          if (
-            chunk.type === 'content_block_delta' &&
-            chunk.delta.type === 'text_delta'
-          ) {
-            buffer += chunk.delta.text;
-            yield {
-              content: {
-                role: 'model',
-                parts: [{ text: chunk.delta.text }],
-              },
-              partial: true,
-            };
+          if (chunk.type === 'content_block_delta') {
+            if (chunk.delta.type === 'text_delta') {
+              yield {
+                content: {
+                  role: 'model',
+                  parts: [{ text: chunk.delta.text }],
+                },
+                partial: true,
+              };
+            } else if (chunk.delta.type === 'thinking_delta') {
+              yield {
+                content: {
+                  role: 'model',
+                  parts: [{ text: chunk.delta.thinking, thought: true } as any],
+                },
+                partial: true,
+              };
+            }
           }
         }
 
-        // Final message for tool_use blocks
+        // Final message: tool_use blocks, thinking stash, and token usage.
         const final = await streamResponse.finalMessage();
-        const toolUseBlocks = final.content.filter(
-          (b: any) => b.type === 'tool_use',
-        );
-        if (toolUseBlocks.length > 0) {
+        yield this.finalResponse(final, /*includeText=*/ false);
+      } else {
+        // Non-streaming path
+        const response = await client.messages.create(requestBase);
+
+        // Thinking first, as a display-only partial.
+        const thinkingText = (response.content ?? [])
+          .filter((b: any) => b.type === 'thinking')
+          .map((b: any) => b.thinking)
+          .join('\n\n');
+        if (thinkingText) {
           yield {
             content: {
               role: 'model',
-              parts: toolUseBlocks.map((b: any) => ({
-                functionCall: { name: b.name, args: b.input, id: b.id },
-              })),
+              parts: [{ text: thinkingText, thought: true } as any],
             },
-            turnComplete: true,
+            partial: true,
           };
-        } else {
-          yield { turnComplete: true };
-        }
-      } else {
-        // Non-streaming path
-        const response = await client.messages.create({
-          model: this.model,
-          max_tokens: maxTokens,
-          system: systemParts.join('\n\n') || undefined,
-          messages,
-          tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-        });
-
-        const parts: any[] = [];
-        for (const block of response.content) {
-          if (block.type === 'text') {
-            parts.push({ text: block.text });
-          } else if (block.type === 'tool_use') {
-            parts.push({
-              functionCall: { name: block.name, args: block.input, id: block.id },
-            });
-          }
         }
 
-        yield {
-          content: { role: 'model', parts },
-          turnComplete: true,
-        };
+        yield this.finalResponse(response, /*includeText=*/ true);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       yield { errorCode: 'ANTHROPIC_ERROR', errorMessage: msg };
     }
+  }
+
+  /** Maps a complete Anthropic message → the final LlmResponse. */
+  private finalResponse(response: any, includeText: boolean): LlmResponse {
+    const parts: any[] = [];
+    const thinkingBlocks: any[] = [];
+    for (const block of response.content ?? []) {
+      if (block.type === 'text' && includeText) {
+        parts.push({ text: block.text });
+      } else if (block.type === 'tool_use') {
+        parts.push({
+          functionCall: { name: block.name, args: block.input, id: block.id },
+        });
+      } else if (block.type === 'thinking') {
+        // Raw signed blocks, preserved for a future thinking+tools upgrade
+        // (Anthropic requires them replayed verbatim on tool loops).
+        thinkingBlocks.push(block);
+      }
+    }
+
+    const usage = response.usage;
+    return {
+      ...(parts.length > 0 ? { content: { role: 'model', parts } } : {}),
+      turnComplete: true,
+      ...(usage
+        ? {
+            usageMetadata: {
+              ...(usage.input_tokens !== undefined
+                ? { promptTokenCount: usage.input_tokens }
+                : {}),
+              ...(usage.output_tokens !== undefined
+                ? { candidatesTokenCount: usage.output_tokens }
+                : {}),
+              ...(usage.input_tokens !== undefined &&
+              usage.output_tokens !== undefined
+                ? { totalTokenCount: usage.input_tokens + usage.output_tokens }
+                : {}),
+            },
+          }
+        : {}),
+      ...(thinkingBlocks.length > 0
+        ? { customMetadata: { 'anthropic.thinking': thinkingBlocks } }
+        : {}),
+    };
   }
 
   /**
@@ -353,14 +382,9 @@ export class ClaudeLlm extends BaseLlm {
  * WHY a separate function instead of auto-registering at import time:
  *   Auto-registration at module load would cause every consumer of this file
  *   to unconditionally register Claude, even if ANTHROPIC_API_KEY is absent.
- *   By making registration explicit, syndicate_chat.ts can conditionally call
- *   this only when the key is present, and log a clear message about which
- *   provider is active.
- *
- * Call this once, before constructing any Runner, in any script that wants
- * Claude support:
- *   import { registerClaudeLlm } from '../lib/models/claudeLlm.ts';
- *   registerClaudeLlm();
+ *   By making registration explicit, registerAvailableProviders() can
+ *   conditionally call this only when the key is present, and log a clear
+ *   message about which provider is active.
  */
 export function registerClaudeLlm(): void {
   LLMRegistry.register(ClaudeLlm);

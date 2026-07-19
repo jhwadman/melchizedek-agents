@@ -12,13 +12,11 @@ import {
 import type { AgentExecutor, ExecutionEventBus } from '@a2a-js/sdk/server';
 import { AsyncLocalStorage } from 'async_hooks';
 import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a-js/sdk/server/express';
-import { Runner, LlmAgent, AgentTool, InMemorySessionService, Gemini, getFunctionCalls, getFunctionResponses, setLogLevel, LogLevel } from '@google/adk';
+import { Runner, LlmAgent, AgentTool, InMemorySessionService, getFunctionCalls, getFunctionResponses, setLogLevel, LogLevel } from '@google/adk';
 import { loadSyndicate } from '../lib/loadSyndicate.ts';
 import type { SyndicateYamlConfig } from '../lib/loadSyndicate.ts';
-import { DEFAULT_GEMINI_MODEL, DEFAULT_CLAUDE_MODEL, DEFAULT_OLLAMA_MODEL } from '../lib/config.ts';
 import { traceAgentRun } from '../lib/observability/tracer.ts';
-import { ClaudeLlm } from '../lib/models/claudeLlm.ts';
-import { OllamaLlm } from '../lib/models/ollamaLlm.ts';
+import { resolveModel } from '../lib/models/registry.ts';
 import { resolveTools as resolveNamedTools } from '../lib/toolRegistry.ts';
 import { createMcpTools } from '../lib/tools/mcpToolFactory.ts';
 import { hasSupabaseCredentials, createSupabaseServices } from '../lib/persistence/supabaseProvider.ts';
@@ -151,22 +149,16 @@ class SyndicateExecutor implements AgentExecutor {
 
       if (userParts.length === 0) throw new Error('Message parts are required.');
 
-      // Build model resolver based on provider
-      const resolveModel = (modelName?: string) => {
-        const provider = authContext.provider.toLowerCase();
-        // ollama/* model ids always route locally, whatever the provider
-        // header says — the id itself names the runtime.
-        if (modelName?.startsWith('ollama/')) {
-          return new OllamaLlm({ model: modelName });
-        }
-        if (provider === 'ollama') {
-          return new OllamaLlm({ model: modelName || DEFAULT_OLLAMA_MODEL });
-        }
-        if (provider === 'anthropic') {
-          return new ClaudeLlm({ model: modelName || DEFAULT_CLAUDE_MODEL, apiKey: authContext.apiKey });
-        }
-        return new Gemini({ model: modelName || DEFAULT_GEMINI_MODEL, apiKey: authContext.apiKey });
-      };
+      // Model resolution: the YAML model id always wins — its prefix names
+      // the provider (claude-*, gpt-*, grok-*, ollama/*, else Gemini). The
+      // X-Provider header is DEPRECATED and only picks a default model when
+      // the YAML omits `model` entirely. lib/models/registry.ts is the
+      // single implementation, shared with the CLI path.
+      const resolveModelForRequest = (modelName?: string) =>
+        resolveModel(modelName, {
+          apiKey: authContext.apiKey,
+          defaultProvider: authContext.provider,
+        });
 
       const resolveTools = (toolNames: string[] = []): any[] =>
         resolveNamedTools(toolNames, (name) =>
@@ -198,7 +190,7 @@ class SyndicateExecutor implements AgentExecutor {
             agent: new LlmAgent({
               name: subCfg.name,
               description: subCfg.description,
-              model: resolveModel(subCfg.model),
+              model: resolveModelForRequest(subCfg.model),
               instruction: subCfg.instruction,
               tools: subTools.length > 0 ? subTools : undefined,
               generateContentConfig: {
@@ -218,7 +210,7 @@ class SyndicateExecutor implements AgentExecutor {
         return new LlmAgent({
           name: overrideName || configObj.orchestrator.name,
           description: overrideDesc || configObj.orchestrator.description,
-          model: resolveModel(configObj.orchestrator.model),
+          model: resolveModelForRequest(configObj.orchestrator.model),
           instruction: configObj.orchestrator.instruction,
           tools: compiledTools.length > 0 ? compiledTools : undefined,
           generateContentConfig: {

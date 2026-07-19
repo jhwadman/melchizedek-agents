@@ -43,6 +43,22 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 /**
+ * Default OpenAI model used when a gpt-* model is requested but no specific
+ * identifier is provided. Requires OPENAI_API_KEY. gpt-5-mini is the
+ * lightweight reasoning tier — enough for subagent work, and it exposes
+ * reasoning summaries via the Responses API (lib/models/gptLlm.ts).
+ */
+export const DEFAULT_GPT_MODEL = 'gpt-5-mini';
+
+/**
+ * Default xAI model used when a grok-* model is requested but no specific
+ * identifier is provided. Requires XAI_API_KEY (lib/models/grokLlm.ts).
+ * The -reasoning variant returns reasoning_content, which the adapter
+ * surfaces as thinking.
+ */
+export const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';
+
+/**
  * Default open-weight model, served locally by Ollama (lib/models/ollamaLlm.ts).
  * qwen3:8b is the smallest pulled model that supports tool calling — the
  * floor capability for syndicate delegation. Vision work uses ollama/qwen3-vl:8b.

@@ -50,7 +50,13 @@ orchestrator:
 
   # ── LlmAgentConfig fields ───────────────────────────────
 
-  # [required] The Gemini model to use.
+  # [required] The model to use. The id's prefix names the provider and the
+  # framework routes accordingly (lib/models/registry.ts):
+  #   gemini-*  → Google Gemini (ADK-native)
+  #   claude-*  → Anthropic     (ANTHROPIC_API_KEY)
+  #   gpt-* /o* → OpenAI        (OPENAI_API_KEY)
+  #   grok-*    → xAI           (XAI_API_KEY)
+  #   ollama/*  → local Ollama  (keyless)
   # Subagents inherit this if not set on their own config.
   model: "gemini-2.5-flash"
 
@@ -69,7 +75,10 @@ orchestrator:
 
   # [optional] Named built-in tools to attach to this agent.
   # Maps to: tools[] on LlmAgent
-  # Supported values: "google_search", "code_execution"
+  # Supported values include "web_search" (provider-agnostic: maps to the
+  # model's NATIVE search on Gemini/Claude/GPT/Grok, omitted with a warning
+  # on local models), "google_search" (Gemini-only, legacy), "code_execution".
+  # Full registry: lib/toolRegistry.ts.
   tools: []
 
   # [optional] Whether to include conversation history in model requests.
@@ -182,9 +191,10 @@ subagents:
 
     # [optional] Named built-in tools for this subagent.
     # Maps to: tools[] on LlmAgent
-    # Supported values: "google_search", "code_execution"
+    # Supported values include "web_search" (provider-agnostic),
+    # "google_search" (Gemini-only, legacy), "code_execution".
     tools:
-      - "google_search"
+      - "web_search"
 
     # [optional] Stateless operation — subagent sees no history.
     # Maps to: includeContents

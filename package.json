@@ -20,6 +20,7 @@
     "syndicate:claude": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate claude",
     "syndicate:advocate": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate patient_advocate",
     "syndicate:hearth": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate hearth",
+    "demo:models": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_model_optionality.ts",
     "syndicate:agora": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate agora",
     "syndicate:librarian": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate librarian",
     "mcp:demo": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_mcp_server.ts",
@@ -40,6 +41,7 @@
     "@supabase/supabase-js": "^2.43.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
+    "openai": "^6.48.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

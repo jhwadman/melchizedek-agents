@@ -26,10 +26,16 @@ import { loadEnv } from '../lib/loadEnv.ts';
 // ── LLM Provider Registration ─────────────────────────────────────────────────
 // WHY: Import only — registration is deferred to main() so it runs AFTER
 // loadEnv() has populated process.env from .env. If registered here at module
-// load time, ANTHROPIC_API_KEY would always be undefined and ClaudeLlm would
-// never be added to the LLMRegistry, causing "Model not found" errors.
-import { registerClaudeLlm } from '../lib/models/claudeLlm.ts';
-import { registerOllamaLlm } from '../lib/models/ollamaLlm.ts';
+// load time, provider API keys would always be undefined and the non-Gemini
+// adapters would never be added to the LLMRegistry, causing "Model not
+// found" errors. registerAvailableProviders() gates each adapter on its key.
+import {
+	registerAvailableProviders,
+	providerForModel,
+	providerKeyPresent,
+	PROVIDERS,
+} from '../lib/models/registry.ts';
+import type { ProviderId } from '../lib/models/registry.ts';
 
 // ── Persistence Factory ───────────────────────────────────────────────────────
 // WHY: All Firebase-specific initialization is encapsulated in firebaseProvider.
@@ -142,16 +148,12 @@ function banner(
 async function main(): Promise<void> {
 	loadEnv(import.meta.url);
 
-	// ── Register non-Gemini LLM providers ────────────────────────────────────
+	// ── Register LLM providers ───────────────────────────────────────────────
 	// WHY: Must run AFTER loadEnv() so that API keys from .env are available.
-	// registerClaudeLlm() is a no-op if ANTHROPIC_API_KEY is absent — Gemini
-	// syndicates continue to work without an Anthropic key set.
-	// registerOllamaLlm() is unconditional: a local provider has no key to
-	// gate on. ollama/* syndicates run with no cloud credentials at all.
-	if (process.env.ANTHROPIC_API_KEY) {
-		registerClaudeLlm();
-	}
-	registerOllamaLlm();
+	// One call registers every adapter whose credentials exist (Ollama needs
+	// none): the YAML `model` string then routes through the LLMRegistry to
+	// the right provider — claude-*, gpt-*, grok-*, ollama/*, gemini-*.
+	registerAvailableProviders();
 
 	const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY;
 	if (apiKey) {
@@ -189,19 +191,33 @@ async function main(): Promise<void> {
 		bindings: mergedBindings,
 	});
 
-	// ── Enforce the key requirement (local syndicates are exempt) ────────────
+	// ── Enforce the key requirement per declared provider ────────────────────
 	// WHY: An all-ollama/* syndicate runs entirely on the user's machine, so
-	// demanding a Gemini key would be an artificial gate. Any cloud model in
-	// the graph (or Gemini-backed tools like google_search / generate_image /
-	// long-term memory embeddings) still requires the key.
+	// demanding any cloud key would be an artificial gate. Each cloud model in
+	// the graph requires ITS provider's key: claude-* → ANTHROPIC_API_KEY,
+	// gpt-* → OPENAI_API_KEY, grok-* → XAI_API_KEY, gemini-* (or no model,
+	// the ADK default) → the Gemini key. Gemini-backed tools (google_search /
+	// generate_image / long-term memory embeddings) still need the Gemini key
+	// regardless of the inference model, and fail with a clear API error.
 	const declaredModels = [
 		config.orchestrator.model,
 		...config.subagents.map((s) => s.model),
 	].filter((m): m is string => !!m);
-	const allLocalModels =
-		declaredModels.length > 0 && declaredModels.every((m) => m.startsWith('ollama/'));
-	if (!apiKey && !allLocalModels) {
-		console.error(`${c.yellow}⚠ API Key is not set.${c.reset}`);
+	const requiredProviders = new Set<ProviderId>(
+		declaredModels.length > 0
+			? declaredModels.map((m) => providerForModel(m))
+			: ['gemini'], // no model declared anywhere → ADK's Gemini default
+	);
+	if (!config.orchestrator.model) requiredProviders.add('gemini');
+	const missingKeys = [...requiredProviders].filter(
+		(p) => !providerKeyPresent(p),
+	);
+	if (missingKeys.length > 0) {
+		for (const p of missingKeys) {
+			console.error(
+				`${c.yellow}⚠ ${PROVIDERS[p].label} requires ${PROVIDERS[p].keyEnv}, which is not set.${c.reset}`,
+			);
+		}
 		console.error(`${c.dim}  (Only syndicates whose every agent uses an ollama/* model run keyless.)${c.reset}`);
 		process.exit(1);
 	}

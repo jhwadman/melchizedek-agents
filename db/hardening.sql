@@ -40,6 +40,17 @@ ALTER TABLE adk_sessions     ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON adk_memory_facts FROM anon, authenticated;
 REVOKE ALL ON adk_sessions     FROM anon, authenticated;
 
+-- Optional telemetry sink (db/telemetry.sql). Guarded: the table only
+-- exists when the operator opted into TELEMETRY_SUPABASE. Token counts and
+-- span payloads are operational data — same lockdown as the other tables.
+DO $$
+BEGIN
+  IF to_regclass('public.adk_telemetry') IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE adk_telemetry ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'REVOKE ALL ON adk_telemetry FROM anon, authenticated';
+  END IF;
+END $$;
+
 -- The vector-search RPC must not be callable from the public API either
 -- (it reads adk_memory_facts on behalf of whoever calls it). The revoke
 -- resolves every existing overload by name, so it works on any schema
@@ -71,7 +82,7 @@ AS $$
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public'
-    AND c.relname IN ('adk_memory_facts', 'adk_sessions');
+    AND c.relname IN ('adk_memory_facts', 'adk_sessions', 'adk_telemetry');
 $$;
 
 REVOKE ALL ON FUNCTION melchizedek_rls_status() FROM anon, authenticated;

@@ -98,6 +98,17 @@ export async function createSupabaseServices(
           detail: `RLS is disabled on: ${unprotected.join(', ')}`,
         };
       }
+      // Advisory only — adk_telemetry is optional (db/telemetry.sql). If it
+      // exists but hardening.sql wasn't re-run afterwards, say so without
+      // failing the check (the mandatory tables are protected).
+      const telemetryRow = rows.find((r) => r.table_name === 'adk_telemetry');
+      if (telemetryRow && !telemetryRow.rls_enabled) {
+        return {
+          applied: true,
+          detail:
+            'RLS enabled on adk_memory_facts and adk_sessions — but NOT on adk_telemetry; re-run db/hardening.sql',
+        };
+      }
       return { applied: true, detail: 'RLS enabled on adk_memory_facts and adk_sessions' };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

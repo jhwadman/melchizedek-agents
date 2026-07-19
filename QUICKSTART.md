@@ -12,8 +12,9 @@ fifteen. The full reference is [`DOCUMENTATION.md`](./DOCUMENTATION.md).
   Gemini inference and the embedding model behind long-term memory.
   *Not needed for the all-local syndicates — see step 0.*
 - Optional: **Ollama** ([ollama.com](https://ollama.com)) for the
-  open-weight local syndicates, an **Anthropic API key** (only for
-  `claude-*` models), and a free **Supabase project** (only for
+  open-weight local syndicates; provider keys only for the models you
+  actually declare — **Anthropic** (`claude-*`), **OpenAI** (`gpt-*`),
+  **xAI** (`grok-*`); and a free **Supabase project** (only for
   persistent sessions / memory).
 
 ## 0. The keyless path (open weights, fully local)
@@ -125,7 +126,7 @@ See `demo/a2a_demo.mjs` for a working client and `DOCUMENTATION.md`
 |---|---|
 | `Gemini API Key is not configured` | `.env` missing or key not set — step 2. |
 | `[400] Tool call context circulation is not enabled` | The agent's `model:` is too old for agent transfer. Use `gemini-3.5-flash` or newer (all shipped configs already do). |
-| `Model not found` for `claude-*` | `ANTHROPIC_API_KEY` not set in `.env`. |
+| `Model not found` for `claude-*` / `gpt-*` / `grok-*` | The matching provider key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `XAI_API_KEY`) is not set in `.env`, so the provider wasn't registered. |
 | `OLLAMA_UNREACHABLE` for `ollama/*` | Ollama isn't running — start the app or `ollama serve`; then check the model is pulled (`ollama list`). |
 | `Refusing to connect to private/loopback MCP host` | The SSRF guard is on (correctly). For the local demo set `ALLOW_PRIVATE_MCP=true` in `.env`. |
 | Sessions don't persist between runs | Supabase env vars missing (step 4) — the framework fell back to in-memory sessions and said so at boot. |

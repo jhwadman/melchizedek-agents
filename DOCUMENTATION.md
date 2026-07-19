@@ -106,7 +106,8 @@ instance:
 
 | Name | Kind | Does |
 |---|---|---|
-| `google_search` | ADK built-in | Live web search. |
+| `web_search` | Provider-agnostic | Live web search via the agent model's NATIVE search: Gemini grounding, Anthropic `web_search` server tool, OpenAI Responses `web_search`, xAI Live Search. On local `ollama/*` models the tool is omitted with a one-time warning (keyless stays keyless). Prefer this in new YAMLs. |
+| `google_search` | ADK built-in | Live web search — Gemini agents only (legacy alias; use `web_search`). |
 | `preload_memory` | ADK built-in | Silently injects similarity-matched facts into every request (ambient recall). |
 | `load_memory` | ADK built-in | Explicit tool call to search the fact store (deliberate recall). |
 | `generate_image` | FunctionTool | Calls the Gemini image model directly, saves the result under `outputs/`, returns the path. A FunctionTool because binary `inlineData` cannot survive the AgentTool text boundary. |
@@ -125,15 +126,12 @@ loopback/private hosts unless `ALLOW_PRIVATE_MCP=true` (SSRF guard);
 treat any remote MCP server as an untrusted tool vendor whose results
 are data, never instructions.
 
-> **⚠ Known bug — MCP tools require a Gemini agent.** The factory emits
-> Gemini-style UPPERCASE schema types (`'OBJECT'`, `'STRING'`, …), and
-> the Claude adapter forwards them unnormalized, so the Anthropic API
-> rejects any `claude-*` agent carrying MCP tools
-> (`400 … input_schema.type: Input should be 'object'`). The adapter
-> prints a loud warning when this combination is attempted. Until
-> `claudeLlm.ts` lowercases schema types, put `mcp_server_url` only on
-> Gemini agents, or deep-lowercase each tool's schema `type` values
-> before building the agent (see §5).
+> **Schema dialects, handled for you.** The factory emits Gemini-style
+> UPPERCASE schema types (`'OBJECT'`, `'STRING'`, …) because the ADK is
+> Gemini-native; every non-Gemini adapter normalizes them back to
+> standard lowercase JSON-Schema at request-build time
+> (`lib/models/schemaNormalize.ts`). MCP tools therefore work on any
+> provider's agents — Gemini, Claude, GPT, or Grok.
 
 ## 4. Sessions & long-term memory
 
@@ -247,14 +245,65 @@ plain-text fact sits beside its embedding.
 
 ## 5. Multi-model support
 
-Gemini model ids work natively. `claude-*` ids route through
-`lib/models/claudeLlm.ts`, an adapter registered into the ADK's LLM
-registry at startup (it requires `ANTHROPIC_API_KEY`; registration is
-deferred until after `.env` loads). `config/agents/claude.yaml` is the
-minimal working example. Mixed graphs are supported — each agent picks
-its own provider, one line each. One provider-specific caveat: a
-`claude-*` agent cannot yet carry MCP-discovered tools — see the known
-bug in §3.
+The agent's `model:` id names its provider, and the framework routes
+accordingly — model optionality is a single YAML line per agent:
+
+| Model id | Provider | Adapter | Key | Native `web_search` |
+|---|---|---|---|---|
+| `gemini-*` | Google Gemini | ADK-native (`TracedGemini`) | `GOOGLE_GENAI_API_KEY` | ✅ grounding |
+| `claude-*` | Anthropic | `lib/models/claudeLlm.ts` | `ANTHROPIC_API_KEY` | ✅ server tool |
+| `gpt-*`, o-series | OpenAI | `lib/models/gptLlm.ts` (Responses API) | `OPENAI_API_KEY` | ✅ web_search tool |
+| `grok-*` | xAI | `lib/models/grokLlm.ts` | `XAI_API_KEY` | ✅ Live Search |
+| `ollama/*` | Local Ollama | `lib/models/ollamaLlm.ts` | none | ⚠ omitted + warning |
+
+`lib/models/registry.ts` is the single routing seam:
+`registerAvailableProviders()` registers every adapter whose key is
+present (Ollama needs none) into the ADK's LLM registry, so the YAML
+string finds its provider; missing keys produce clear skip messages,
+and only the providers a syndicate actually declares are required.
+Mixed graphs are supported — each agent picks its own provider, one
+line each. `config/agents/claude.yaml` is the minimal Claude example;
+`config/agents/model_zoo.yaml` declares one lightweight agent per
+provider, and `npm run demo:models` proves the whole surface: one
+prompt to every available provider, printing input, thinking (qwen3
+`<think>` blocks, Claude extended thinking, GPT reasoning summaries,
+Grok reasoning), output, and a per-request token/latency trace; add
+`-- --search` to watch four native web searches plus the local
+omission. Providers without keys are skipped, never fatal.
+
+Reasoning/thinking: scratchpads from every provider are surfaced as
+dimmed THINKING output and kept out of session history. On Claude,
+`generateContentConfig.thinkingConfig.thinkingBudget` enables
+Anthropic extended thinking (thinking + tool use on the same Claude
+agent is not supported yet).
+
+Every model request also emits an `llm.request` OpenTelemetry span
+(provider, model, input/output/thinking tokens, latency) printed as an
+`[OTEL_SPAN_JSON]` line; set `TELEMETRY_SUPABASE=true` to persist
+spans to the `adk_telemetry` table (run `db/telemetry.sql`, then
+re-run `db/hardening.sql` — schema below):
+
+```sql
+CREATE TABLE adk_telemetry (
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ts              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  trace_id        TEXT NOT NULL,
+  span_id         TEXT NOT NULL,
+  span_name       TEXT NOT NULL,          -- 'llm.request' | 'Syndicate Execution: <name>'
+  syndicate       TEXT,
+  agent           TEXT,
+  provider        TEXT,                   -- 'gemini' | 'anthropic' | 'openai' | 'xai' | 'ollama'
+  model           TEXT,
+  input_tokens    INTEGER,
+  output_tokens   INTEGER,
+  thinking_tokens INTEGER,
+  latency_ms      DOUBLE PRECISION,
+  span            JSONB NOT NULL
+);
+
+CREATE INDEX idx_adk_telemetry_ts    ON adk_telemetry (ts DESC);
+CREATE INDEX idx_adk_telemetry_trace ON adk_telemetry (trace_id);
+```
 
 **Open-weight local models**: `ollama/*` ids (e.g. `ollama/qwen3:8b`)
 route through `lib/models/ollamaLlm.ts` to a local Ollama daemon over

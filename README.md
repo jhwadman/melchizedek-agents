@@ -42,6 +42,15 @@ cp .env.example .env    # add your Gemini API key
 npm run chat:syndicate  # interactive REPL with the default syndicate
 ```
 
+Model optionality is one YAML line per agent: `gemini-*`, `claude-*`,
+`gpt-*`, `grok-*`, and `ollama/*` ids each route to their provider
+(whichever keys you have; local needs none). Prove the whole surface:
+
+```bash
+npm run demo:models     # one prompt → every available provider,
+                        # with thinking + token/latency traces
+```
+
 Full setup — including the optional Supabase database for persistent
 sessions and long-term memory — lives in [`QUICKSTART.md`](./QUICKSTART.md).
 The complete reference is [`DOCUMENTATION.md`](./DOCUMENTATION.md).
@@ -68,6 +77,7 @@ worked specimen for a curriculum module:
 | `librarian.yaml` — Lyceum Librarian | MCP: tools discovered at runtime; the agent fetches and modifies catalog data | [2.07 · MCP](https://lyceumagents.com/curriculum/mcp-extending-reach/) |
 | `image_production.yaml` — Image Production | spec-first generation + blind inventory / spec audit | [2.08 · multi-modal agents](https://lyceumagents.com/curriculum/multimodal-agents/) |
 | `claude.yaml` — Claude Chat | minimal single-agent config; the multi-model adapter in one file | — |
+| `model_zoo.yaml` — Model Zoo | one lightweight agent per provider (Qwen/Claude/Grok/GPT/Gemini); model optionality proven by `npm run demo:models` | — |
 
 `syndicateSchema.yaml` is the annotated schema reference for authoring
 your own.
