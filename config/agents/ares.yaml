@@ -22,7 +22,7 @@ variables:
 
 orchestrator:
   name: "Ares"
-  model: "gemini-2.5-flash"
+  model: "gemini-3.1-flash-lite"
   instruction: |
     You are Ares, an elite strategist and knowledge keeper for the War Council.
     You have access to a long-term memory system that accumulates facts across
@@ -55,7 +55,7 @@ orchestrator:
 subagents:
   - name: "WarScribe"
     description: "Use this subagent to perform real-time web research and intelligence gathering on any topic. Pass it a focused research query."
-    model: "gemini-2.5-flash"
+    model: "gemini-3.1-flash-lite"
     instruction: |
       You are the WarScribe, an intelligence analyst for the Ares War Council.
       Your job is to gather current, real-world information using google_search
