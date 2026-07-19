@@ -106,7 +106,7 @@ instance:
 
 | Name | Kind | Does |
 |---|---|---|
-| `web_search` | Provider-agnostic | Live web search via the agent model's NATIVE search: Gemini grounding, Anthropic `web_search` server tool, OpenAI Responses `web_search`, xAI Live Search. On local `ollama/*` models the tool is omitted with a one-time warning (keyless stays keyless). Prefer this in new YAMLs. |
+| `web_search` | Provider-agnostic | Live web search via the agent model's NATIVE search: Gemini grounding, Anthropic `web_search` server tool, OpenAI Responses `web_search`, xAI Agent Tools `web_search`. On local `ollama/*` models the tool is omitted with a one-time warning (keyless stays keyless). Prefer this in new YAMLs. |
 | `google_search` | ADK built-in | Live web search — Gemini agents only (legacy alias; use `web_search`). |
 | `preload_memory` | ADK built-in | Silently injects similarity-matched facts into every request (ambient recall). |
 | `load_memory` | ADK built-in | Explicit tool call to search the fact store (deliberate recall). |
@@ -253,7 +253,7 @@ accordingly — model optionality is a single YAML line per agent:
 | `gemini-*` | Google Gemini | ADK-native (`TracedGemini`) | `GOOGLE_GENAI_API_KEY` | ✅ grounding |
 | `claude-*` | Anthropic | `lib/models/claudeLlm.ts` | `ANTHROPIC_API_KEY` | ✅ server tool |
 | `gpt-*`, o-series | OpenAI | `lib/models/gptLlm.ts` (Responses API) | `OPENAI_API_KEY` | ✅ web_search tool |
-| `grok-*` | xAI | `lib/models/grokLlm.ts` | `XAI_API_KEY` | ✅ Live Search |
+| `grok-*` | xAI | `lib/models/grokLlm.ts` (Responses API) | `XAI_API_KEY` | ✅ Agent Tools search |
 | `ollama/*` | Local Ollama | `lib/models/ollamaLlm.ts` | none | ⚠ omitted + warning |
 
 `lib/models/registry.ts` is the single routing seam:

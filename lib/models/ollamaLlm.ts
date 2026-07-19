@@ -29,7 +29,7 @@
  * DESIGN NOTES:
  *   - Zero dependencies: talks to Ollama's OpenAI-compatible endpoint with
  *     the built-in fetch — the shared translation core lives in
- *     lib/models/openAiCompatibleLlm.ts (also the base for xAI Grok).
+ *     lib/models/openAiCompatibleLlm.ts.
  *   - The "ollama/" prefix is a routing namespace for the LLMRegistry and is
  *     stripped before the HTTP call (Ollama knows the model as "qwen3:8b").
  *   - Reasoning models (qwen3 family) emit <think>…</think> blocks before

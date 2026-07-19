@@ -4,70 +4,59 @@
  * WHY this file exists:
  *   Model optionality is a primary driver of this framework: the agent YAML
  *   declares `model`, and the registry routes it to the right provider.
- *   xAI's API is OpenAI-compatible, so this adapter is a thin subclass of
- *   lib/models/openAiCompatibleLlm.ts (shared with Ollama) — endpoint, auth
- *   header, and two xAI-specific surfaces:
- *     - reasoning: grok reasoning models return reasoning_content on the
- *       message (handled by the base's default extractReasoning).
- *     - web search: xAI Live Search via the search_parameters body field —
- *       enabled when the agent declares the `web_search` tool.
+ *
+ * WHY it subclasses GptLlm (Responses API) and not the chat-completions base:
+ *   xAI retired Live Search on chat completions (the API now returns
+ *   410 "Live search is deprecated. Please switch to the Agent Tools API").
+ *   The Agent Tools API lives at `https://api.x.ai/v1/responses` and is
+ *   wire-compatible with OpenAI's Responses API — same `input` items, same
+ *   `{ type: 'function' }` / `{ type: 'web_search' }` tools, same
+ *   `reasoning` summary / `message` / `function_call` output items (verified
+ *   live 2026-07-19). So Grok reuses the GptLlm translator via the openai
+ *   SDK's baseURL override, and gets for free:
+ *     - native web_search (server-side, with source citations)
+ *     - reasoning summaries surfaced as { thought: true } THINKING output
+ *     - function tools with call_id round-tripping, lowercased schemas
+ *     - usage → usageMetadata mapping for llm.request token spans
  *
  * HOW TO ENABLE:
- *   1. Add your API key to .env:  XAI_API_KEY=xai-...
- *      (console.x.ai — paid)
- *   2. Set model: "grok-4-1-fast" (or any grok-* id) in your YAML.
+ *   1. Add your API key to .env:  XAI_API_KEY=xai-...   (console.x.ai — paid)
+ *   2. Set model: "grok-4-1-fast-reasoning" (or any grok-* id) in your YAML.
  *   registerAvailableProviders() registers this adapter when the key is set.
  *
- * API-DRIFT NOTE: search_parameters and reasoning_content are the current
- * xAI chat-completions surface. If xAI moves them, this file is the only
- * place to update (webSearchBodyFields / extractReasoning).
+ * API-DRIFT NOTE: every xAI-specific choice (endpoint, key env) is confined
+ * to the overrides below — upstream drift stays a one-file fix. Note xAI's
+ * Responses endpoint reports the serving backend in the response `model`
+ * field (e.g. "grok-4.3"), which may differ from the requested id; invalid
+ * ids are properly rejected with "Model not found".
  */
 
 import { LLMRegistry } from '@google/adk';
-import type { LlmResponse } from '@google/adk';
 
-import { OpenAiCompatibleLlm } from './openAiCompatibleLlm.ts';
+import { GptLlm } from './gptLlm.ts';
 
-const XAI_ENDPOINT = 'https://api.x.ai/v1/chat/completions';
+const XAI_BASE_URL = 'https://api.x.ai/v1';
 
 // ── GrokLlm ───────────────────────────────────────────────────────────────────
 
-export class GrokLlm extends OpenAiCompatibleLlm {
+export class GrokLlm extends GptLlm {
   /** Any model: "grok-*" in a YAML config routes here after registration. */
   static readonly supportedModels: Array<string | RegExp> = [/^grok-.+/];
-
-  private apiKey?: string;
-
-  constructor({ model, apiKey }: { model: string; apiKey?: string }) {
-    super({ model });
-    this.apiKey = apiKey;
-  }
 
   protected providerId(): string {
     return 'xai';
   }
 
-  protected endpointUrl(): string {
-    return XAI_ENDPOINT;
+  protected baseURL(): string {
+    return XAI_BASE_URL;
   }
 
-  protected headers(): Record<string, string> {
-    return {
-      Authorization: `Bearer ${this.apiKey ?? process.env.XAI_API_KEY ?? ''}`,
-    };
+  protected apiKeyFromEnv(): string | undefined {
+    return process.env.XAI_API_KEY;
   }
 
-  protected missingRequirement(): LlmResponse | undefined {
-    if (this.apiKey || process.env.XAI_API_KEY) return undefined;
-    return {
-      errorCode: 'MISSING_API_KEY',
-      errorMessage: 'XAI_API_KEY is not set in environment.',
-    };
-  }
-
-  /** xAI Live Search — the model searches the web server-side. */
-  protected webSearchBodyFields(): Record<string, unknown> | null {
-    return { search_parameters: { mode: 'auto' } };
+  protected missingKeyMessage(): string {
+    return 'XAI_API_KEY is not set in environment.';
   }
 }
 

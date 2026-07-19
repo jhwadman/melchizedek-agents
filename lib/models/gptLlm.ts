@@ -163,19 +163,44 @@ export class GptLlm extends BaseLlm {
     /^o[0-9].*/,
   ];
 
-  private apiKey?: string;
+  protected apiKey?: string;
 
   constructor({ model, apiKey }: { model: string; apiKey?: string }) {
     super({ model });
     this.apiKey = apiKey;
   }
 
+  // ── Provider hooks ─────────────────────────────────────────────────────────
+  // The Responses API surface is spoken by more than one vendor: xAI's Agent
+  // Tools API (lib/models/grokLlm.ts) is wire-compatible, so GrokLlm
+  // subclasses this adapter and overrides only these hooks.
+
+  /** Provider id for telemetry and error codes. */
+  protected providerId(): string {
+    return 'openai';
+  }
+
+  /** SDK baseURL override; undefined = api.openai.com. */
+  protected baseURL(): string | undefined {
+    return undefined;
+  }
+
+  protected apiKeyFromEnv(): string | undefined {
+    return process.env.OPENAI_API_KEY;
+  }
+
+  protected missingKeyMessage(): string {
+    return 'OPENAI_API_KEY is not set in environment.';
+  }
+
+  // ── Generation ─────────────────────────────────────────────────────────────
+
   async *generateContentAsync(
     llmRequest: LlmRequest,
     stream = false,
   ): AsyncGenerator<LlmResponse, void> {
     yield* traceLlmGeneration(
-      { provider: 'openai', model: this.model },
+      { provider: this.providerId(), model: this.model },
       this.generateInner(llmRequest, stream),
     );
   }
@@ -184,11 +209,11 @@ export class GptLlm extends BaseLlm {
     llmRequest: LlmRequest,
     _stream: boolean,
   ): AsyncGenerator<LlmResponse, void> {
-    const apiKey = this.apiKey || process.env.OPENAI_API_KEY;
+    const apiKey = this.apiKey || this.apiKeyFromEnv();
     if (!apiKey) {
       yield {
         errorCode: 'MISSING_API_KEY',
-        errorMessage: 'OPENAI_API_KEY is not set in environment.',
+        errorMessage: this.missingKeyMessage(),
       };
       return;
     }
@@ -208,7 +233,10 @@ export class GptLlm extends BaseLlm {
       return;
     }
 
-    const client = new OpenAI({ apiKey });
+    const client = new OpenAI({
+      apiKey,
+      ...(this.baseURL() ? { baseURL: this.baseURL() } : {}),
+    });
 
     const { instructions, input } = buildResponsesInput(llmRequest);
     const tools = buildResponsesTools(llmRequest);
@@ -329,7 +357,10 @@ export class GptLlm extends BaseLlm {
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      yield { errorCode: 'OPENAI_ERROR', errorMessage: msg };
+      yield {
+        errorCode: `${this.providerId().toUpperCase()}_ERROR`,
+        errorMessage: msg,
+      };
     }
   }
 

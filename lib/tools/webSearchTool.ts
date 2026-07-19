@@ -19,7 +19,7 @@
  *     a client-side function tool; each provider adapter calls
  *     wantsWebSearch(llmRequest) and enables its provider's NATIVE search
  *     (Claude: web_search server tool; GPT: Responses web_search; Grok:
- *     search_parameters). Models with no native search (local Ollama) omit
+ *     Agent Tools web_search). Models with no native search (local Ollama) omit
  *     the tool and warn — local mode stays keyless by design.
  *
  *   `google_search` remains available as the Gemini-only ADK tool for

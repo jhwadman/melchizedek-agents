@@ -185,39 +185,36 @@ test('OllamaLlm yields thought part, answer, and usageMetadata from a stubbed re
   }
 });
 
-test('GrokLlm sends auth + search_parameters and surfaces reasoning_content', async () => {
-  const originalFetch = globalThis.fetch;
-  let requestBody: any;
-  let authHeader = '';
-  globalThis.fetch = (async (_url: any, init: any) => {
-    requestBody = JSON.parse(init.body);
-    authHeader = init.headers.Authorization;
-    return new Response(
-      JSON.stringify({
-        choices: [{ message: { content: 'Grok answer.', reasoning_content: 'grokking' } }],
-        usage: { prompt_tokens: 7, completion_tokens: 9, total_tokens: 16 },
-      }),
-      { status: 200 },
-    );
-  }) as any;
+test('GrokLlm speaks the Responses API dialect (subclass of GptLlm, xAI overrides)', async () => {
+  // xAI retired chat-completions Live Search (410); Grok now rides the
+  // Responses-shaped Agent Tools API through the GptLlm translator.
+  assert.ok(new GrokLlm({ model: 'grok-4-1-fast-reasoning' }) instanceof GptLlm);
+  assert.deepEqual(
+    GrokLlm.supportedModels.map((p) => String(p)),
+    [String(/^grok-.+/)],
+  );
+
+  // Without a key, the adapter yields the xAI-specific MISSING_API_KEY error
+  // (proves the env/key overrides are wired, no network involved).
+  const saved = process.env.XAI_API_KEY;
+  delete process.env.XAI_API_KEY;
   try {
-    const llm = new GrokLlm({ model: 'grok-4-1-fast-reasoning', apiKey: 'xai-test' });
-    const request = makeRequest({ model: 'grok-4-1-fast-reasoning' });
-    request.toolsDict['web_search'] = WEB_SEARCH; // the non-Gemini sentinel
-    const responses = await collect(llm.generateContentAsync(request));
-
-    assert.equal(authHeader, 'Bearer xai-test');
-    assert.deepEqual(requestBody.search_parameters, { mode: 'auto' }); // native search on
-    assert.equal(requestBody.tools, undefined); // sentinel never sent as a function tool
-
-    const thought = responses.find((r) => (r.content?.parts?.[0] as any)?.thought);
-    assert.equal((thought!.content!.parts![0] as any).text, 'grokking');
-    const final = responses.find((r) => r.turnComplete);
-    assert.equal((final!.content!.parts![0] as any).text, 'Grok answer.');
-    assert.equal(final!.usageMetadata?.candidatesTokenCount, 9);
+    const llm = new GrokLlm({ model: 'grok-4-1-fast-reasoning' });
+    const responses = await collect(
+      llm.generateContentAsync(makeRequest({ model: 'grok-4-1-fast-reasoning' })),
+    );
+    assert.equal(responses[0].errorCode, 'MISSING_API_KEY');
+    assert.match(responses[0].errorMessage!, /XAI_API_KEY/);
   } finally {
-    globalThis.fetch = originalFetch;
+    if (saved !== undefined) process.env.XAI_API_KEY = saved;
   }
+
+  // Grok's web_search request shaping is the shared Responses builder:
+  const request = makeRequest({ model: 'grok-4-1-fast-reasoning' });
+  request.toolsDict['web_search'] = WEB_SEARCH;
+  const tools = buildResponsesTools(request);
+  assert.ok(tools.some((t) => t.type === 'web_search')); // Agent Tools web_search
+  assert.ok(!tools.some((t) => t.type === 'function')); // sentinel never a function tool
 });
 
 // ── Claude request building ──────────────────────────────────────────────────

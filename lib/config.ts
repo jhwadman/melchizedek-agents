@@ -53,7 +53,7 @@ export const DEFAULT_GPT_MODEL = 'gpt-5-mini';
 /**
  * Default xAI model used when a grok-* model is requested but no specific
  * identifier is provided. Requires XAI_API_KEY (lib/models/grokLlm.ts).
- * The -reasoning variant returns reasoning_content, which the adapter
+ * The -reasoning variant returns reasoning summaries, which the adapter
  * surfaces as thinking.
  */
 export const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';

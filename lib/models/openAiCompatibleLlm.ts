@@ -3,11 +3,14 @@
  * that speaks the OpenAI chat-completions wire format.
  *
  * WHY this file exists:
- *   Ollama (local, keyless) and xAI Grok both expose /chat/completions
- *   endpoints; the ADK-Content→chat-messages translation, tool-definition
- *   building, tool_call parsing, usage accounting, and reasoning surfacing
- *   are identical between them. Subclasses supply only the endpoint, auth
- *   headers, wire model name, and provider-specific body fields.
+ *   Separates the OpenAI chat-completions wire translation (ADK Content →
+ *   chat messages, tool-definition building, tool_call parsing, usage
+ *   accounting, reasoning surfacing) from provider specifics, so any
+ *   /chat/completions-speaking provider is a small subclass supplying only
+ *   the endpoint, auth headers, wire model name, and extra body fields.
+ *   Current subclass: Ollama (local, keyless). xAI Grok used to live here
+ *   too, but xAI's Agent Tools API is Responses-shaped, so GrokLlm now
+ *   subclasses GptLlm instead (see lib/models/grokLlm.ts).
  *
  * WHAT THE BASE PROVIDES (uniformly, for every subclass):
  *   - Tool schemas normalized to lowercase JSON-Schema types

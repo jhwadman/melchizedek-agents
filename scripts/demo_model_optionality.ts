@@ -12,7 +12,7 @@
  *
  * For each provider it prints: INPUT, THINKING (when the model exposes it —
  * qwen3's <think> blocks, Claude extended thinking, GPT reasoning summaries,
- * Grok reasoning_content), OUTPUT, and a TRACE footer (wall time, input /
+ * Grok reasoning summaries), OUTPUT, and a TRACE footer (wall time, input /
  * output / thinking tokens) read from the same llm.request OpenTelemetry
  * spans every entrypoint emits. Providers whose key (or local server) is
  * absent are SKIPPED — never fatal, so the demo runs on any machine.
