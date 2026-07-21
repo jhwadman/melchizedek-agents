@@ -33,7 +33,7 @@ memory_system: "internal-only"
 
 orchestrator:
   name: "Archivist"
-  model: "gemini-3.5-flash"
+  model: "gemini-3.6-flash"
   instruction: |
     <prompt_instructions>
       <system_identity>

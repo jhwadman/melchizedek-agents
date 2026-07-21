@@ -6,7 +6,7 @@ variables:
 
 orchestrator:
   name: "RouterAgent"
-  model: "gemini-3.5-flash"
+  model: "gemini-3.6-flash"
   instruction: |
     You are a triage router. 
     You do NOT answer questions directly if they require specialized knowledge.
@@ -17,13 +17,13 @@ orchestrator:
   
 subagents:
   - name: "CodeExpert"
-    model: "gemini-3.5-flash"
+    model: "gemini-3.6-flash"
     description: "Expert in programming, software development, and debugging."
     instruction: |
       You are an expert programmer. Provide clean, correct, and well-documented code answers.
   
   - name: "MathExpert"
-    model: "gemini-3.5-flash"
+    model: "gemini-3.6-flash"
     description: "Expert in mathematics, formulas, and calculations."
     instruction: |
       You are a math expert. Solve equations and explain the steps clearly.

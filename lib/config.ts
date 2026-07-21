@@ -23,7 +23,7 @@
  * in the caller's YAML or request.
  *
  * Use gemini-3.1-flash-lite for lightweight/cost-efficient loads (subagents,
- * data retrieval). Use gemini-3.5-flash in YAML for production orchestrators.
+ * data retrieval). Use gemini-3.6-flash in YAML for production orchestrators.
  *
  * NOTE: gemini-2.5-flash is known incompatible with this framework's
  * includeServerSideToolInvocations flag on AI Studio Tier 1 — do not use it
@@ -71,7 +71,7 @@ export const DEFAULT_OLLAMA_MODEL = 'ollama/qwen3:8b';
  *
  * Must be a text generation model (not an embedding model).
  */
-export const MEMORY_EXTRACTION_MODEL = 'gemini-3.5-flash';
+export const MEMORY_EXTRACTION_MODEL = 'gemini-3.6-flash';
 
 // ── Embedding Models ──────────────────────────────────────────────────────────
 

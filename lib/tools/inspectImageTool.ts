@@ -22,7 +22,7 @@ import { GoogleGenAI, type Schema } from '@google/genai';
 import { readFileSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
 
-const VISION_MODEL = 'gemini-3.5-flash';
+const VISION_MODEL = 'gemini-3.6-flash';
 
 const INVENTORY_PROTOCOL = `You are a blind visual inventory agent. You know NOTHING about what this image was supposed to be, who requested it, or why. Enumerate ONLY what is actually present:
 

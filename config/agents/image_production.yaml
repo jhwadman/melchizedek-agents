@@ -21,7 +21,7 @@ memory_system: "session-only"
 
 orchestrator:
   name: "ImageDesigner"
-  model: "gemini-3.5-flash"
+  model: "gemini-3.6-flash"
   tools:
     - "generate_image"
     - "inspect_image"
@@ -67,7 +67,7 @@ orchestrator:
 subagents:
   - name: "SpecAuditor"
     description: "Compares an approved image spec (JSON payload) against a blind visual inventory (text). Pass BOTH verbatim in one message. Returns structured conformance JSON. It must NEVER receive the image itself."
-    model: "gemini-3.5-flash"
+    model: "gemini-3.6-flash"
     generateContentConfig:
       responseMimeType: "application/json"
       temperature: 0.2

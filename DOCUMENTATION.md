@@ -58,7 +58,7 @@ variables:                        # bound into {{placeholders}} at load
 
 orchestrator:
   name: "Conductor"
-  model: "gemini-3.5-flash"
+  model: "gemini-3.6-flash"
   instruction: |
     You are the Conductor… (persona, objective, workflow contract)
   tools:
@@ -73,7 +73,7 @@ orchestrator:
 subagents:
   - name: "Researcher"
     description: "Use this subagent to… Pass it one focused query."
-    model: "gemini-3.5-flash"
+    model: "gemini-3.6-flash"
     instruction: |
       You are the Researcher…
     tools: ["google_search"]
@@ -320,7 +320,7 @@ smallest pulled model with reliable tool calling; qwen3-vl:8b adds
 vision.
 
 Model floor: agent transfer (subagent delegation) requires
-`gemini-3.5-flash` or newer — older flash models reject it with
+`gemini-3.6-flash` or newer — older flash models reject it with
 `[400] Tool call context circulation is not enabled`. For `ollama/*`
 agents the equivalent floor is tool-calling support in the model
 itself; delegation is exercised through AgentTool function calls.

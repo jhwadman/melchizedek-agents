@@ -125,7 +125,7 @@ See `demo/a2a_demo.mjs` for a working client and `DOCUMENTATION.md`
 | Symptom | Cause / fix |
 |---|---|
 | `Gemini API Key is not configured` | `.env` missing or key not set — step 2. |
-| `[400] Tool call context circulation is not enabled` | The agent's `model:` is too old for agent transfer. Use `gemini-3.5-flash` or newer (all shipped configs already do). |
+| `[400] Tool call context circulation is not enabled` | The agent's `model:` is too old for agent transfer. Use `gemini-3.6-flash` or newer (all shipped configs already do). |
 | `Model not found` for `claude-*` / `gpt-*` / `grok-*` | The matching provider key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `XAI_API_KEY`) is not set in `.env`, so the provider wasn't registered. |
 | `OLLAMA_UNREACHABLE` for `ollama/*` | Ollama isn't running — start the app or `ollama serve`; then check the model is pulled (`ollama list`). |
 | `Refusing to connect to private/loopback MCP host` | The SSRF guard is on (correctly). For the local demo set `ALLOW_PRIVATE_MCP=true` in `.env`. |

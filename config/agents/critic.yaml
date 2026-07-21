@@ -16,7 +16,7 @@ syndicate_name: "Critic Review Workflow"
 
 orchestrator:
   name: "ReviewOrchestrator"
-  model: "gemini-3.5-flash"
+  model: "gemini-3.6-flash"
   instruction: |
     You coordinate an iterative review process between a Drafter and a Critic.
     Your goal is to ensure only HIGH-CONFIDENCE answers reach the user.
@@ -39,7 +39,7 @@ orchestrator:
 
 subagents:
   - name: "DrafterAgent"
-    model: "gemini-3.5-flash"
+    model: "gemini-3.6-flash"
     description: "Creates comprehensive initial draft answers for any user query. On subsequent rounds, revises its draft based on Critic feedback."
     instruction: |
       You are the Drafter. When given a query, produce a thorough initial answer.
@@ -48,7 +48,7 @@ subagents:
       every concern raised and produce an improved, more accurate revision.
 
   - name: "CriticAgent"
-    model: "gemini-3.5-flash"
+    model: "gemini-3.6-flash"
     description: "Reviews a draft answer for accuracy and returns a structured JSON with the refined message and a confidence score. Low scores trigger re-drafting."
     generateContentConfig:
       responseMimeType: "application/json"

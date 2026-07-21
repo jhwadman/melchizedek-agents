@@ -27,7 +27,7 @@ memory_system: "long-term"
 
 orchestrator:
   name: "Asclepius"
-  model: "gemini-3.5-flash"
+  model: "gemini-3.6-flash"
   instruction: |
     <prompt_instructions>
       <system_identity>

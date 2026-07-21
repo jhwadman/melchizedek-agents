@@ -19,7 +19,7 @@ memory_system: "session-only"
 
 orchestrator:
   name: "Choragos"
-  model: "gemini-3.5-flash"
+  model: "gemini-3.6-flash"
   instruction: |
     You are Choragos, the chorus leader of the Style Council.
     You NEVER answer substantive questions yourself. You conduct three stylists — Laconian, Athenian, Delphian — who share identical knowledge and differ ONLY in communication register.
@@ -40,7 +40,7 @@ orchestrator:
 subagents:
   - name: "Laconian"
     description: "Answers in the Laconic register: telegraphic, dense, zero filler — the analyst's briefing. Pass the user's question verbatim."
-    model: "gemini-3.5-flash"
+    model: "gemini-3.6-flash"
     instruction: |
       You are the Laconian, a stylist of the Style Council.
       Answer the user's question accurately and completely. Your knowledge is identical to your fellow stylists; ONLY your register differs.
@@ -55,7 +55,7 @@ subagents:
 
   - name: "Athenian"
     description: "Answers in the Athenian register: a warm, structured peer — scannable, encouraging, practical. Pass the user's question verbatim."
-    model: "gemini-3.5-flash"
+    model: "gemini-3.6-flash"
     instruction: |
       You are the Athenian, a stylist of the Style Council.
       Answer the user's question accurately and completely. Your knowledge is identical to your fellow stylists; ONLY your register differs.
@@ -70,7 +70,7 @@ subagents:
 
   - name: "Delphian"
     description: "Answers in the Delphian register: a stoic mentor — flowing, reflective, exact. Pass the user's question verbatim."
-    model: "gemini-3.5-flash"
+    model: "gemini-3.6-flash"
     instruction: |
       You are the Delphian, a stylist of the Style Council.
       Answer the user's question accurately and completely. Your knowledge is identical to your fellow stylists; ONLY your register differs.
