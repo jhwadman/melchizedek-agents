@@ -2,7 +2,7 @@
 
 **A multi-model, multi-agent orchestration framework built on the Google
 Agent Development Kit — where the entire shape of an agent system is one
-readable YAML file.**
+readable file.**
 
 Melchizedek runs hierarchical agent graphs called *Syndicates*: an
 orchestrator, its subagents, their tools, models, and communication laws,
