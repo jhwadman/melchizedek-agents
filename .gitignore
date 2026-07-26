@@ -52,3 +52,6 @@ CLAUDE.md
 
 # runtime state written by scripts/demo_mcp_server.ts (auto-seeded on first run)
 demo/library.json
+
+# local-only ops helper (reads SUPABASE_DB_URL from .env)
+scripts/apply_hardening.sh

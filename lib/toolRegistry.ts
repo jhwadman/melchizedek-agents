@@ -16,12 +16,14 @@ import {
 import { generateImageTool } from './tools/generateImageTool.ts';
 import { inspectImageTool } from './tools/inspectImageTool.ts';
 import { WEB_SEARCH } from './tools/webSearchTool.ts';
+import { X_SEARCH } from './tools/xSearchTool.ts';
 
 const TOOL_MAP: Record<string, unknown> = {
   // Provider-agnostic web search: routes to the model's NATIVE search
   // (Gemini grounding / Anthropic / OpenAI / xAI); omitted with a warning
   // for local models. Prefer this in new YAMLs.
   web_search: WEB_SEARCH,
+  x_search: X_SEARCH,
   // Gemini-only ADK grounding tool, kept for backward compatibility.
   google_search: GOOGLE_SEARCH,
   generate_image: generateImageTool,

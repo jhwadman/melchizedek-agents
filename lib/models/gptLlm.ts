@@ -45,6 +45,10 @@ import {
   wantsWebSearch,
   isWebSearchSentinel,
 } from '../tools/webSearchTool.ts';
+import {
+  wantsXSearch,
+  isXSearchSentinel,
+} from '../tools/xSearchTool.ts';
 import { toLowercaseJsonSchema } from './schemaNormalize.ts';
 
 /** Reasoning-capable ids: o-series and the gpt-5 family. The reasoning
@@ -135,6 +139,7 @@ export function buildResponsesTools(llmRequest: LlmRequest): any[] {
   const tools: any[] = [];
   for (const [, tool] of Object.entries(llmRequest.toolsDict ?? {})) {
     if (isWebSearchSentinel(tool)) continue; // added as a native tool below
+    if (isXSearchSentinel(tool)) continue;   // added as a native tool below
     const t = tool as any;
     if (t.name && t.description) {
       tools.push({
@@ -150,6 +155,9 @@ export function buildResponsesTools(llmRequest: LlmRequest): any[] {
   }
   if (wantsWebSearch(llmRequest)) {
     tools.push({ type: 'web_search' }); // OpenAI-native, runs server-side
+  }
+  if (wantsXSearch(llmRequest)) {
+    tools.push({ type: 'x_search' }); // xAI Agent Tools only (sentinel is xai-gated)
   }
   return tools;
 }

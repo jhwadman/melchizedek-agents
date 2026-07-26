@@ -603,9 +603,16 @@ export async function startServer(syndicateName: string = 'syndicate.yaml') {
   // (/:agentId/a2a/...) can't be used to bypass the cap. GET requests are
   // exempted because task-status polling issues many GETs per task and is
   // cheap; the limit targets the expensive POST task submissions.
+  // NOTE: the bearer-auth middleware above runs BEFORE this limiter, so only
+  // AUTHENTICATED callers ever reach it — its role is runaway/cost protection
+  // (a buggy client loop burning Gemini quota), not anonymous-abuse defense.
+  // Sized for the nihilistic-penguin daily advisory pipeline (~34 task
+  // submissions in one burst: 30 council + news + macro + architect + critic)
+  // plus concurrent interactive Discord use; the old 20/hour cap forced that
+  // pipeline into multi-window backoff crawls. GETs (task polling) stay exempt.
   const limiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 20, // 20 task submissions per hour per IP
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 60, // 60 task submissions per 15 min per IP (~240/h runaway ceiling)
     standardHeaders: true,
     legacyHeaders: false,
     skip: (req) => req.method === 'GET',

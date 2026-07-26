@@ -201,7 +201,17 @@ export function resolveModel(
   const resolved =
     model ??
     DEFAULT_MODEL_FOR[normalizeProvider(options.defaultProvider)];
-  const apiKey = options.apiKey;
+  // BYOK is scoped to the CALLER'S provider: the X-API-Key a client sends
+  // authenticates that client's own provider (typically Gemini). Passing it
+  // to a different provider's adapter would override the server's env key
+  // (adapters prefer a passed key) and fail auth — e.g. a Gemini key sent to
+  // xAI. Cross-provider agents therefore resolve keys from server env.
+  const apiKey =
+    providerForModel(
+      model ?? DEFAULT_MODEL_FOR[normalizeProvider(options.defaultProvider)],
+    ) === normalizeProvider(options.defaultProvider)
+      ? options.apiKey
+      : undefined;
 
   switch (providerForModel(resolved)) {
     case 'ollama':
