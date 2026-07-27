@@ -192,9 +192,23 @@ subagents:
     # [optional] Named built-in tools for this subagent.
     # Maps to: tools[] on LlmAgent
     # Supported values include "web_search" (provider-agnostic),
-    # "google_search" (Gemini-only, legacy), "code_execution".
+    # "google_search" (Gemini-only, legacy), "code_execution",
+    # and the knowledge-bundle tools "wiki_map", "wiki_search",
+    # "wiki_read", "wiki_links", "wiki_dive", "wiki_save"
+    # (lib/toolRegistry.ts is the authoritative name→tool map).
     tools:
       - "web_search"
+
+    # [optional] MCP server to discover tools from at RUNTIME.
+    # Maps to: nothing on LlmAgent directly — the framework dials
+    # this URL (SSE), asks tools/list, and wraps each remote tool
+    # as a live agent tool (lib/tools/mcpToolFactory.ts). Merges
+    # with the declared tools above; declared names win on
+    # collision. An unreachable server degrades to an empty tool
+    # list with a console warning. Loopback/private hosts are
+    # refused unless ALLOW_PRIVATE_MCP=true (local development).
+    # See config/agents/librarian.yaml for the worked example.
+    # mcp_server_url: "http://localhost:8931/sse"
 
     # [optional] Stateless operation — subagent sees no history.
     # Maps to: includeContents

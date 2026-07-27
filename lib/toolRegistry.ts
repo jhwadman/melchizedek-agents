@@ -15,10 +15,24 @@ import {
 } from '@google/adk';
 import { generateImageTool } from './tools/generateImageTool.ts';
 import { inspectImageTool } from './tools/inspectImageTool.ts';
+import { toFunctionTool } from './tools/toolContract.ts';
 import { WEB_SEARCH } from './tools/webSearchTool.ts';
+import { WIKI_AGENT_TOOL_CONTRACTS } from './tools/wikiTools.ts';
 import { X_SEARCH } from './tools/xSearchTool.ts';
 
+// Knowledge-bundle tools, derived from their contracts so the YAML names
+// can never drift from the definitions. The agentic composites
+// (wiki_query/wiki_garden) are deliberately absent: a syndicate reaches
+// that behavior by being an agent WITH these primitives.
+const WIKI_TOOLS = Object.fromEntries(
+  WIKI_AGENT_TOOL_CONTRACTS.map((contract) => [
+    contract.name,
+    toFunctionTool(contract),
+  ]),
+);
+
 const TOOL_MAP: Record<string, unknown> = {
+  ...WIKI_TOOLS,
   // Provider-agnostic web search: routes to the model's NATIVE search
   // (Gemini grounding / Anthropic / OpenAI / xAI); omitted with a warning
   // for local models. Prefer this in new YAMLs.

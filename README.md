@@ -78,6 +78,7 @@ worked specimen for a curriculum module:
 | `image_production.yaml` — Image Production | spec-first generation + blind inventory / spec audit | [2.08 · multi-modal agents](https://lyceumagents.com/curriculum/multimodal-agents/) |
 | `claude.yaml` — Claude Chat | minimal single-agent config; the multi-model adapter in one file | — |
 | `model_zoo.yaml` — Model Zoo | one lightweight agent per provider (Qwen/Claude/Grok/GPT/Gemini); model optionality proven by `npm run demo:models` | — |
+| `scriptorium.yaml` — The Scriptorium | agents over the shipped knowledge bundle: query with citations, author through a validated save gate | — |
 
 `syndicateSchema.yaml` is the annotated schema reference for authoring
 your own.
@@ -104,6 +105,13 @@ your own.
 - **A2A service mode** — serve any syndicate as a JSON-RPC
   agent-to-agent endpoint with bearer auth and rate limiting
   (`npm run start:a2a`).
+- **A knowledge bundle, with tools** — `wiki/` is this framework's own
+  documentation as an [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
+  bundle: markdown concepts + YAML frontmatter whose links form a knowledge
+  graph. `lib/wiki/` builds, lints, searches, graphs, and gardens any such
+  bundle (`npm run wiki:init` scaffolds a fresh one); the tools are served
+  to agents by name and to MCP clients via `npm run mcp:wiki` (see
+  DOCUMENTATION §9 and `wiki/meta/wiki-system.md`).
 
 ## License
 

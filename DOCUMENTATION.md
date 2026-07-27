@@ -16,6 +16,7 @@ see [`QUICKSTART.md`](./QUICKSTART.md).
 6. [A2A service mode](#6-a2a-service-mode)
 7. [Extending the framework](#7-extending-the-framework)
 8. [Security notes](#8-security-notes)
+9. [The knowledge bundle (wiki/)](#9-the-knowledge-bundle-wiki)
 
 ---
 
@@ -377,3 +378,44 @@ tool definitions, SSE wiring, and persistent state in ~250 lines.
 - **Local models** (`ollama/*`) send prompts only to your own machine's
   Ollama endpoint — nothing leaves the device, which is itself a privacy
   control worth choosing deliberately.
+
+---
+
+## 9. The knowledge bundle (wiki/)
+
+`wiki/` is this framework's documentation as an **Open Knowledge Format v0.2
+bundle** ([spec](https://github.com/GoogleCloudPlatform/knowledge-catalog)):
+markdown concept documents with YAML frontmatter (`type` is the only
+required key), linked with ordinary bundle-absolute markdown links — and
+the links ARE the knowledge graph. `index.md` per directory and the root
+`log.md` are reserved, machine-maintained files. Start at
+`wiki/meta/wiki-system.md`; the whole bundle renders on GitHub.
+
+The tooling in `lib/wiki/` is **bundle-agnostic** — point `WIKI_ROOT` at any
+OKF directory, or scaffold a fresh one with `npm run wiki:init`:
+
+- **Parse & build** (`markdown.ts`, `builder.ts`) — a zero-dependency
+  structural engine; documents interleave machine-owned `wiki:generated`
+  regions (rebuilt from source-of-truth files), `wiki:fill` prose slots an
+  LLM fills once (`lib/wiki/fill.ts`, any provider via the model registry),
+  and ordinary prose that rebuilds never touch.
+- **Graph** (`graph.ts`) — nodes are documents, edges are resolved links;
+  orphans and broken links fall out as queries.
+- **Lint** (`lint.ts`, `npm run wiki:check`) — OKF conformance, link
+  integrity, index coverage, staleness, and the private-subtree closure
+  rule; errors gate every write.
+- **Navigate & garden** (`lib/tools/wikiTools.ts`) — tool contracts (§3
+  pattern) in three tiers: navigation (`wiki_map`, `wiki_search`,
+  `wiki_read`, `wiki_links`, `wiki_dive` — a "repo dive" returns an ordered
+  reading plan for a task), the gated write (`wiki_save` — lint-validated,
+  path-jailed, auto-updates the directory index and `log.md`), and agentic
+  composites (`wiki_query`, `wiki_garden` — one-shot agents with citations
+  and honest actor attribution in frontmatter provenance).
+
+Serving: syndicate agents declare the navigation/save tools by name
+(`config/agents/scriptorium.yaml` is the worked example —
+`npm run syndicate:scriptorium`); outside MCP clients get all eight from
+`npm run mcp:wiki` (loopback SSE on `:8933`). Trust is explicit in
+frontmatter: `generated.by` records who wrote a document (`human:<id>`,
+`process:<id>`, or `<producer>/<model>`), and only a `human:` entry in
+`verified` makes it human-reviewed.

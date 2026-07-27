@@ -73,6 +73,15 @@ export const DEFAULT_OLLAMA_MODEL = 'ollama/qwen3:8b';
  */
 export const MEMORY_EXTRACTION_MODEL = 'gemini-3.6-flash';
 
+/**
+ * Default model for wiki agent operations (wiki_query, wiki_garden, and the
+ * gap-fill pass in lib/wiki/fill.ts). Prose quality matters more than
+ * latency here, so this sits one tier above the subagent default. Any
+ * provider works — override per call or via WIKI_AGENT_MODEL env
+ * ('claude-*', 'ollama/*', …); routing goes through lib/models/registry.ts.
+ */
+export const WIKI_AGENT_MODEL = 'gemini-3.6-flash';
+
 // ── Embedding Models ──────────────────────────────────────────────────────────
 
 /**

@@ -23,7 +23,11 @@
     "demo:models": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_model_optionality.ts",
     "syndicate:agora": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate agora",
     "syndicate:librarian": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate librarian",
+    "syndicate:scriptorium": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate scriptorium",
     "mcp:demo": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_mcp_server.ts",
+    "mcp:wiki": "node --disable-warning=DEP0040 --experimental-strip-types scripts/wiki_mcp_server.ts",
+    "wiki:init": "node --disable-warning=DEP0040 --experimental-strip-types scripts/wiki_init.ts",
+    "wiki:check": "node --disable-warning=DEP0040 --experimental-strip-types scripts/wiki_check.ts",
     "start:a2a": "node --disable-warning=DEP0040 --experimental-strip-types scripts/a2a_server.ts",
     "test": "node --disable-warning=DEP0040 --experimental-strip-types --test tests/**/*.test.ts",
     "db:purge": "node --disable-warning=DEP0040 --experimental-strip-types scripts/purge_supabase.ts"
@@ -42,7 +46,8 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "openai": "^6.48.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
