@@ -65,6 +65,15 @@ after answering:
 npm run syndicate:critic -- "In two sentences, why did the Library of Alexandria decline?"
 ```
 
+The syndicate layer itself is optional. `scripts/direct_call.ts` launches
+a single ADK agent with no YAML at all — conventional, code-first agent
+calling, and the block to copy when embedding an agent in your own code:
+
+```bash
+npm run demo:direct -- "In one sentence: what is an agent?"
+npm run demo:direct -- --model ollama/qwen3:8b hello   # keyless, local
+```
+
 ## 4. Optional: persistent sessions & long-term memory
 
 Syndicates with `memory_system: "session-only"` or `"long-term"` want a

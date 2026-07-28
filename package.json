@@ -21,6 +21,7 @@
     "syndicate:advocate": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate patient_advocate",
     "syndicate:hearth": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate hearth",
     "demo:models": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_model_optionality.ts",
+    "demo:direct": "node --disable-warning=DEP0040 --experimental-strip-types scripts/direct_call.ts",
     "syndicate:agora": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate agora",
     "syndicate:librarian": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate librarian",
     "syndicate:scriptorium": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate scriptorium",

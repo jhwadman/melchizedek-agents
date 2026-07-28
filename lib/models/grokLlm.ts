@@ -21,8 +21,10 @@
  *
  * HOW TO ENABLE:
  *   1. Add your API key to .env:  XAI_API_KEY=xai-...   (console.x.ai — paid)
- *   2. Set model: "grok-4-1-fast-reasoning" (or any grok-* id) in your YAML.
+ *   2. Set model: "grok-4.5" (or any grok-* id) in your YAML.
  *   registerAvailableProviders() registers this adapter when the key is set.
+ *   grok-4.5 requests carry reasoning effort 'medium' by default — see
+ *   reasoningParam() below and DEFAULT_GROK_REASONING_EFFORT (lib/config.ts).
  *
  * API-DRIFT NOTE: every xAI-specific choice (endpoint, key env) is confined
  * to the overrides below — upstream drift stays a one-file fix. Note xAI's
@@ -33,6 +35,7 @@
 
 import { LLMRegistry } from '@google/adk';
 
+import { DEFAULT_GROK_REASONING_EFFORT } from '../config.ts';
 import { GptLlm } from './gptLlm.ts';
 
 const XAI_BASE_URL = 'https://api.x.ai/v1';
@@ -57,6 +60,20 @@ export class GrokLlm extends GptLlm {
 
   protected missingKeyMessage(): string {
     return 'XAI_API_KEY is not set in environment.';
+  }
+
+  /** grok-4.5 exposes reasoning-effort control ('low' | 'medium' | 'high';
+   *  xAI defaults to 'high', and reasoning cannot be disabled) via the
+   *  Responses API `reasoning.effort` field — docs.x.ai › Model
+   *  capabilities › Text › Reasoning › Effort levels. We pin
+   *  DEFAULT_GROK_REASONING_EFFORT (medium). Other grok ids don't accept
+   *  the param and get none (their reasoning summaries arrive unrequested);
+   *  if xAI ever rejects it, GptLlm's guarded 400 retry drops it. */
+  protected reasoningParam(): Record<string, unknown> | undefined {
+    if (/^grok-4\.5/.test(this.model)) {
+      return { effort: DEFAULT_GROK_REASONING_EFFORT };
+    }
+    return undefined;
   }
 }
 

@@ -188,7 +188,7 @@ test('OllamaLlm yields thought part, answer, and usageMetadata from a stubbed re
 test('GrokLlm speaks the Responses API dialect (subclass of GptLlm, xAI overrides)', async () => {
   // xAI retired chat-completions Live Search (410); Grok now rides the
   // Responses-shaped Agent Tools API through the GptLlm translator.
-  assert.ok(new GrokLlm({ model: 'grok-4-1-fast-reasoning' }) instanceof GptLlm);
+  assert.ok(new GrokLlm({ model: 'grok-4.5' }) instanceof GptLlm);
   assert.deepEqual(
     GrokLlm.supportedModels.map((p) => String(p)),
     [String(/^grok-.+/)],
@@ -199,9 +199,9 @@ test('GrokLlm speaks the Responses API dialect (subclass of GptLlm, xAI override
   const saved = process.env.XAI_API_KEY;
   delete process.env.XAI_API_KEY;
   try {
-    const llm = new GrokLlm({ model: 'grok-4-1-fast-reasoning' });
+    const llm = new GrokLlm({ model: 'grok-4.5' });
     const responses = await collect(
-      llm.generateContentAsync(makeRequest({ model: 'grok-4-1-fast-reasoning' })),
+      llm.generateContentAsync(makeRequest({ model: 'grok-4.5' })),
     );
     assert.equal(responses[0].errorCode, 'MISSING_API_KEY');
     assert.match(responses[0].errorMessage!, /XAI_API_KEY/);
@@ -210,11 +210,34 @@ test('GrokLlm speaks the Responses API dialect (subclass of GptLlm, xAI override
   }
 
   // Grok's web_search request shaping is the shared Responses builder:
-  const request = makeRequest({ model: 'grok-4-1-fast-reasoning' });
+  const request = makeRequest({ model: 'grok-4.5' });
   request.toolsDict['web_search'] = WEB_SEARCH;
   const tools = buildResponsesTools(request);
   assert.ok(tools.some((t) => t.type === 'web_search')); // Agent Tools web_search
   assert.ok(!tools.some((t) => t.type === 'function')); // sentinel never a function tool
+});
+
+test('reasoningParam: grok-4.5 pins effort medium; other ids keep their shapes', () => {
+  // grok-4.5 sends the xAI effort control (docs.x.ai › Reasoning › Effort
+  // levels; xAI's own default is high) — pinned to medium in lib/config.ts.
+  assert.deepEqual(
+    (new GrokLlm({ model: 'grok-4.5' }) as any).reasoningParam(),
+    { effort: 'medium' },
+  );
+  // Older grok ids don't accept the param and must not send one.
+  assert.equal(
+    (new GrokLlm({ model: 'grok-4-1-fast-reasoning' }) as any).reasoningParam(),
+    undefined,
+  );
+  // OpenAI reasoning ids keep requesting summaries; non-reasoning ids none.
+  assert.deepEqual(
+    (new GptLlm({ model: 'gpt-5-mini' }) as any).reasoningParam(),
+    { summary: 'auto' },
+  );
+  assert.equal(
+    (new GptLlm({ model: 'gpt-4o' }) as any).reasoningParam(),
+    undefined,
+  );
 });
 
 // ── Claude request building ──────────────────────────────────────────────────

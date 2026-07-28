@@ -201,6 +201,15 @@ export class GptLlm extends BaseLlm {
     return 'OPENAI_API_KEY is not set in environment.';
   }
 
+  /** Responses API `reasoning` request param, or undefined to omit it.
+   *  Base: reasoning summaries for OpenAI's reasoning-capable ids.
+   *  Subclasses override per vendor (GrokLlm pins grok-4.5 to a reasoning
+   *  effort). A 400 from a model that rejects the param is retried once
+   *  without it — see the guarded retry in generateInner. */
+  protected reasoningParam(): Record<string, unknown> | undefined {
+    return isReasoningModel(this.model) ? { summary: 'auto' } : undefined;
+  }
+
   // ── Generation ─────────────────────────────────────────────────────────────
 
   async *generateContentAsync(
@@ -253,6 +262,7 @@ export class GptLlm extends BaseLlm {
     }
 
     const cfg = (llmRequest.config as any) ?? {};
+    const reasoning = this.reasoningParam();
     const request: Record<string, unknown> = {
       model: this.model,
       input,
@@ -278,10 +288,9 @@ export class GptLlm extends BaseLlm {
         : cfg.responseMimeType === 'application/json'
           ? { text: { format: { type: 'json_object' } } }
           : {}),
-      // Reasoning summaries — the model's thinking, when it exposes any.
-      ...(isReasoningModel(this.model)
-        ? { reasoning: { summary: 'auto' } }
-        : {}),
+      // Reasoning param — summaries and/or vendor effort control (see
+      // reasoningParam hook; provider subclasses shape it).
+      ...(reasoning ? { reasoning } : {}),
     };
 
     try {

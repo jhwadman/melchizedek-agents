@@ -49,6 +49,9 @@ Model optionality is one YAML line per agent: `gemini-*`, `claude-*`,
 ```bash
 npm run demo:models     # one prompt → every available provider,
                         # with thinking + token/latency traces
+npm run demo:direct     # one agent, no syndicate — conventional ADK
+                        # calling (scripts/direct_call.ts is the block
+                        # to copy into your own code)
 ```
 
 Full setup — including the optional Supabase database for persistent

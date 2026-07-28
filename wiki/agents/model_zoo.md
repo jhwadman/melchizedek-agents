@@ -5,8 +5,8 @@ description: The Model Zoo syndicate.
 tags:
   - syndicate
 generated:
-  by: melchizedek/gemini-3.6-flash
-  at: 2026-07-27
+  by: process:wiki-build
+  at: 2026-07-28
 sources:
   - resource: config/agents/model_zoo.yaml
 ---
@@ -25,7 +25,7 @@ The Model Zoo syndicate serves as a proof of model optionality, demonstrating ho
 |---|---|---|---|
 | qwen_local | `ollama/qwen3:8b` | — | — |
 | claude | `claude-sonnet-4-6` | — | — |
-| grok | `grok-4-1-fast-reasoning` | — | — |
+| grok | `grok-4.5` | — | — |
 | gpt | `gpt-5-mini` | — | — |
 | gemini | `gemini-3.1-flash-lite` | — | — |
 <!-- /wiki:generated -->

@@ -338,6 +338,14 @@ a complete client.
 
 ## 7. Extending the framework
 
+**Call ADK directly (no syndicate)**: the YAML layer is a convenience,
+never a requirement. `scripts/direct_call.ts` (`npm run demo:direct`) is
+the canonical minimal block — `LlmAgent` + `Runner` +
+`InMemorySessionService` straight from `@google/adk`, ~30 lines you can
+copy into any repo that has `@google/adk` installed. Add
+`registerAvailableProviders()` from `lib/models/registry.ts` and the
+same block runs `claude-*` / `gpt-*` / `grok-*` / `ollama/*` ids too.
+
 **Add a syndicate**: create `config/agents/<name>.yaml` (start from
 `syndicateSchema.yaml`), then `npm run chat:syndicate -- --syndicate
 <name>`. No code changes.

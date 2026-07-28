@@ -107,6 +107,14 @@ One-shot mode (answers and exits — this is also how you'll script it):
 npm run syndicate:critic -- "In two sentences, why did the Library of Alexandria decline?"
 ```
 
+And the floor of the whole framework — one agent, no syndicate, plain
+ADK. `scripts/direct_call.ts` is the ~30-line block you'll copy when an
+agent belongs inside your own code rather than behind a YAML:
+
+```bash
+npm run demo:direct -- "In one sentence: what is an agent?"
+```
+
 If you configured Supabase, test the thing that makes this framework
 worth keeping:
 

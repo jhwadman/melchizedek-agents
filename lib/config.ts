@@ -53,10 +53,19 @@ export const DEFAULT_GPT_MODEL = 'gpt-5-mini';
 /**
  * Default xAI model used when a grok-* model is requested but no specific
  * identifier is provided. Requires XAI_API_KEY (lib/models/grokLlm.ts).
- * The -reasoning variant returns reasoning summaries, which the adapter
- * surfaces as thinking.
+ * grok-4.5 is a reasoning model (reasoning cannot be disabled); it returns
+ * reasoning summaries, which the adapter surfaces as thinking.
  */
-export const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';
+export const DEFAULT_GROK_MODEL = 'grok-4.5';
+
+/**
+ * Reasoning effort sent with grok-4.5 requests: 'low' | 'medium' | 'high'
+ * (xAI's own default is 'high'). Pinned to MEDIUM — deeper than low
+ * without high's latency and token cost. Source: docs.x.ai › Model
+ * capabilities › Text › Reasoning › Effort levels. Older grok ids don't
+ * accept the param and never receive it (lib/models/grokLlm.ts).
+ */
+export const DEFAULT_GROK_REASONING_EFFORT = 'medium';
 
 /**
  * Default open-weight model, served locally by Ollama (lib/models/ollamaLlm.ts).
