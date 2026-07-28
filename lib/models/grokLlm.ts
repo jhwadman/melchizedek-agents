@@ -15,7 +15,11 @@
  *   live 2026-07-19). So Grok reuses the GptLlm translator via the openai
  *   SDK's baseURL override, and gets for free:
  *     - native web_search (server-side, with source citations)
+ *     - x_search (live X posts) and collections_search (hosted document
+ *       stores via the file_search wire shape — see collectionsSearchTool.ts)
  *     - reasoning summaries surfaced as { thought: true } THINKING output
+ *     - SSE streaming (ADK RunConfig streamingMode: SSE → partial deltas)
+ *     - structured outputs (YAML outputSchema → text.format json_schema)
  *     - function tools with call_id round-tripping, lowercased schemas
  *     - usage → usageMetadata mapping for llm.request token spans
  *
@@ -60,6 +64,13 @@ export class GrokLlm extends GptLlm {
 
   protected missingKeyMessage(): string {
     return 'XAI_API_KEY is not set in environment.';
+  }
+
+  /** xAI's streaming docs advise a long request timeout for reasoning
+   *  models (their examples use 3600s) so slow thinking can't trip the
+   *  SDK's default mid-stream. Applied to all Grok requests. */
+  protected clientOptions(): Record<string, unknown> {
+    return { timeout: 3_600_000 };
   }
 
   /** grok-4.5 exposes reasoning-effort control ('low' | 'medium' | 'high';

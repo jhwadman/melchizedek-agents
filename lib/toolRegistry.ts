@@ -13,6 +13,7 @@ import {
   LOAD_MEMORY,
   PRELOAD_MEMORY,
 } from '@google/adk';
+import { COLLECTIONS_SEARCH } from './tools/collectionsSearchTool.ts';
 import { generateImageTool } from './tools/generateImageTool.ts';
 import { inspectImageTool } from './tools/inspectImageTool.ts';
 import { toFunctionTool } from './tools/toolContract.ts';
@@ -38,6 +39,8 @@ const TOOL_MAP: Record<string, unknown> = {
   // for local models. Prefer this in new YAMLs.
   web_search: WEB_SEARCH,
   x_search: X_SEARCH,
+  // xAI-only: semantic search over hosted Collections (XAI_COLLECTION_IDS).
+  collections_search: COLLECTIONS_SEARCH,
   // Gemini-only ADK grounding tool, kept for backward compatibility.
   google_search: GOOGLE_SEARCH,
   generate_image: generateImageTool,

@@ -108,6 +108,8 @@ instance:
 | Name | Kind | Does |
 |---|---|---|
 | `web_search` | Provider-agnostic | Live web search via the agent model's NATIVE search: Gemini grounding, Anthropic `web_search` server tool, OpenAI Responses `web_search`, xAI Agent Tools `web_search`. On local `ollama/*` models the tool is omitted with a one-time warning (keyless stays keyless). Prefer this in new YAMLs. |
+| `x_search` | xAI-only | Live search over X (Twitter) posts via xAI Agent Tools. Self-gates to `grok-*` agents; a silent no-op on every other provider, so mixed-provider YAMLs stay safe. |
+| `collections_search` | xAI-only | Semantic search over xAI **Collections** — hosted document stores (PDFs/text/CSVs) uploaded at console.x.ai — server-side RAG with `collections://…` citations. Which collections: `XAI_COLLECTION_IDS` in `.env` (optional `XAI_COLLECTIONS_MAX_RESULTS`). Declared with no ids → omitted with a warning; non-xAI providers → silent no-op. |
 | `google_search` | ADK built-in | Live web search — Gemini agents only (legacy alias; use `web_search`). |
 | `preload_memory` | ADK built-in | Silently injects similarity-matched facts into every request (ambient recall). |
 | `load_memory` | ADK built-in | Explicit tool call to search the fact store (deliberate recall). |
@@ -255,6 +257,14 @@ accordingly — model optionality is a single YAML line per agent:
 | `claude-*` | Anthropic | `lib/models/claudeLlm.ts` | `ANTHROPIC_API_KEY` | ✅ server tool |
 | `gpt-*`, o-series | OpenAI | `lib/models/gptLlm.ts` (Responses API) | `OPENAI_API_KEY` | ✅ web_search tool |
 | `grok-*` | xAI | `lib/models/grokLlm.ts` (Responses API) | `XAI_API_KEY` | ✅ Agent Tools search |
+
+The xAI adapter carries the deepest capability surface: `grok-4.5`
+requests pin `reasoning.effort: "medium"` (`lib/config.ts`), SSE
+streaming works end-to-end (`runConfig: { streamingMode: 'sse' }` —
+partial delta events stream, one aggregated event persists with usage),
+structured outputs ride `outputSchema` → `text.format`, and two
+xAI-only tools — `x_search` and `collections_search` (§3) — turn on
+live X search and hosted-document RAG. All verified live on grok-4.5.
 | `ollama/*` | Local Ollama | `lib/models/ollamaLlm.ts` | none | ⚠ omitted + warning |
 
 `lib/models/registry.ts` is the single routing seam:

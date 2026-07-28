@@ -24,9 +24,10 @@ import {
 import { OllamaLlm } from '../lib/models/ollamaLlm.ts';
 import { GrokLlm } from '../lib/models/grokLlm.ts';
 import { ClaudeLlm, buildAnthropicTools } from '../lib/models/claudeLlm.ts';
-import { GptLlm, buildResponsesInput, buildResponsesTools } from '../lib/models/gptLlm.ts';
+import { GptLlm, buildResponsesInput, buildResponsesTools, streamEventDelta } from '../lib/models/gptLlm.ts';
 import { splitThinkBlocks, mapUsage } from '../lib/models/openAiCompatibleLlm.ts';
 import { WebSearchTool, WEB_SEARCH, wantsWebSearch } from '../lib/tools/webSearchTool.ts';
+import { COLLECTIONS_SEARCH } from '../lib/tools/collectionsSearchTool.ts';
 
 setLogLevel(LogLevel.WARN);
 
@@ -215,6 +216,54 @@ test('GrokLlm speaks the Responses API dialect (subclass of GptLlm, xAI override
   const tools = buildResponsesTools(request);
   assert.ok(tools.some((t) => t.type === 'web_search')); // Agent Tools web_search
   assert.ok(!tools.some((t) => t.type === 'function')); // sentinel never a function tool
+});
+
+test('streamEventDelta maps Responses SSE events to text/thought deltas', () => {
+  assert.deepEqual(
+    streamEventDelta({ type: 'response.output_text.delta', delta: 'Hel' }),
+    { thought: false, text: 'Hel' },
+  );
+  assert.deepEqual(
+    streamEventDelta({ type: 'response.reasoning_summary_text.delta', delta: 'hmm' }),
+    { thought: true, text: 'hmm' },
+  );
+  // Non-delta events (item boundaries, completion, malformed) map to null.
+  assert.equal(streamEventDelta({ type: 'response.completed', response: {} }), null);
+  assert.equal(streamEventDelta({ type: 'response.output_item.added' }), null);
+  assert.equal(streamEventDelta({ type: 'response.output_text.delta' }), null);
+  assert.equal(streamEventDelta(undefined), null);
+});
+
+test('collections_search shapes an xAI file_search tool from env ids', () => {
+  const savedIds = process.env.XAI_COLLECTION_IDS;
+  const savedMax = process.env.XAI_COLLECTIONS_MAX_RESULTS;
+  try {
+    // Configured: file_search with the parsed ids and the optional cap.
+    process.env.XAI_COLLECTION_IDS = ' col_a , col_b ,';
+    process.env.XAI_COLLECTIONS_MAX_RESULTS = '7';
+    const request = makeRequest({ model: 'grok-4.5' });
+    request.toolsDict['collections_search'] = COLLECTIONS_SEARCH;
+    const tools = buildResponsesTools(request);
+    const fileSearch = tools.find((t) => t.type === 'file_search');
+    assert.deepEqual(fileSearch, {
+      type: 'file_search',
+      vector_store_ids: ['col_a', 'col_b'],
+      max_num_results: 7,
+    });
+    // The sentinel is never emitted as a client-side function tool.
+    assert.ok(!tools.some((t) => t.type === 'function'));
+
+    // Declared but unconfigured: omitted entirely, never fatal.
+    delete process.env.XAI_COLLECTION_IDS;
+    delete process.env.XAI_COLLECTIONS_MAX_RESULTS;
+    const bare = buildResponsesTools(request);
+    assert.ok(!bare.some((t) => t.type === 'file_search'));
+  } finally {
+    if (savedIds !== undefined) process.env.XAI_COLLECTION_IDS = savedIds;
+    else delete process.env.XAI_COLLECTION_IDS;
+    if (savedMax !== undefined) process.env.XAI_COLLECTIONS_MAX_RESULTS = savedMax;
+    else delete process.env.XAI_COLLECTIONS_MAX_RESULTS;
+  }
 });
 
 test('reasoningParam: grok-4.5 pins effort medium; other ids keep their shapes', () => {

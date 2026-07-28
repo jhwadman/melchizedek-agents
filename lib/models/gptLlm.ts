@@ -31,6 +31,16 @@
  *     'function_call'        → functionCall part
  *   usage.input_tokens / output_tokens / output_tokens_details.reasoning_tokens
  *   → LlmResponse.usageMetadata, so token telemetry works like every provider.
+ *
+ * STREAMING (ADK stream=true, i.e. RunConfig streamingMode: SSE):
+ *   The request is sent with { stream: true }; SSE deltas
+ *   (response.output_text.delta / response.reasoning_summary_text.delta)
+ *   are yielded as { partial: true } responses — the ADK Runner displays
+ *   but does NOT persist partial events — and the terminal
+ *   response.completed payload is mapped through the same final-response
+ *   translator as the non-streaming path, carrying full content + usage
+ *   as the ONE event that lands in the session. Function calls are never
+ *   delta-streamed (both OpenAI and xAI deliver them whole).
  */
 
 import { BaseLlm, LLMRegistry } from '@google/adk';
@@ -49,6 +59,12 @@ import {
   wantsXSearch,
   isXSearchSentinel,
 } from '../tools/xSearchTool.ts';
+import {
+  wantsCollectionsSearch,
+  isCollectionsSearchSentinel,
+  collectionIdsFromEnv,
+  collectionsMaxResultsFromEnv,
+} from '../tools/collectionsSearchTool.ts';
 import { toLowercaseJsonSchema } from './schemaNormalize.ts';
 
 /** Reasoning-capable ids: o-series and the gpt-5 family. The reasoning
@@ -140,6 +156,7 @@ export function buildResponsesTools(llmRequest: LlmRequest): any[] {
   for (const [, tool] of Object.entries(llmRequest.toolsDict ?? {})) {
     if (isWebSearchSentinel(tool)) continue; // added as a native tool below
     if (isXSearchSentinel(tool)) continue;   // added as a native tool below
+    if (isCollectionsSearchSentinel(tool)) continue; // added as a native tool below
     const t = tool as any;
     if (t.name && t.description) {
       tools.push({
@@ -159,7 +176,45 @@ export function buildResponsesTools(llmRequest: LlmRequest): any[] {
   if (wantsXSearch(llmRequest)) {
     tools.push({ type: 'x_search' }); // xAI Agent Tools only (sentinel is xai-gated)
   }
+  if (wantsCollectionsSearch(llmRequest)) {
+    // xAI Collections ride the OpenAI-compatible `file_search` wire shape;
+    // ids are deployment config (XAI_COLLECTION_IDS), never YAML.
+    const ids = collectionIdsFromEnv();
+    if (ids.length > 0) {
+      const max = collectionsMaxResultsFromEnv();
+      tools.push({
+        type: 'file_search',
+        vector_store_ids: ids,
+        ...(max !== undefined ? { max_num_results: max } : {}),
+      });
+    } else {
+      console.warn(
+        '[collections_search] declared but XAI_COLLECTION_IDS is empty — tool omitted for this request.',
+      );
+    }
+  }
   return tools;
+}
+
+// ── Stream-event mapping (exported for offline tests) ────────────────────────
+
+/** Maps one Responses-API SSE event to a displayable delta, or null for
+ *  event types that carry none. Function calls are NOT delta-streamed —
+ *  both OpenAI and xAI deliver them whole in the final response. */
+export function streamEventDelta(
+  ev: any,
+): { thought: boolean; text: string } | null {
+  if (!ev || typeof ev !== 'object') return null;
+  if (ev.type === 'response.output_text.delta' && typeof ev.delta === 'string') {
+    return { thought: false, text: ev.delta };
+  }
+  if (
+    ev.type === 'response.reasoning_summary_text.delta' &&
+    typeof ev.delta === 'string'
+  ) {
+    return { thought: true, text: ev.delta };
+  }
+  return null;
 }
 
 // ── GptLlm ───────────────────────────────────────────────────────────────────
@@ -205,9 +260,16 @@ export class GptLlm extends BaseLlm {
    *  Base: reasoning summaries for OpenAI's reasoning-capable ids.
    *  Subclasses override per vendor (GrokLlm pins grok-4.5 to a reasoning
    *  effort). A 400 from a model that rejects the param is retried once
-   *  without it — see the guarded retry in generateInner. */
+   *  without it — see createWithRetry. */
   protected reasoningParam(): Record<string, unknown> | undefined {
     return isReasoningModel(this.model) ? { summary: 'auto' } : undefined;
+  }
+
+  /** Extra options for the OpenAI SDK client constructor. Subclasses
+   *  override per vendor (GrokLlm sets a long request timeout, per xAI's
+   *  streaming guidance for reasoning models). */
+  protected clientOptions(): Record<string, unknown> {
+    return {};
   }
 
   // ── Generation ─────────────────────────────────────────────────────────────
@@ -224,7 +286,7 @@ export class GptLlm extends BaseLlm {
 
   private async *generateInner(
     llmRequest: LlmRequest,
-    _stream: boolean,
+    stream: boolean,
   ): AsyncGenerator<LlmResponse, void> {
     const apiKey = this.apiKey || this.apiKeyFromEnv();
     if (!apiKey) {
@@ -253,12 +315,21 @@ export class GptLlm extends BaseLlm {
     const client = new OpenAI({
       apiKey,
       ...(this.baseURL() ? { baseURL: this.baseURL() } : {}),
+      ...this.clientOptions(),
     });
 
     const { instructions, input } = buildResponsesInput(llmRequest);
     const tools = buildResponsesTools(llmRequest);
     if (wantsWebSearch(llmRequest)) {
       setLlmSpanAttribute('llm.web_search.native', true);
+    }
+    if (wantsCollectionsSearch(llmRequest)) {
+      setLlmSpanAttribute(
+        collectionIdsFromEnv().length > 0
+          ? 'llm.collections_search.native'
+          : 'llm.collections_search.omitted',
+        true,
+      );
     }
 
     const cfg = (llmRequest.config as any) ?? {};
@@ -294,21 +365,48 @@ export class GptLlm extends BaseLlm {
     };
 
     try {
-      let response: any;
-      try {
-        response = await client.responses.create(request);
-      } catch (err: any) {
-        // Guarded retry: if the reasoning param is rejected (non-reasoning
-        // model matched the pattern), drop it and try once more.
-        if (err?.status === 400 && request.reasoning) {
-          delete request.reasoning;
-          response = await client.responses.create(request);
-        } else {
-          throw err;
-        }
+      if (stream) {
+        yield* this.streamResponses(client, request);
+        return;
       }
+      const response = await this.createWithRetry(client, request);
+      yield* this.mapFinalResponse(response);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      yield {
+        errorCode: `${this.providerId().toUpperCase()}_ERROR`,
+        errorMessage: msg,
+      };
+    }
+  }
 
-      // Reasoning summaries first, as display-only thought parts.
+  /** responses.create with the guarded reasoning retry: if the model
+   *  rejects the reasoning param with a 400 (a non-reasoning model matched
+   *  the pattern), drop it and try once more. */
+  private async createWithRetry(
+    client: any,
+    request: Record<string, unknown>,
+  ): Promise<any> {
+    try {
+      return await client.responses.create(request);
+    } catch (err: any) {
+      if (err?.status === 400 && request.reasoning) {
+        delete request.reasoning;
+        return await client.responses.create(request);
+      }
+      throw err;
+    }
+  }
+
+  /** Final (non-delta) Response → LlmResponse yields: reasoning summaries
+   *  as a display-only thought part, then text/functionCall parts with
+   *  usage. Shared by the non-streaming path and the stream finalizer
+   *  (which sets skipThoughts — its summaries already streamed as deltas). */
+  private *mapFinalResponse(
+    response: any,
+    opts: { skipThoughts?: boolean } = {},
+  ): Generator<LlmResponse> {
+    if (!opts.skipThoughts) {
       const reasoningTexts: string[] = [];
       for (const item of response.output ?? []) {
         if (item.type === 'reasoning') {
@@ -326,59 +424,123 @@ export class GptLlm extends BaseLlm {
           partial: true,
         };
       }
-
-      const parts: any[] = [];
-      for (const item of response.output ?? []) {
-        if (item.type === 'message') {
-          for (const c of item.content ?? []) {
-            if (c.type === 'output_text' && c.text) parts.push({ text: c.text });
-          }
-        } else if (item.type === 'function_call') {
-          let args: unknown = {};
-          try {
-            args = JSON.parse(item.arguments ?? '{}');
-          } catch {
-            args = { raw: item.arguments };
-          }
-          parts.push({
-            functionCall: { name: item.name, args, id: item.call_id },
-          });
-        }
-      }
-
-      const usage = response.usage;
-      yield {
-        content: { role: 'model', parts },
-        turnComplete: true,
-        ...(usage
-          ? {
-              usageMetadata: {
-                ...(usage.input_tokens !== undefined
-                  ? { promptTokenCount: usage.input_tokens }
-                  : {}),
-                ...(usage.output_tokens !== undefined
-                  ? { candidatesTokenCount: usage.output_tokens }
-                  : {}),
-                ...(usage.output_tokens_details?.reasoning_tokens !== undefined
-                  ? {
-                      thoughtsTokenCount:
-                        usage.output_tokens_details.reasoning_tokens,
-                    }
-                  : {}),
-                ...(usage.total_tokens !== undefined
-                  ? { totalTokenCount: usage.total_tokens }
-                  : {}),
-              },
-            }
-          : {}),
-      };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      yield {
-        errorCode: `${this.providerId().toUpperCase()}_ERROR`,
-        errorMessage: msg,
-      };
     }
+
+    const parts: any[] = [];
+    for (const item of response.output ?? []) {
+      if (item.type === 'message') {
+        for (const c of item.content ?? []) {
+          if (c.type === 'output_text' && c.text) parts.push({ text: c.text });
+        }
+      } else if (item.type === 'function_call') {
+        let args: unknown = {};
+        try {
+          args = JSON.parse(item.arguments ?? '{}');
+        } catch {
+          args = { raw: item.arguments };
+        }
+        parts.push({
+          functionCall: { name: item.name, args, id: item.call_id },
+        });
+      }
+    }
+
+    const usage = response.usage;
+    yield {
+      content: { role: 'model', parts },
+      turnComplete: true,
+      ...(usage
+        ? {
+            usageMetadata: {
+              ...(usage.input_tokens !== undefined
+                ? { promptTokenCount: usage.input_tokens }
+                : {}),
+              ...(usage.output_tokens !== undefined
+                ? { candidatesTokenCount: usage.output_tokens }
+                : {}),
+              ...(usage.output_tokens_details?.reasoning_tokens !== undefined
+                ? {
+                    thoughtsTokenCount:
+                      usage.output_tokens_details.reasoning_tokens,
+                  }
+                : {}),
+              ...(usage.total_tokens !== undefined
+                ? { totalTokenCount: usage.total_tokens }
+                : {}),
+            },
+          }
+        : {}),
+    };
+  }
+
+  /** SSE streaming: yield displayable DELTAS as { partial: true } responses
+   *  (the ADK Runner shows but never persists partials), then map the
+   *  terminal response.completed payload through mapFinalResponse — full
+   *  content + usage, the ONE event that lands in the session. Usage rides
+   *  only the final response so the tracer never double-counts tokens. */
+  private async *streamResponses(
+    client: any,
+    request: Record<string, unknown>,
+  ): AsyncGenerator<LlmResponse, void> {
+    const events: AsyncIterable<any> = await this.createWithRetry(client, {
+      ...request,
+      stream: true,
+    });
+
+    let finalResponse: any | undefined;
+    let streamedThoughts = false;
+    const textBuf: string[] = [];
+    const thoughtBuf: string[] = [];
+
+    for await (const ev of events) {
+      const delta = streamEventDelta(ev);
+      if (delta) {
+        if (delta.thought) {
+          streamedThoughts = true;
+          thoughtBuf.push(delta.text);
+        } else {
+          textBuf.push(delta.text);
+        }
+        yield {
+          content: {
+            role: 'model',
+            parts: [
+              delta.thought
+                ? ({ text: delta.text, thought: true } as any)
+                : { text: delta.text },
+            ],
+          },
+          partial: true,
+        };
+        continue;
+      }
+      if (ev?.type === 'response.completed' && ev.response) {
+        finalResponse = ev.response;
+      } else if (ev?.type === 'response.failed' || ev?.type === 'error') {
+        const msg =
+          ev?.response?.error?.message ?? ev?.message ?? 'response stream failed';
+        yield {
+          errorCode: `${this.providerId().toUpperCase()}_STREAM_ERROR`,
+          errorMessage: String(msg),
+        };
+        return;
+      }
+    }
+
+    if (finalResponse) {
+      yield* this.mapFinalResponse(finalResponse, {
+        skipThoughts: streamedThoughts,
+      });
+      return;
+    }
+
+    // Defensive: the stream ended without response.completed — aggregate
+    // the buffered deltas so the turn still persists a complete event.
+    const parts: any[] = [];
+    if (thoughtBuf.length > 0)
+      parts.push({ text: thoughtBuf.join(''), thought: true } as any);
+    if (textBuf.length > 0) parts.push({ text: textBuf.join('') });
+    yield { content: { role: 'model', parts }, turnComplete: true };
   }
 
   /** Live/bidirectional streaming is not wired for this adapter. */
