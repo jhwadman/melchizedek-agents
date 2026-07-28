@@ -311,7 +311,7 @@ route through `lib/models/ollamaLlm.ts` to a local Ollama daemon over
 its OpenAI-compatible API (`OLLAMA_BASE_URL`, default
 `http://localhost:11434/v1`). No key is required, and a syndicate whose
 *every* agent is `ollama/*` runs with no `.env` at all —
-`config/agents/hearth.yaml` (single agent) and `agora.yaml` (council)
+`config/agents/tutor.yaml` (single agent) and `council.yaml` (council)
 are the worked examples. The adapter translates ADK content to
 OpenAI-style messages, including tool calls (so delegation works),
 image parts as data URIs (so `ollama/qwen3-vl:8b` can see), and JSON

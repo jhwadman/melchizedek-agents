@@ -25,8 +25,8 @@ machine — every agent in them is an open-weight model served by Ollama:
 ```bash
 npm install
 ollama pull qwen3:8b        # after installing Ollama
-npm run syndicate:hearth    # one agent: the Peripatetic Tutor
-npm run syndicate:agora     # three agents: the Agora Council
+npm run syndicate:tutor     # one agent: the Tutor
+npm run syndicate:council   # three agents: the Council
 ```
 
 Model ids namespaced `ollama/…` (e.g. `ollama/qwen3:8b`) route through
@@ -144,7 +144,7 @@ See `demo/a2a_demo.mjs` for a working client and `DOCUMENTATION.md`
 ## Where to go next
 
 - Read a syndicate the way the course does: start with
-  `config/agents/hearth.yaml` and map its instruction blocks —
+  `config/agents/tutor.yaml` and map its instruction blocks —
   identity, doctrine, communication laws, boundaries — then see the
   same anatomy grown to full size in `patient_advocate.yaml`.
 - The interactive curriculum walks every pattern in this repo:

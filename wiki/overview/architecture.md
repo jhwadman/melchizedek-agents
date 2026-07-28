@@ -36,4 +36,4 @@ Condensed from the design essay in DOCUMENTATION.md §12 — five structural adv
 4. **Per-role hyperparameters.** Data-gathering runs cold (t≈0.2), synthesis warmer (t≈0.5–0.7) — impossible with a single agent's single temperature.
 5. **Observability.** When the conclusion is wrong, intermediate subagent outputs show whether retrieval, analysis, or synthesis failed.
 
-The syndicate catalog in [/agents/](/agents/) shows the pattern at every scale, from two-role debate ([Agora Council](/agents/agora.md)) to tool-discovering MCP teams ([Lyceum Librarian](/agents/librarian.md)).
+The syndicate catalog in [/agents/](/agents/) shows the pattern at every scale, from two-role debate ([Council](/agents/council.md)) to tool-discovering MCP teams ([Lyceum Librarian](/agents/librarian.md)).

@@ -50,8 +50,8 @@ After the agent reports back:
 
 1. **Optional — zero keys, fully local**: install Ollama
    (https://ollama.com) and run `ollama pull qwen3:8b`. The two
-   open-weight syndicates (`npm run syndicate:hearth`, `npm run
-   syndicate:agora`) then run with an empty `.env` — every agent is a
+   open-weight syndicates (`npm run syndicate:tutor`, `npm run
+   syndicate:council`) then run with an empty `.env` — every agent is a
    local model, nothing leaves your machine. This is the Part 1 course
    path; the cloud syndicates below still want a key.
 2. **Get a Gemini API key** (free): https://aistudio.google.com →
@@ -81,8 +81,8 @@ After the agent reports back:
 Keyless, if you installed Ollama:
 
 ```bash
-npm run syndicate:hearth      # one open-weight agent: paste material, be taught
-npm run syndicate:agora       # advocate/skeptic council, all local
+npm run syndicate:tutor       # one open-weight agent: paste material, be taught
+npm run syndicate:council     # advocate/skeptic council, all local
 ```
 
 With your Gemini key:

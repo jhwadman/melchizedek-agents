@@ -31,8 +31,8 @@ Zero keys, fully local — install [Ollama](https://ollama.com), then:
 ```bash
 npm install
 ollama pull qwen3:8b
-npm run syndicate:hearth   # a single open-weight agent, on your machine
-npm run syndicate:agora    # a three-agent council, still no keys
+npm run syndicate:tutor    # a single open-weight agent, on your machine
+npm run syndicate:council  # a three-agent council, still no keys
 ```
 
 With a free Gemini API key, the full syndicate library opens:
@@ -68,17 +68,17 @@ worked specimen for a curriculum module:
 
 | Syndicate | Pattern | Course module |
 |---|---|---|
-| `hearth.yaml` — Peripatetic Tutor | one open-weight agent, no keys; the instruction block anatomy | [1.01 · agent design](https://lyceumagents.com/curriculum/agent-design/) |
-| `agora.yaml` — Agora Council | first orchestration, fully local: advocate/skeptic council | [1.04 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
-| `critic.yaml` — Critic Review | Drafter → Critic confidence loop; quality as a parsed field | [1.03 · testing & refinement](https://lyceumagents.com/curriculum/testing-and-refinement/) |
-| `delegation.yaml` — Router | triage to specialists; descriptions as the routing API | [1.04 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
-| `hierarchical.yaml` — Decomposer | split one goal, delegate parts, merge | [1.04 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
-| `style_council.yaml` — Style Council | identical knowledge, three engineered voices | [1.04 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
-| `syndicate.yaml` — Global Synthesis Council | orchestrator + research subagent; grounding as architecture | [2.05 · the protocol](https://lyceumagents.com/curriculum/melchizedek-protocol/) |
-| `ares.yaml` — Knowledge Keeper | long-term memory pipeline, exercised | [2.06 · memory systems](https://lyceumagents.com/curriculum/memory-systems/) |
-| `patient_advocate.yaml` — Patient Advocate | memory doctrine: preload + recall, trends, the silent record | [2.06 · memory systems](https://lyceumagents.com/curriculum/memory-systems/) |
-| `librarian.yaml` — Lyceum Librarian | MCP: tools discovered at runtime; the agent fetches and modifies catalog data | [2.07 · MCP](https://lyceumagents.com/curriculum/mcp-extending-reach/) |
-| `image_production.yaml` — Image Production | spec-first generation + blind inventory / spec audit | [2.08 · multi-modal agents](https://lyceumagents.com/curriculum/multimodal-agents/) |
+| `tutor.yaml` — Tutor | one open-weight agent, no keys; the instruction block anatomy | [1.03 · running your own model](https://lyceumagents.com/curriculum/your-own-model/) |
+| `council.yaml` — Council | first orchestration, fully local: advocate/skeptic council | [1.05 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
+| `critic.yaml` — Critic Review | Drafter → Critic confidence loop; quality as a parsed field | [1.04 · testing & refinement](https://lyceumagents.com/curriculum/testing-and-refinement/) |
+| `delegation.yaml` — Router | triage to specialists; descriptions as the routing API | [1.05 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
+| `hierarchical.yaml` — Decomposer | split one goal, delegate parts, merge | [1.05 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
+| `style_council.yaml` — Style Council | identical knowledge, three engineered voices | [1.05 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
+| `syndicate.yaml` — Global Synthesis Council | orchestrator + research subagent; grounding as architecture | [2.01 · the protocol](https://lyceumagents.com/curriculum/melchizedek-protocol/) |
+| `ares.yaml` — Knowledge Keeper | long-term memory pipeline, exercised | [2.02 · memory systems](https://lyceumagents.com/curriculum/memory-systems/) |
+| `patient_advocate.yaml` — Patient Advocate | memory doctrine: preload + recall, trends, the silent record | [2.02 · memory systems](https://lyceumagents.com/curriculum/memory-systems/) |
+| `librarian.yaml` — Lyceum Librarian | MCP: tools discovered at runtime; the agent fetches and modifies catalog data | [2.03 · MCP](https://lyceumagents.com/curriculum/mcp-extending-reach/) |
+| `image_production.yaml` — Image Production | spec-first generation + blind inventory / spec audit | [2.04 · multi-modal agents](https://lyceumagents.com/curriculum/multimodal-agents/) |
 | `claude.yaml` — Claude Chat | minimal single-agent config; the multi-model adapter in one file | — |
 | `model_zoo.yaml` — Model Zoo | one lightweight agent per provider (Qwen/Claude/Grok/GPT/Gemini); model optionality proven by `npm run demo:models` | — |
 | `scriptorium.yaml` — The Scriptorium | agents over the shipped knowledge bundle: query with citations, author through a validated save gate | — |

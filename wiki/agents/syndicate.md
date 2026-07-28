@@ -5,8 +5,8 @@ description: The Global Synthesis Council syndicate.
 tags:
   - syndicate
 generated:
-  by: melchizedek/gemini-3.6-flash
-  at: 2026-07-27
+  by: process:wiki-build
+  at: 2026-07-28
 sources:
   - resource: config/agents/syndicate.yaml
 ---
@@ -18,7 +18,7 @@ The Global Synthesis Council exists to synthesize current events and explain the
 <!-- /wiki:fill -->
 
 <!-- wiki:generated section="composition" source="config/agents/syndicate.yaml" -->
-Run: `npm run syndicate:council`
+Run: `npm run syndicate:synthesis`
 
 - memory: `session-only`
 - orchestrator: **Melchizedek** (`gemini-3.1-flash-lite`)

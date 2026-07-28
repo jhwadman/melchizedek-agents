@@ -23,7 +23,7 @@ A Google AI Studio key (`GOOGLE_GENAI_API_KEY`) is the only requirement for the 
 
 ## Path A′ — keyless and local
 
-With [Ollama](https://ollama.com) serving `qwen3:8b` (the smallest pulled model with tool calling), syndicates declaring `ollama/*` models — like the [Agora Council](/agents/agora.md) — run with **no API key at all**. Other providers activate per key: `ANTHROPIC_API_KEY` for `claude-*`, `OPENAI_API_KEY` for `gpt-*`, `XAI_API_KEY` for `grok-*` ([provider routing](/models/provider-routing.md)); a missing key just logs the provider as disabled.
+With [Ollama](https://ollama.com) serving `qwen3:8b` (the smallest pulled model with tool calling), syndicates declaring `ollama/*` models — like the [Council](/agents/council.md) — run with **no API key at all**. Other providers activate per key: `ANTHROPIC_API_KEY` for `claude-*`, `OPENAI_API_KEY` for `gpt-*`, `XAI_API_KEY` for `grok-*` ([provider routing](/models/provider-routing.md)); a missing key just logs the provider as disabled.
 
 ## Path B — A2A HTTP server (~15 min)
 

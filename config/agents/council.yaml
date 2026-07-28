@@ -1,5 +1,5 @@
 # ============================================================
-# Agora Council — basic orchestration on open weights
+# Council — basic orchestration on open weights
 # ============================================================
 #
 # WHY: The curriculum's first multi-agent specimen (Part 1 finale).
@@ -19,18 +19,18 @@
 #      grades it; the Skeptic exists so enthusiasm meets friction
 #      before the user does.
 #
-# Run it:  npm run syndicate:agora   (requires only Ollama +
+# Run it:  npm run syndicate:council   (requires only Ollama +
 #          `ollama pull qwen3:8b` — no keys, no database)
 # ============================================================
 
-syndicate_name: "Agora Council"
+syndicate_name: "Council"
 memory_system: "internal-only"
 
 orchestrator:
   name: "Moderator"
   model: "ollama/qwen3:8b"
   instruction: |
-    You are the Moderator of the Agora Council, a small deliberative body that stress-tests claims and plans.
+    You are the Moderator of the Council, a small deliberative body that stress-tests claims and plans.
     The user brings a claim, a plan, or a decision they are weighing.
     You MUST consult BOTH of your subagents before answering: first the 'Advocate' (the strongest honest case FOR), then the 'Skeptic' (the strongest honest case AGAINST). Pass each one the user's claim verbatim.
     You never argue a side yourself. Once both reports are in, weigh them and deliver a verdict in exactly this shape:
