@@ -28,6 +28,7 @@ import { GptLlm, buildResponsesInput, buildResponsesTools, streamEventDelta } fr
 import { splitThinkBlocks, mapUsage } from '../lib/models/openAiCompatibleLlm.ts';
 import { WebSearchTool, WEB_SEARCH, wantsWebSearch } from '../lib/tools/webSearchTool.ts';
 import { COLLECTIONS_SEARCH } from '../lib/tools/collectionsSearchTool.ts';
+import { X_SEARCH } from '../lib/tools/xSearchTool.ts';
 
 setLogLevel(LogLevel.WARN);
 
@@ -263,6 +264,55 @@ test('collections_search shapes an xAI file_search tool from env ids', () => {
     else delete process.env.XAI_COLLECTION_IDS;
     if (savedMax !== undefined) process.env.XAI_COLLECTIONS_MAX_RESULTS = savedMax;
     else delete process.env.XAI_COLLECTIONS_MAX_RESULTS;
+  }
+});
+
+test('x_search forwards env constraints; bare with none set', () => {
+  const saved: Record<string, string | undefined> = {
+    XAI_X_SEARCH_FROM_DATE: process.env.XAI_X_SEARCH_FROM_DATE,
+    XAI_X_SEARCH_TO_DATE: process.env.XAI_X_SEARCH_TO_DATE,
+    XAI_X_SEARCH_ALLOWED_HANDLES: process.env.XAI_X_SEARCH_ALLOWED_HANDLES,
+    XAI_X_SEARCH_EXCLUDED_HANDLES: process.env.XAI_X_SEARCH_EXCLUDED_HANDLES,
+  };
+  try {
+    // Configured: constraints ride the tool object (docs.x.ai › Tools › X Search).
+    process.env.XAI_X_SEARCH_FROM_DATE = '2026-08-01';
+    process.env.XAI_X_SEARCH_TO_DATE = '2026-08-02';
+    process.env.XAI_X_SEARCH_ALLOWED_HANDLES = ' @Reuters , AP ,';
+    delete process.env.XAI_X_SEARCH_EXCLUDED_HANDLES;
+    const request = makeRequest({ model: 'grok-4.5' });
+    request.toolsDict['x_search'] = X_SEARCH;
+    const tools = buildResponsesTools(request);
+    assert.deepEqual(tools.find((t) => t.type === 'x_search'), {
+      type: 'x_search',
+      from_date: '2026-08-01',
+      to_date: '2026-08-02',
+      allowed_x_handles: ['Reuters', 'AP'], // trimmed, @-stripped
+    });
+    // The sentinel is never emitted as a client-side function tool.
+    assert.ok(!tools.some((t) => t.type === 'function'));
+
+    // Mutually exclusive lists: the allowlist wins, exclusions drop (never a 400).
+    process.env.XAI_X_SEARCH_EXCLUDED_HANDLES = 'spam_account';
+    const both = buildResponsesTools(request).find((t) => t.type === 'x_search');
+    assert.deepEqual(both.allowed_x_handles, ['Reuters', 'AP']);
+    assert.equal(both.excluded_x_handles, undefined);
+
+    // Malformed date: dropped with a warning, the rest survive.
+    process.env.XAI_X_SEARCH_FROM_DATE = 'yesterday';
+    const partial = buildResponsesTools(request).find((t) => t.type === 'x_search');
+    assert.equal(partial.from_date, undefined);
+    assert.equal(partial.to_date, '2026-08-02');
+
+    // Unconfigured: the bare tool it always was.
+    for (const name of Object.keys(saved)) delete process.env[name];
+    const bare = buildResponsesTools(request).find((t) => t.type === 'x_search');
+    assert.deepEqual(bare, { type: 'x_search' });
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value !== undefined) process.env[name] = value;
+      else delete process.env[name];
+    }
   }
 });
 

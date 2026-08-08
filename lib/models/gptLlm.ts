@@ -58,6 +58,7 @@ import {
 import {
   wantsXSearch,
   isXSearchSentinel,
+  xSearchParamsFromEnv,
 } from '../tools/xSearchTool.ts';
 import {
   wantsCollectionsSearch,
@@ -174,7 +175,11 @@ export function buildResponsesTools(llmRequest: LlmRequest): any[] {
     tools.push({ type: 'web_search' }); // OpenAI-native, runs server-side
   }
   if (wantsXSearch(llmRequest)) {
-    tools.push({ type: 'x_search' }); // xAI Agent Tools only (sentinel is xai-gated)
+    // xAI Agent Tools only (sentinel is xai-gated). Optional server-side
+    // constraints (date bounds, handle lists) are deployment config from
+    // XAI_X_SEARCH_* env vars — the XAI_COLLECTION_IDS doctrine; with none
+    // set this is the bare tool it always was.
+    tools.push({ type: 'x_search', ...xSearchParamsFromEnv() });
   }
   if (wantsCollectionsSearch(llmRequest)) {
     // xAI Collections ride the OpenAI-compatible `file_search` wire shape;
