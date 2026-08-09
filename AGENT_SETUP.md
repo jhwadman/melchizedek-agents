@@ -179,4 +179,4 @@ Deploying the server itself (Heroku, Fly, a VPS) needs `PUBLIC_URL` set
 — at which point the server refuses to start without the bearer secret,
 by design. Run `db/hardening.sql` before real user data arrives, and
 read the deployment notes in `lib/memory/README.md` end to end. The
-patient in module 04's specimen would expect no less of you.
+patient in module 2.02's specimen would expect no less of you.

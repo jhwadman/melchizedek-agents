@@ -219,64 +219,6 @@ test('GrokLlm speaks the Responses API dialect (subclass of GptLlm, xAI override
   assert.ok(!tools.some((t) => t.type === 'function')); // sentinel never a function tool
 });
 
-test('web_search forwards xAI domain filters from env; OpenAI stays bare', () => {
-  const saved: Record<string, string | undefined> = {
-    XAI_WEB_SEARCH_ALLOWED_DOMAINS: process.env.XAI_WEB_SEARCH_ALLOWED_DOMAINS,
-    XAI_WEB_SEARCH_EXCLUDED_DOMAINS: process.env.XAI_WEB_SEARCH_EXCLUDED_DOMAINS,
-  };
-  try {
-    // Configured on a grok model: filters ride the tool object, nested under
-    // `filters` on the OpenAI-compatible wire (docs.x.ai › Tools › Web Search).
-    process.env.XAI_WEB_SEARCH_ALLOWED_DOMAINS = ' reuters.com , apnews.com ,';
-    delete process.env.XAI_WEB_SEARCH_EXCLUDED_DOMAINS;
-    const grokRequest = makeRequest({ model: 'grok-4.5' });
-    grokRequest.toolsDict['web_search'] = WEB_SEARCH;
-    assert.deepEqual(
-      buildResponsesTools(grokRequest).find((t) => t.type === 'web_search'),
-      {
-        type: 'web_search',
-        filters: { allowed_domains: ['reuters.com', 'apnews.com'] },
-      },
-    );
-
-    // Same env, OpenAI model: web_search takes no params and MUST stay bare.
-    const gptRequest = makeRequest({ model: 'gpt-5-mini' });
-    gptRequest.toolsDict['web_search'] = WEB_SEARCH;
-    assert.deepEqual(
-      buildResponsesTools(gptRequest).find((t) => t.type === 'web_search'),
-      { type: 'web_search' },
-    );
-
-    // Mutually exclusive lists: the allowlist wins, exclusions drop (never a 400).
-    process.env.XAI_WEB_SEARCH_EXCLUDED_DOMAINS = 'pinterest.com';
-    assert.deepEqual(
-      buildResponsesTools(grokRequest).find((t) => t.type === 'web_search')!.filters,
-      { allowed_domains: ['reuters.com', 'apnews.com'] },
-    );
-
-    // Oversize list: truncates to xAI's cap of 5, never fatal.
-    delete process.env.XAI_WEB_SEARCH_ALLOWED_DOMAINS;
-    process.env.XAI_WEB_SEARCH_EXCLUDED_DOMAINS =
-      'a.com,b.com,c.com,d.com,e.com,f.com';
-    assert.deepEqual(
-      buildResponsesTools(grokRequest).find((t) => t.type === 'web_search')!.filters,
-      { excluded_domains: ['a.com', 'b.com', 'c.com', 'd.com', 'e.com'] },
-    );
-
-    // Unconfigured: the bare tool it always was, on every provider.
-    for (const name of Object.keys(saved)) delete process.env[name];
-    assert.deepEqual(
-      buildResponsesTools(grokRequest).find((t) => t.type === 'web_search'),
-      { type: 'web_search' },
-    );
-  } finally {
-    for (const [name, value] of Object.entries(saved)) {
-      if (value !== undefined) process.env[name] = value;
-      else delete process.env[name];
-    }
-  }
-});
-
 test('streamEventDelta maps Responses SSE events to text/thought deltas', () => {
   assert.deepEqual(
     streamEventDelta({ type: 'response.output_text.delta', delta: 'Hel' }),

@@ -104,7 +104,7 @@ your own.
   corrections supersede old records, which are kept as linked history.
 - **Native tools** — web search, image generation, and a blind
   image-inventory tool whose file-path-only signature makes expectation
-  bias structurally impossible (see module 05).
+  bias structurally impossible (see module 2.04).
 - **A2A service mode** — serve any syndicate as a JSON-RPC
   agent-to-agent endpoint with bearer auth and rate limiting
   (`npm run start:a2a`).

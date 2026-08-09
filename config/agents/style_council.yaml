@@ -3,12 +3,11 @@
 # ============================================================
 #
 # WHY: A teaching syndicate built for lyceumagents.com curriculum
-# module 02 (Agent workflows & conversation styles). One router
-# (the Router) conducts three stylists with
-# IDENTICAL knowledge and different communication laws. Ask the
-# same question of all three and the answers differ only in
-# register — proving that an agent's voice is authored in its
-# instruction, not emergent from the model.
+# module 1.05 (Agent workflows & conversation styles). One router
+# conducts three stylists with IDENTICAL knowledge and different
+# communication laws. Ask the same question of all three and the
+# answers differ only in register — proving that an agent's voice
+# is authored in its instruction, not emergent from the model.
 #
 # Deliberately minimal: session-only memory, no tools, cheap
 # models. The YAML itself is the exhibit.

@@ -30,4 +30,4 @@ zod v4's native `z.toJSONSchema()` emits standard JSON Schema — what MCP and f
 
 Defining a contract publishes nothing. An agent sees a tool only when its name is in `lib/toolRegistry.ts` **and** declared in the syndicate YAML; an MCP client sees it only when a server script lists it in `EXPOSED` (see [MCP](/protocols/mcp.md)). Every widening of the surface is a diff someone chose.
 
-The [wiki tools](/tools/wiki-tools.md) and the [web tools](/tools/web-tools.md)' `web_extract` are contracts under this pattern; the private market-data tools follow the identical shape and stay unexported.
+The [wiki tools](/tools/wiki-tools.md) are the newest contracts under this pattern; the private market-data tools follow the identical shape and stay unexported.

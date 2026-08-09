@@ -54,7 +54,6 @@ import {
 import {
   wantsWebSearch,
   isWebSearchSentinel,
-  xaiWebSearchParamsFromEnv,
 } from '../tools/webSearchTool.ts';
 import {
   wantsXSearch,
@@ -67,7 +66,6 @@ import {
   collectionIdsFromEnv,
   collectionsMaxResultsFromEnv,
 } from '../tools/collectionsSearchTool.ts';
-import { providerForModel } from './providerMap.ts';
 import { toLowercaseJsonSchema } from './schemaNormalize.ts';
 
 /** Reasoning-capable ids: o-series and the gpt-5 family. The reasoning
@@ -174,16 +172,7 @@ export function buildResponsesTools(llmRequest: LlmRequest): any[] {
     }
   }
   if (wantsWebSearch(llmRequest)) {
-    // OpenAI-native, runs server-side. On the xAI path only, optional
-    // domain filters ride the tool object (XAI_WEB_SEARCH_* env vars —
-    // deployment config, the XAI_COLLECTION_IDS doctrine); xAI's web_search
-    // accepts no date bounds (docs.x.ai, 2026-08-08 — from_date/to_date are
-    // x_search-only). OpenAI's web_search takes no params and stays bare.
-    const xaiParams =
-      llmRequest.model && providerForModel(llmRequest.model) === 'xai'
-        ? xaiWebSearchParamsFromEnv()
-        : {};
-    tools.push({ type: 'web_search', ...xaiParams });
+    tools.push({ type: 'web_search' }); // OpenAI-native, runs server-side
   }
   if (wantsXSearch(llmRequest)) {
     // xAI Agent Tools only (sentinel is xai-gated). Optional server-side
