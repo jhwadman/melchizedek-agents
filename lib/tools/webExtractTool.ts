@@ -204,6 +204,75 @@ export function extractHtml(html: string): ExtractedPage {
   return { title, text };
 }
 
+// ── Block-page detection ────────────────────────────────────────────────────
+//
+// The dangerous failure class is 200-with-garbage: Cloudflare challenges,
+// consent walls, "enable JavaScript" shells, and paywall stubs all return
+// HTTP 200 with real HTML, and the extractor would hand their boilerplate
+// to the model AS IF it were the article. Detection is deterministic and
+// lives here, not in agent prompts — a model judging "is this a real
+// article?" fails silently one time in ten; a signature scan doesn't.
+// Detected blocks collapse into the same labeled `Error:` shape as an
+// HTTP 403, so prompts only ever govern the RESPONSE to a known failure.
+//
+// False-positive guards: signature scans only run on SHORT extractions
+// (a real article quoting "just a moment" is long); paywall phrasing is
+// held to a tighter threshold than bot-check phrasing because it also
+// appears in the footers of readable articles.
+
+/** Extraction lengths at or below these invite the corresponding scan. */
+const BOT_CHECK_SCAN_MAX_CHARS = 2_000;
+const PAYWALL_SCAN_MAX_CHARS = 1_500;
+/** A big HTML document that extracts to almost nothing is a JS shell. */
+const THIN_TEXT_CHARS = 400;
+const THIN_HTML_MIN_BYTES = 20_000;
+
+const BOT_CHECK_SIGNATURES: Array<[RegExp, string]> = [
+  [/just a moment/i, 'Cloudflare challenge'],
+  [/checking your browser before accessing/i, 'Cloudflare challenge'],
+  [/verify(?:ing)? (?:that )?you are (?:a )?human/i, 'bot check'],
+  [/enable javascript and cookies to continue/i, 'bot check'],
+  [/are you a robot/i, 'bot check'],
+  [/access to this page has been denied/i, 'access-denied page'],
+  [/pardon our interruption/i, 'bot check'],
+];
+
+const PAYWALL_SIGNATURES: Array<[RegExp, string]> = [
+  [/subscribe to (?:read|continue)/i, 'paywall'],
+  [/subscription (?:is )?required/i, 'paywall'],
+  [/to continue reading(?:,| this)/i, 'paywall'],
+  [/create a free account to (?:read|continue)/i, 'registration wall'],
+  [/log in to (?:read|continue)/i, 'registration wall'],
+];
+
+/**
+ * Reason the extraction looks like a block page rather than content, or
+ * null when it looks legitimate. `htmlBytes` is the raw document size —
+ * the thinness check needs it to tell "big page, no text" (a JS shell)
+ * from a genuinely small page, which stays valid.
+ */
+export function blockedPageReason(text: string, htmlBytes: number): string | null {
+  if (text.length <= BOT_CHECK_SCAN_MAX_CHARS) {
+    for (const [pattern, label] of BOT_CHECK_SIGNATURES) {
+      const hit = text.match(pattern);
+      if (hit) return `page is a ${label} (detected: "${hit[0]}") — content unavailable`;
+    }
+  }
+  if (text.length <= PAYWALL_SCAN_MAX_CHARS) {
+    for (const [pattern, label] of PAYWALL_SIGNATURES) {
+      const hit = text.match(pattern);
+      if (hit) return `page is behind a ${label} (detected: "${hit[0]}") — content unavailable`;
+    }
+  }
+  if (htmlBytes >= THIN_HTML_MIN_BYTES && text.length < THIN_TEXT_CHARS) {
+    return (
+      `page yielded almost no text (${text.length} chars from ${htmlBytes} bytes of HTML) — ` +
+      'likely requires JavaScript or blocks automated readers'
+    );
+  }
+  return null;
+}
+
 function longestMatch(html: string, pattern: RegExp): string | null {
   let best: string | null = null;
   for (const match of html.match(pattern) ?? []) {
@@ -364,7 +433,13 @@ async function fetchPage(url: URL): Promise<ExtractedPage | string> {
       return `Error: unsupported content-type "${contentType}".`;
     }
     const body = await readBodyCapped(res);
-    return isHtml ? extractHtml(body) : { title: null, text: body.trim() };
+    if (!isHtml) return { title: null, text: body.trim() };
+    const page = extractHtml(body);
+    // Block pages are errors, not content — and deliberately NOT cached,
+    // so a later run against a recovered site fetches fresh.
+    const blocked = blockedPageReason(page.text, body.length);
+    if (blocked) return `Error: ${blocked}`;
+    return page;
   }
   return `Error: more than ${MAX_REDIRECTS} redirects.`;
 }

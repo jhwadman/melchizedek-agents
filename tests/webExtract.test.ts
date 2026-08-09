@@ -11,6 +11,7 @@ import assert from 'node:assert';
 
 import {
   blockedHostReason,
+  blockedPageReason,
   clearWebExtractCache,
   decodeEntities,
   extractCharLimit,
@@ -149,6 +150,36 @@ test('execute rejects bad schemes and blocked hosts without fetching', async () 
   assert.match(out, /only http\(s\) URLs/);
   assert.match(out, /not a valid absolute URL/);
   assert.match(out, /refusing to fetch 169\.254\.169\.254/);
+});
+
+// ── Block-page detection ────────────────────────────────────────────────────
+
+test('blockedPageReason catches bot checks and challenge pages', () => {
+  for (const text of [
+    'Just a moment... Enable JavaScript and cookies to continue',
+    'Verifying you are human. This may take a few seconds.',
+    'Checking your browser before accessing example.com',
+    'Access to this page has been denied.',
+    'Pardon Our Interruption... something about your browser made us think you were a bot',
+  ]) {
+    assert.ok(blockedPageReason(text, 50_000), `expected block: ${text.slice(0, 40)}`);
+  }
+});
+
+test('blockedPageReason catches paywall stubs only when thin', () => {
+  assert.match(blockedPageReason('Subscribe to continue reading.', 30_000) ?? '', /paywall/);
+  assert.match(blockedPageReason('Log in to continue.', 30_000) ?? '', /registration wall/);
+  // The same phrase in a full article's footer must NOT flag.
+  const article = 'Real reporting. '.repeat(200) + ' Subscribe to continue reading.';
+  assert.strictEqual(blockedPageReason(article, 80_000), null);
+});
+
+test('blockedPageReason flags big-HTML/no-text JS shells but not small pages', () => {
+  assert.match(blockedPageReason('Loading...', 120_000) ?? '', /almost no text/);
+  // A genuinely small page (small HTML, small text) stays valid.
+  assert.strictEqual(blockedPageReason('A short but real page.', 3_000), null);
+  // A long real article never trips any scan.
+  assert.strictEqual(blockedPageReason('word '.repeat(2000), 90_000), null);
 });
 
 // ── Env config ──────────────────────────────────────────────────────────────
