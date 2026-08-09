@@ -85,3 +85,61 @@ export function wantsWebSearch(llmRequest: LlmRequest): boolean {
 export function isWebSearchSentinel(tool: unknown): boolean {
   return tool instanceof WebSearchTool;
 }
+
+// ── xAI-only server-side constraints ─────────────────────────────────────────
+//
+// WHICH CONSTRAINTS (verified against docs.x.ai/developers/tools/web-search,
+// 2026-08-08): xAI's web_search accepts domain filters — allowed_domains /
+// excluded_domains (≤5 each, mutually exclusive), nested under a `filters`
+// object on the OpenAI-compatible wire — plus enable_image_search /
+// enable_image_understanding booleans (not plumbed here). Unlike x_search it
+// accepts NO from_date/to_date; there is no server-side date bound for web
+// results, so timeliness must come from the prompt or from x_search.
+//
+// Same doctrine as xSearchTool.xSearchParamsFromEnv: constraints are
+// deployment configuration (XAI_WEB_SEARCH_ALLOWED_DOMAINS /
+// XAI_WEB_SEARCH_EXCLUDED_DOMAINS, comma-separated), never YAML — the YAML
+// stays shareable. Misconfiguration degrades with a warning, never fatally:
+// oversize domain lists truncate, and when both lists are set the allowlist
+// wins. OpenAI's web_search takes no such params — callers must apply this
+// helper on the xAI path only.
+
+/** xAI's documented ceiling on allowed_domains / excluded_domains. */
+const XAI_WEB_SEARCH_MAX_DOMAINS = 5;
+
+/** Comma-separated domains from an env var; trimmed, capped at xAI's limit. */
+function domainsFromEnv(name: string): string[] {
+  const domains = (process.env[name] ?? '')
+    .split(',')
+    .map((d) => d.trim())
+    .filter(Boolean);
+  if (domains.length > XAI_WEB_SEARCH_MAX_DOMAINS) {
+    console.warn(
+      `[web_search] ${name} lists ${domains.length} domains — xAI caps the ` +
+        `list at ${XAI_WEB_SEARCH_MAX_DOMAINS}; keeping the first ${XAI_WEB_SEARCH_MAX_DOMAINS}.`,
+    );
+    return domains.slice(0, XAI_WEB_SEARCH_MAX_DOMAINS);
+  }
+  return domains;
+}
+
+/**
+ * Optional server-side domain filters for xAI's web_search tool, read from
+ * the environment at request-build time (see WHICH CONSTRAINTS above). With
+ * nothing configured this returns {} and the tool ships bare, exactly as it
+ * always has. xAI-only: apply on the xAI path, never on OpenAI's web_search.
+ */
+export function xaiWebSearchParamsFromEnv(): Record<string, unknown> {
+  const allowed = domainsFromEnv('XAI_WEB_SEARCH_ALLOWED_DOMAINS');
+  const excluded = domainsFromEnv('XAI_WEB_SEARCH_EXCLUDED_DOMAINS');
+  if (allowed.length > 0 && excluded.length > 0) {
+    console.warn(
+      '[web_search] XAI_WEB_SEARCH_ALLOWED_DOMAINS and _EXCLUDED_DOMAINS are ' +
+        'mutually exclusive (xAI rejects both together) — keeping the ' +
+        'allowlist, dropping the exclusions.',
+    );
+  }
+  if (allowed.length > 0) return { filters: { allowed_domains: allowed } };
+  if (excluded.length > 0) return { filters: { excluded_domains: excluded } };
+  return {};
+}
