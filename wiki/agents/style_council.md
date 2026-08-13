@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-08
+  at: 2026-08-13
 sources:
   - resource: config/agents/style_council.yaml
 ---
@@ -23,11 +23,11 @@ Run this syndicate to observe how prompt instructions shape output style, to req
 
 <!-- wiki:generated section="composition" source="config/agents/style_council.yaml" -->
 - memory: `session-only`
-- orchestrator: **Router** (`gemini-3.6-flash`)
+- orchestrator: **Router** (`gemini-3.7-flash`)
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
-| Analyst | `gemini-3.6-flash` | — | — |
-| Peer | `gemini-3.6-flash` | — | — |
-| Mentor | `gemini-3.6-flash` | — | — |
+| Analyst | `gemini-3.7-flash` | — | — |
+| Peer | `gemini-3.7-flash` | — | — |
+| Mentor | `gemini-3.7-flash` | — | — |
 <!-- /wiki:generated -->

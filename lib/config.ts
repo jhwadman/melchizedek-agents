@@ -23,7 +23,7 @@
  * in the caller's YAML or request.
  *
  * Use gemini-3.1-flash-lite for lightweight/cost-efficient loads (subagents,
- * data retrieval). Use gemini-3.6-flash in YAML for production orchestrators.
+ * data retrieval). Use gemini-3.7-flash in YAML for production orchestrators.
  *
  * NOTE: gemini-2.5-flash is known incompatible with this framework's
  * includeServerSideToolInvocations flag on AI Studio Tier 1 — do not use it
@@ -80,7 +80,7 @@ export const DEFAULT_OLLAMA_MODEL = 'ollama/qwen3:8b';
  *
  * Must be a text generation model (not an embedding model).
  */
-export const MEMORY_EXTRACTION_MODEL = 'gemini-3.6-flash';
+export const MEMORY_EXTRACTION_MODEL = 'gemini-3.7-flash';
 
 /**
  * Default model for wiki agent operations (wiki_query, wiki_garden, and the
@@ -89,7 +89,7 @@ export const MEMORY_EXTRACTION_MODEL = 'gemini-3.6-flash';
  * provider works — override per call or via WIKI_AGENT_MODEL env
  * ('claude-*', 'ollama/*', …); routing goes through lib/models/registry.ts.
  */
-export const WIKI_AGENT_MODEL = 'gemini-3.6-flash';
+export const WIKI_AGENT_MODEL = 'gemini-3.7-flash';
 
 // ── Embedding Models ──────────────────────────────────────────────────────────
 

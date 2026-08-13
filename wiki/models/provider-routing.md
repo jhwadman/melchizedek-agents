@@ -31,4 +31,4 @@ All provider registration must occur before constructing agents. The `LLMRegistr
 | ollama | Ollama (local) | (keyless, local) | `ollama/<model>` | `ollama/qwen3:8b` |
 <!-- /wiki:generated -->
 
-Wiki agent operations default to `gemini-3.6-flash` (WIKI_AGENT_MODEL in lib/config.ts). Schema-dialect bridging between Gemini-uppercase and standard JSON Schema is covered in [tool contracts](/tools/tool-contracts.md).
+Wiki agent operations default to `gemini-3.7-flash` (WIKI_AGENT_MODEL in lib/config.ts). Schema-dialect bridging between Gemini-uppercase and standard JSON Schema is covered in [tool contracts](/tools/tool-contracts.md).

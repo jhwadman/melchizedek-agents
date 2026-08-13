@@ -5,8 +5,8 @@ description: "Keeper of the knowledge bundle: answers what the house knows via t
 tags:
   - syndicate
 generated:
-  by: melchizedek/gemini-3.6-flash
-  at: 2026-07-27
+  by: process:wiki-build
+  at: 2026-08-13
 sources:
   - resource: config/agents/scriptorium.yaml
 ---
@@ -23,10 +23,10 @@ Run `npm run syndicate:scriptorium` when visitors need to query what the house k
 Run: `npm run syndicate:scriptorium`
 
 - memory: `internal-only`
-- orchestrator: **Armarius** (`gemini-3.6-flash`)
+- orchestrator: **Armarius** (`gemini-3.7-flash`)
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
 | Seeker | `gemini-3.1-flash-lite` | `wiki_map`, `wiki_search`, `wiki_read`, `wiki_links`, `wiki_dive` | — |
-| Illuminator | `gemini-3.6-flash` | `wiki_map`, `wiki_search`, `wiki_read`, `wiki_links`, `wiki_save` | — |
+| Illuminator | `gemini-3.7-flash` | `wiki_map`, `wiki_search`, `wiki_read`, `wiki_links`, `wiki_save` | — |
 <!-- /wiki:generated -->

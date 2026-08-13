@@ -5,8 +5,8 @@ description: The Lyceum Librarian syndicate.
 tags:
   - syndicate
 generated:
-  by: melchizedek/gemini-3.6-flash
-  at: 2026-07-27
+  by: process:wiki-build
+  at: 2026-08-13
 sources:
   - resource: config/agents/librarian.yaml
 ---
@@ -23,7 +23,7 @@ This syndicate excels at querying catalog availability and performing remote sta
 Run: `npm run syndicate:librarian`
 
 - memory: `internal-only`
-- orchestrator: **Archivist** (`gemini-3.6-flash`)
+- orchestrator: **Archivist** (`gemini-3.7-flash`)
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|

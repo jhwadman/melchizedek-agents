@@ -81,7 +81,7 @@ test('frontmatter requires only a non-empty type; unknown keys pass through', ()
 test('verified: bare mapping is a one-element list; trust tiers derive from actors', () => {
   const machine = conceptFrontmatterSchema.parse({
     type: 'guide',
-    verified: { by: 'reference_agent/gemini-3.6-flash' },
+    verified: { by: 'reference_agent/gemini-3.7-flash' },
   });
   assert.equal(verifiedEntries(machine).length, 1);
   assert.equal(trustTier(machine), 'machine-confirmed');
@@ -95,7 +95,7 @@ test('verified: bare mapping is a one-element list; trust tiers derive from acto
 });
 
 test('actor convention accepts the three forms and rejects bare names', () => {
-  for (const ok of ['human:jimmy', 'process:wiki-build', 'melchizedek/gemini-3.6-flash']) {
+  for (const ok of ['human:jimmy', 'process:wiki-build', 'melchizedek/gemini-3.7-flash']) {
     assert.ok(actorSchema.safeParse(ok).success, ok);
   }
   for (const bad of ['jimmy', 'human:', 'process:']) {

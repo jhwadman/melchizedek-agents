@@ -18,11 +18,11 @@ sources:
 
 ## `503 ServiceUnavailable` on inference
 
-The model id doesn't exist on the AI Studio endpoint or the account tier lacks access. Use `gemini-3.6-flash` or `gemini-3.1-flash-lite`; identifiers are case-sensitive and must match the AI Studio model list exactly.
+The model id doesn't exist on the AI Studio endpoint or the account tier lacks access. Use `gemini-3.7-flash` or `gemini-3.1-flash-lite`; identifiers are case-sensitive and must match the AI Studio model list exactly.
 
 ## `400` — "tool call context circulation not enabled"
 
-`gemini-2.5-flash` is incompatible with this framework's `includeServerSideToolInvocations: true` on standard AI Studio Tier 1 — which is why it must never be a default model (noted at the constant in `lib/config.ts`). Fix: `model: "gemini-3.6-flash"` in the YAML.
+`gemini-2.5-flash` is incompatible with this framework's `includeServerSideToolInvocations: true` on standard AI Studio Tier 1 — which is why it must never be a default model (noted at the constant in `lib/config.ts`). Fix: `model: "gemini-3.7-flash"` in the YAML.
 
 ## Orchestrator ignores subagent output / returns stale data
 

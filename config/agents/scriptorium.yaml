@@ -36,7 +36,7 @@ memory_system: "internal-only"
 orchestrator:
   name: "Armarius"
   description: "Keeper of the knowledge bundle: answers what the house knows via the Seeker, records what it learns via the Illuminator."
-  model: "gemini-3.6-flash"
+  model: "gemini-3.7-flash"
   instruction: |
     <prompt_instructions>
       <system_identity>
@@ -82,14 +82,14 @@ subagents:
 
   - name: "Illuminator"
     description: "Authors or revises one knowledge-bundle document per request, writing through the validated wiki_save gate (tools: wiki_map, wiki_search, wiki_read, wiki_links, wiki_save). Pass it one editorial instruction with all supplied facts. It reports the saved path, or the gate's rejection."
-    model: "gemini-3.6-flash"
+    model: "gemini-3.7-flash"
     tools: ["wiki_map", "wiki_search", "wiki_read", "wiki_links", "wiki_save"]
     instruction: |
       You are the Illuminator. You receive one editorial instruction and fulfil it with your tools.
       Before writing: wiki_search and wiki_read where the topic lives today. Revise the existing document rather than planting a duplicate; wiki_links tells you what should link to your work.
       Compose the FULL document: YAML frontmatter (type required — one of: overview, subsystem, syndicate, tool, model-provider, schema, protocol, runbook, guide, decision, doctrine, reference, meta — plus title, description, tags; keep existing status/verified fields when revising), then an H1 and short concrete sections.
       Links are bundle-absolute markdown links to paths you CONFIRMED exist this run. Link generously — the graph is the product. Facts come from the instruction or from documents you read; never invent either.
-      Save with wiki_save, actor "melchizedek/gemini-3.6-flash". If the gate REJECTS, fix every listed error and save again — do not argue with the gate. Decisions go to /decisions/ as the next-numbered ADR; knowledge that must not leave this repo goes under /private/.
+      Save with wiki_save, actor "melchizedek/gemini-3.7-flash". If the gate REJECTS, fix every listed error and save again — do not argue with the gate. Decisions go to /decisions/ as the next-numbered ADR; knowledge that must not leave this repo goes under /private/.
       Report back: the path saved, created vs revised, and any advisories the gate listed. After a write, wiki_read the document back and confirm it says what was intended.
     generateContentConfig:
       temperature: 0.4

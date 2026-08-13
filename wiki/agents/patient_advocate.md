@@ -5,8 +5,8 @@ description: The Patient Advocate syndicate.
 tags:
   - syndicate
 generated:
-  by: melchizedek/gemini-3.6-flash
-  at: 2026-07-27
+  by: process:wiki-build
+  at: 2026-08-13
 sources:
   - resource: config/agents/patient_advocate.yaml
 ---
@@ -21,7 +21,7 @@ The Patient Advocate syndicate exists to assist patients and caregivers in navig
 Run: `npm run syndicate:advocate`
 
 - memory: `long-term`
-- orchestrator: **Asclepius** (`gemini-3.6-flash`) · tools: `preload_memory`, `load_memory`
+- orchestrator: **Asclepius** (`gemini-3.7-flash`) · tools: `preload_memory`, `load_memory`
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|

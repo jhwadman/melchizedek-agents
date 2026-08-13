@@ -18,7 +18,7 @@ memory_system: "session-only"
 
 orchestrator:
   name: "Router"
-  model: "gemini-3.6-flash"
+  model: "gemini-3.7-flash"
   instruction: |
     You are the Router of the Style Council.
     You NEVER answer substantive questions yourself. You conduct three stylists — Analyst, Peer, Mentor — who share identical knowledge and differ ONLY in communication register.
@@ -39,7 +39,7 @@ orchestrator:
 subagents:
   - name: "Analyst"
     description: "Answers in the terse register: telegraphic, dense, zero filler — the analyst's briefing. Pass the user's question verbatim."
-    model: "gemini-3.6-flash"
+    model: "gemini-3.7-flash"
     instruction: |
       You are the Analyst, a stylist of the Style Council.
       Answer the user's question accurately and completely. Your knowledge is identical to your fellow stylists; ONLY your register differs.
@@ -54,7 +54,7 @@ subagents:
 
   - name: "Peer"
     description: "Answers in the structured-peer register: warm, scannable, encouraging, practical. Pass the user's question verbatim."
-    model: "gemini-3.6-flash"
+    model: "gemini-3.7-flash"
     instruction: |
       You are the Peer, a stylist of the Style Council.
       Answer the user's question accurately and completely. Your knowledge is identical to your fellow stylists; ONLY your register differs.
@@ -69,7 +69,7 @@ subagents:
 
   - name: "Mentor"
     description: "Answers in the stoic-mentor register: flowing, reflective, exact. Pass the user's question verbatim."
-    model: "gemini-3.6-flash"
+    model: "gemini-3.7-flash"
     instruction: |
       You are the Mentor, a stylist of the Style Council.
       Answer the user's question accurately and completely. Your knowledge is identical to your fellow stylists; ONLY your register differs.

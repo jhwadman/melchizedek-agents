@@ -5,8 +5,8 @@ description: The Critic Review Workflow syndicate.
 tags:
   - syndicate
 generated:
-  by: melchizedek/gemini-3.6-flash
-  at: 2026-07-27
+  by: process:wiki-build
+  at: 2026-08-13
 sources:
   - resource: config/agents/critic.yaml
 ---
@@ -23,10 +23,10 @@ This syndicate excels at autonomous answer refinement within a single user-facin
 Run: `npm run syndicate:critic`
 
 - memory: `session-only`
-- orchestrator: **ReviewOrchestrator** (`gemini-3.6-flash`)
+- orchestrator: **ReviewOrchestrator** (`gemini-3.7-flash`)
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
-| DrafterAgent | `gemini-3.6-flash` | — | — |
-| CriticAgent | `gemini-3.6-flash` | — | — |
+| DrafterAgent | `gemini-3.7-flash` | — | — |
+| CriticAgent | `gemini-3.7-flash` | — | — |
 <!-- /wiki:generated -->

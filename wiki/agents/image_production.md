@@ -5,8 +5,8 @@ description: The Multi-Modal Image Production Workflow syndicate.
 tags:
   - syndicate
 generated:
-  by: melchizedek/gemini-3.6-flash
-  at: 2026-07-27
+  by: process:wiki-build
+  at: 2026-08-13
 sources:
   - resource: config/agents/image_production.yaml
 ---
@@ -21,9 +21,9 @@ The Multi-Modal Image Production Workflow translates user concepts into comprehe
 Run: `npm run syndicate:image`
 
 - memory: `session-only`
-- orchestrator: **ImageDesigner** (`gemini-3.6-flash`) · tools: `generate_image`, `inspect_image`
+- orchestrator: **ImageDesigner** (`gemini-3.7-flash`) · tools: `generate_image`, `inspect_image`
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
-| SpecAuditor | `gemini-3.6-flash` | — | — |
+| SpecAuditor | `gemini-3.7-flash` | — | — |
 <!-- /wiki:generated -->
