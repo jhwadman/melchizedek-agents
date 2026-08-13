@@ -44,7 +44,7 @@ Example output:
 [CORRECTION | date: 2026-07-10 | source: user | status: active | keys: metoprolol, dosing | supersedes: metoprolol tartrate 25 mg twice daily] Per the user, the cardiologist raised the father's metoprolol to 50 mg twice daily on 2026-07-10.
 [EPISODE | date: {session_date} | source: session | status: active | keys: follow-up, medications] The user reviewed the father's record ahead of Tuesday's cardiology follow-up and updated the metoprolol dose; baseline blood pressure readings are still missing.
 
-Now distill the following conversation transcript:
+{domain_rules}Now distill the following conversation transcript:
 
 ---
 {transcript}
@@ -76,6 +76,54 @@ interface FactRow {
 }
 
 const RECORD_RE = /^\[([A-Z]+)((?:\s*\|[^\]]*)?)\]\s*(.+)$/;
+
+/**
+ * Cosine similarity at or above which a new record is treated as a restatement
+ * of one already stored, and dropped.
+ *
+ * Deliberately high. The extraction model rephrases the same fact on every
+ * pass ("The user has $831 in a forgotten Roth IRA" / "…an $831 balance in a
+ * forgotten Roth IRA account"), and those land around 0.95+; genuinely
+ * different facts about one subject ("NVDA closed at $217.50" vs "Wells Fargo
+ * put a $315 target on NVDA") sit far below. Tuning this DOWN risks silently
+ * discarding a real fact, which is the worse failure — a duplicate only costs
+ * a shortlist slot.
+ */
+export const MEMORY_DEDUP_SIMILARITY = 0.93;
+
+/**
+ * Which of a session's events still need ingesting.
+ *
+ * The A2A server is stateless, so `addSessionToMemory` runs after EVERY task
+ * with the WHOLE session — an N-turn conversation was being extracted N times
+ * over a growing transcript. That produced 13 EPISODE records narrating the
+ * same session and one balance stored six ways. A high-water mark per session
+ * means each turn is distilled once.
+ */
+export function eventsToIngest<T>(events: T[], alreadyIngested: number): T[] {
+	if (!Array.isArray(events) || events.length <= alreadyIngested) return [];
+	return events.slice(Math.max(0, alreadyIngested));
+}
+
+/**
+ * True when a candidate record restates something already stored.
+ *
+ * Same tag is required: an EPISODE narrating a discussion of the user's Roth
+ * IRA is not the FACT of its balance, however close the wording sits. Retired
+ * rows never suppress a new one — a superseded record is history, and the
+ * fact it was corrected to may legitimately be re-asserted later.
+ */
+export function isSemanticDuplicate(
+	candidate: { tag: string },
+	matches: Array<{ tag: string | null; status: string | null; similarity: number }>,
+	threshold: number = MEMORY_DEDUP_SIMILARITY,
+): boolean {
+	return matches.some(m =>
+		(m.status ?? 'active') === 'active'
+		&& (m.tag ?? '') === candidate.tag
+		&& m.similarity >= threshold
+	);
+}
 const MONTH_NAMES = [
 	'january', 'february', 'march', 'april', 'may', 'june',
 	'july', 'august', 'september', 'october', 'november', 'december',
@@ -84,6 +132,15 @@ const MONTH_NAMES = [
 export class SupabaseVectorMemoryService implements BaseMemoryService {
 	private genai: GoogleGenAI;
 	private supabase: SupabaseClient;
+	/**
+	 * How many of each session's events have already been distilled.
+	 * Keyed `{userKey}::{sessionId}`.
+	 *
+	 * In-process on purpose: a restart resets it, so the next turn re-reads
+	 * that session once. Semantic dedup absorbs that batch, which is why this
+	 * needs no table of its own — the two fixes cover each other's edges.
+	 */
+	private ingestedEventCount = new Map<string, number>();
 
 	constructor(config: { apiKey: string }, supabaseClient: SupabaseClient) {
 		this.genai = new GoogleGenAI({ apiKey: config.apiKey });
@@ -91,16 +148,38 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 		console.log(`[MemoryService] Initialized — backend: Supabase Vector Search (pgvector), structured records`);
 	}
 
-	async addSessionToMemory(session: Session): Promise<void> {
-		const transcript = this.serializeSession(session);
+	/**
+	 * @param extractionRules Optional domain rules appended to the shared
+	 *   extraction prompt for THIS consumer only. The prompt is global (the
+	 *   patient advocate uses the same one), so anything domain-specific —
+	 *   "never store a market quote" — arrives here rather than being edited
+	 *   into it. Declared as `memory_extraction_rules` on the served syndicate.
+	 */
+	async addSessionToMemory(session: Session, extractionRules?: string): Promise<void> {
+		const userKey = `${session.appName}/${session.userId}`;
+		const watermarkKey = `${userKey}::${session.id}`;
+		const alreadyIngested = this.ingestedEventCount.get(watermarkKey) ?? 0;
+		const fresh = eventsToIngest(session.events ?? [], alreadyIngested);
+
+		if (fresh.length === 0) {
+			console.log(`[MemoryService] Session ${session.id}: no new turns since last ingestion — skipping.`);
+			return;
+		}
+
+		const transcript = this.serializeEvents(fresh);
 		if (!transcript.trim()) {
 			console.log(`[MemoryService] Session ${session.id} has no content — skipping ingestion.`);
 			return;
 		}
 
-		console.log(`[MemoryService] Extracting records from session: ${session.id}`);
+		console.log(`[MemoryService] Extracting records from session: ${session.id} `
+			+ `(${fresh.length} new turn(s) of ${(session.events ?? []).length})`);
 
-		const records = await this.extractRecords(transcript);
+		const records = await this.extractRecords(transcript, extractionRules);
+		// Advance only after extraction SUCCEEDS — a throw leaves the turns
+		// pending so the next task retries them rather than losing them.
+		this.ingestedEventCount.set(watermarkKey, (session.events ?? []).length);
+
 		if (records.length === 0) {
 			console.log(`[MemoryService] No records extracted from session ${session.id}.`);
 			return;
@@ -108,8 +187,6 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 		console.log(`[MemoryService] Extracted ${records.length} record(s) from session ${session.id}.`);
 
 		const embeddings = await this.embedTexts(records.map(r => r.line));
-
-		const userKey = `${session.appName}/${session.userId}`;
 
 		const inserted = await this.upsertToSupabase(userKey, records, embeddings);
 		await this.applySupersessions(userKey, records, inserted);
@@ -146,10 +223,16 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 		return this.searchSupabase(userKey, request.query);
 	}
 
-	private async extractRecords(transcript: string): Promise<MemoryRecord[]> {
+	private async extractRecords(transcript: string, extractionRules?: string): Promise<MemoryRecord[]> {
 		const sessionDate = new Date().toISOString().slice(0, 10);
+		// Empty by default, so a consumer that declares no rules gets exactly
+		// the prompt it got before this slot existed.
+		const domainRules = extractionRules?.trim()
+			? `DOMAIN RULES — these narrow the rules above for this deployment and win on conflict:\n${extractionRules.trim()}\n\n`
+			: '';
 		const prompt = FACT_EXTRACTION_PROMPT
 			.replaceAll('{session_date}', sessionDate)
+			.replace('{domain_rules}', domainRules)
 			.replace('{transcript}', transcript);
 		try {
 			const response = await this.genai.models.generateContent({
@@ -249,9 +332,9 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 		return embeddings;
 	}
 
-	private serializeSession(session: Session): string {
+	private serializeEvents(events: Session['events']): string {
 		const lines: string[] = [];
-		for (const event of session.events) {
+		for (const event of events) {
 			if (!event.content?.parts) continue;
 
 			const textParts: string[] = [];
@@ -280,10 +363,11 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 	): Promise<Map<string, string>> {
 		const insertedIds = new Map<string, string>();
 
-		// Dedupe against facts already stored for this user. Stateless callers
-		// (the A2A server) ingest after every task, re-serializing the whole
-		// session each time — without this check, every multi-turn conversation
-		// would store its earlier facts once per turn.
+		// First pass: byte-identical lines already stored. Cheap, and catches
+		// a genuinely repeated extraction. It is NOT sufficient on its own —
+		// the extraction model rephrases, so the semantic pass below is what
+		// actually stops "the user has $831 in a forgotten Roth IRA" being
+		// stored six ways.
 		const { data: existing } = await this.supabase
 			.from('adk_memory_facts')
 			.select('fact')
@@ -291,9 +375,30 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 			.in('fact', records.map(r => r.line));
 		const known = new Set((existing ?? []).map((row) => row.fact));
 
-		const payload = records.map((record, i) => {
-			if (embeddings[i].length === 0 || known.has(record.line)) return null;
-			return {
+		// Second pass: semantic. One similarity probe per surviving candidate —
+		// the embedding is already computed, and the same RPC the supersession
+		// path uses. A restatement is dropped; the stored row keeps its
+		// original date, which is the earliest the user asserted it.
+		const payload: Array<Record<string, unknown>> = [];
+		for (let i = 0; i < records.length; i++) {
+			const record = records[i];
+			if (embeddings[i].length === 0 || known.has(record.line)) continue;
+
+			const { data: near, error: nearErr } = await this.supabase.rpc('match_memory_facts', {
+				query_embedding: embeddings[i],
+				match_count: 5,
+				filter_user_key: userKey,
+			});
+			if (nearErr) {
+				// Fail OPEN: a dedup probe that errors must not silently drop a
+				// record. A duplicate is recoverable; a lost fact is not.
+				console.error(`[MemoryService] Dedup probe failed (storing anyway):`, nearErr.message);
+			} else if (isSemanticDuplicate(record, (near ?? []) as FactRow[])) {
+				console.log(`[MemoryService] Duplicate skipped [${record.tag}]: "${record.line.slice(0, 70)}..."`);
+				continue;
+			}
+
+			payload.push({
 				user_key: userKey,
 				fact: record.line,
 				embedding: embeddings[i],
@@ -302,8 +407,8 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 				source: record.source,
 				status: record.status,
 				keys: record.keys,
-			};
-		}).filter(item => item !== null);
+			});
+		}
 
 		if (payload.length === 0) return insertedIds;
 

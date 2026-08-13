@@ -3,6 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { hasSupabaseCredentials } from './persistence/supabaseProvider.ts';
+import type { DispatchConfig } from './dispatch.ts';
+
+export type { DispatchConfig } from './dispatch.ts';
 
 // ── Types ─────────────────────────────────────────────────
 // Property names mirror their ADK counterparts 1:1.
@@ -117,10 +120,26 @@ export interface SyndicateYamlConfig {
   syndicate_name: string;
   orchestrator: AgentYamlConfig;
   subagents: SubagentYamlConfig[];
+  /**
+   * Opts this syndicate into PLAN-DISPATCH orchestration: the orchestrator is
+   * a tool-less classifier whose `outputSchema` names one route, and code runs
+   * that subagent directly so its output is the answer — no relay turn.
+   * Absent = classic DELEGATE mode (subagents as AgentTools).
+   * See lib/dispatch.ts for the full contract.
+   */
+  dispatch?: DispatchConfig;
   /** Optional default variable definitions for {{token}} interpolation. */
   variables?: VariableMap;
   /** Defines the persistence and semantic memory layer for the syndicate. */
   memory_system?: 'internal-only' | 'session-only' | 'long-term';
+  /**
+   * Domain rules appended to the shared fact-extraction prompt for THIS
+   * syndicate only. The prompt is global (every long-term memory consumer
+   * shares it), so anything domain-specific — "never store a market quote" —
+   * belongs here rather than edited into the prompt itself.
+   * Read by the A2A server at ingestion time; ignored without `long-term`.
+   */
+  memory_extraction_rules?: string;
   /** Optional hard technical limit for maximum ADK runner loops (LLM -> Tool cycles). */
   max_steps?: number;
 }

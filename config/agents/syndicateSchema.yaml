@@ -33,6 +33,55 @@ syndicate_name: "My Syndicate"
 variables:
   my_variable: "default_value"
 
+# [optional] Domain rules appended to the shared fact-extraction prompt for
+# THIS syndicate only (requires memory_system: "long-term").
+#
+# The extraction prompt is global — every long-term consumer runs the same
+# one — so anything domain-specific belongs here, not edited into it. Unset,
+# the prompt renders exactly as it did before this field existed.
+#
+# Use it to say what is worth remembering in your domain. A financial desk
+# stores what the user holds and the levels they set, never a market quote
+# (it re-fetches those live, and a stored quote only crowds the shortlist);
+# a clinical assistant would want the opposite.
+memory_extraction_rules: |
+  NEVER store: <values that go stale on their own>
+  ALWAYS store: <what the user asserted, decided, or committed to>
+
+# [optional] Switches this syndicate from DELEGATE to PLAN-DISPATCH.
+#
+#   DELEGATE (omit this block, the default): subagents become AgentTools on
+#   the orchestrator, which calls one and then RE-EMITS its answer to close
+#   the turn. Classification is implicit in which tool it calls.
+#
+#   PLAN-DISPATCH (declare it): the orchestrator holds NO subagent tools and
+#   instead carries an `outputSchema` naming one route. Code reads that name,
+#   runs the matching subagent, and returns THAT agent's output as the answer.
+#   No relay turn, one fewer LLM call, and the hand-off is a value in code —
+#   so it can be logged, traced, and streamed to a waiting user as
+#   "[STATUS] Routed to <Name> — <reason>".
+#
+# ⚠ The orchestrator MUST be a leaf when using this: ADK refuses to combine
+#   outputSchema with AgentTool delegation on one agent (see critic.yaml).
+#   Pair the schema with generateContentConfig.responseMimeType:
+#   "application/json".
+# ⚠ A2A-only — scripts/syndicate_chat.ts compiles every syndicate in
+#   DELEGATE mode (same limitation as yaml_reference).
+#
+# Contract and fail-static rules: lib/dispatch.ts. Worked example:
+# financial_router.yaml.
+dispatch:
+  # [required] Subagent used whenever routing yields no usable answer —
+  # malformed JSON, an unknown name, or a classifier that failed outright.
+  # Must name a declared subagent that can handle ANY message: routing is an
+  # optimisation, answering the user is the contract.
+  default_route: "TheGeneralistSubagent"
+  # [optional] JSON property holding the chosen route. Default "route".
+  route_key: "route"
+  # [optional] JSON property holding the short justification shown to the
+  # waiting user as progress. Default "reason".
+  reason_key: "reason"
+
 # ── Orchestrator ────────────────────────────────────────────
 # Maps to: new LlmAgent({ ... }) — the root agent passed to InMemoryRunner.
 

@@ -25,6 +25,7 @@ see [`QUICKSTART.md`](./QUICKSTART.md).
 ```
 config/agents/*.yaml      syndicate definitions (the product surface)
 lib/loadSyndicate.ts      YAML → validated config (+ variable binding)
+lib/dispatch.ts           plan-dispatch route resolution (§6, A2A-only)
 lib/toolRegistry.ts       tool name → live ADK tool instance
 lib/models/claudeLlm.ts   Claude adapter registered into the ADK registry
 lib/models/ollamaLlm.ts   open-weight local adapter (Ollama, keyless)
@@ -87,6 +88,8 @@ Field reference:
 | `syndicate_name` | root | Display name; also namespaces memory user keys. |
 | `memory_system` | root | `internal-only` (nothing persists), `session-only` (transcript persists in Supabase), `long-term` (adds fact distillation + vector recall). |
 | `variables` | root | Key/values bound into `{{placeholders}}` anywhere in instructions. `current_date` is always injected; CLI `--bind key=value` overrides. |
+| `memory_extraction_rules` | root | Domain rules appended to the shared fact-extraction prompt for THIS syndicate only (requires `memory_system: "long-term"`). The extraction prompt is global — anything domain-specific belongs here, never edited into it. Unset, the prompt renders byte-identical to before the slot existed (§4). |
+| `dispatch` | root | Switches the syndicate from DELEGATE to PLAN-DISPATCH routing (§6). `default_route` (required) names the fail-static subagent; `route_key` / `reason_key` name the router's JSON properties (defaults `route` / `reason`). A2A-only. |
 | `name` / `model` / `instruction` | agent | The agent triple. Any Gemini id, `claude-*`, or `ollama/*` for open-weight local models (see §5). |
 | `description` | subagent | **The delegation API.** The orchestrator reads this when deciding to hand off — write it like a function signature ("Use this subagent to…, pass it…"). |
 | `tools` | agent | Names resolved by the tool registry (§3). Long-term memory agents add `preload_memory` / `load_memory`. |
@@ -241,7 +244,45 @@ $$;
 Then run [`db/hardening.sql`](./db/hardening.sql) (RLS deny-by-default;
 see §8). Upgrading an existing project to the structured columns:
 [`db/memory_v2.sql`](./db/memory_v2.sql). `npm run db:purge` clears both
-tables.
+tables; for per-record inspection and hand-clearing, `npm run memory`
+(`scripts/memory_admin.ts`) lists silos, groups likely restatements
+(`--dupes`), and deletes chosen records — a dry run unless `--yes`, with
+every delete scoped to its `--silo`. Cleanup means DELETE, not
+`status='superseded'`: `match_memory_facts` filters on `user_key` alone
+and applies status afterwards in the re-rank, so a retired row still
+consumes a candidate slot (see `lib/memory/README.md`).
+
+**Ingestion is incremental, and dedup is semantic.** A stateless service
+(the A2A server, §6) ingests after *every* completed task with the whole
+session — so an N-turn conversation would be distilled N times over a
+growing transcript, and byte-equality dedup never catches it because the
+extraction model rephrases on each pass. Two mechanisms in
+`lib/memory/supabaseMemoryService.ts` prevent the store from filling
+with restatements:
+
+- A per-session **high-water mark** (`eventsToIngest`) distils only the
+  turns added since the last ingestion. It is in-process on purpose — a
+  restart re-reads one session once, absorbed by the check below, which
+  is why it needs no table of its own.
+- A **similarity probe** before each insert (`isSemanticDuplicate`,
+  `MEMORY_DEDUP_SIMILARITY = 0.93`) drops restatements, reusing the same
+  `match_memory_facts` RPC the supersession path calls. It requires the
+  same tag — an `[EPISODE]` about a topic must never suppress the
+  `[FACT]` it mentions — and retired rows never suppress a new one. A
+  probe that errors **fails open and stores**: a duplicate costs a
+  shortlist slot, a lost fact costs the user something they said.
+
+**Per-consumer extraction rules.** The fact-extraction prompt is shared
+by every long-term consumer, so domain rules arrive through the
+`memory_extraction_rules` field on the syndicate (§2) rather than being
+edited into the prompt. It fills a `{domain_rules}` slot that renders
+empty when unset — a syndicate declaring none gets byte-identical
+behaviour to before the slot existed. Use it to say what is worth
+remembering in your domain: what the user asserted, decided, or
+committed to is usually worth storing; a value that goes stale on its
+own usually is not, because a stored copy can never be used, only crowd
+out records that can. `config/agents/syndicateSchema.yaml` shows the
+shape.
 
 A memory store is a PII store: key facts to users, honor deletion, set
 retention deliberately. Vectorization is not anonymization — the
@@ -346,6 +387,78 @@ rate limiting. With `PUBLIC_URL` set (a real deployment), the server
 refuses to start without the secret and refuses to run against an
 unhardened database unless explicitly overridden. `demo/a2a_demo.mjs` is
 a complete client.
+
+### Plan-dispatch routing (`dispatch:`) — the second orchestration method
+
+A syndicate that declares a `dispatch:` block stops delegating and
+starts **dispatching**. The two methods differ in who speaks to the
+user:
+
+| | DELEGATE (default) | PLAN-DISPATCH (`dispatch:` present) |
+|---|---|---|
+| Subagents are | `AgentTool`s on the orchestrator | plain configs the server selects from |
+| Orchestrator holds | subagent tools, no `outputSchema` | an `outputSchema`, no subagent tools |
+| Routing decision is | implicit in which tool it calls | an explicit value in code |
+| The final answer comes from | the orchestrator re-emitting the answer | **the specialist itself** |
+| LLM calls per request | classify + specialist + relay | classify + specialist |
+
+```yaml
+dispatch:
+  default_route: "Generalist"          # fail-static target; must be a declared subagent
+
+orchestrator:
+  name: "Triage"
+  model: "gemini-3.5-flash-lite"
+  instruction: |
+    Name exactly ONE specialist for this message. ...
+  outputSchema:                        # a leaf holding a schema — no subagent tools
+    type: "OBJECT"
+    properties:
+      route:  { type: "STRING", description: "Exact specialist name" }
+      reason: { type: "STRING", description: "≤8 plain words for the waiting user" }
+    required: ["route"]
+  generateContentConfig:
+    responseMimeType: "application/json"
+```
+
+**Why it exists.** In DELEGATE mode the orchestrator receives the
+specialist's answer as a tool response and must re-emit it to close the
+turn. That relay is a full LLM call whose only job is copying text it is
+forbidden to edit, and it is the least reliable step in the chain — in
+production it has finished with zero output tokens (a blank reply) and
+emitted the bare tool name in place of a 2,599-character answer.
+Plan-dispatch has no relay turn to fail, and the classifier's output
+shrinks from a whole relayed answer to ~15 tokens of JSON.
+
+**Why the classifier is tool-less.** ADK refuses to combine
+`outputSchema` with AgentTool delegation on one agent (see
+`config/agents/critic.yaml` — an orchestrator holding both deadlocks).
+That constraint shapes the method: the classifier is a leaf, and the
+hand-off happens in code, where it can be logged, traced, and streamed
+to the user as progress.
+
+**Sessions.** The classifier runs in its own lane, `<contextId>::route`,
+so its JSON verdicts never enter the user-facing transcript — the next
+specialist would read them as conversation. Every *route* runs in the
+shared `<contextId>` session, so a follow-up handled by a different
+specialist still sees what the last one said, and long-term memory
+ingests real answers instead of a relay copy of them.
+
+**Fail-static.** Malformed JSON, an unknown route name, an empty
+payload, or a classifier that errors outright all resolve to
+`default_route` and still answer the user — routing is an optimisation,
+answering is the contract. `default_route` must therefore name a
+specialist that can handle anything. The whole resolver is pure; the
+contract lives in `lib/dispatch.ts`.
+
+**Telemetry.** The chosen route is published as a
+`[STATUS] Routed to <Name> — <reason>` progress event before the
+specialist runs, so an A2A client can show a waiting user what is
+happening. The `reason` field is written for that reader, not for logs.
+
+Implemented in `scripts/a2a_server.ts`; like `yaml_reference`, it is
+A2A-only — the CLI runner (`scripts/syndicate_chat.ts`) still compiles
+every syndicate in DELEGATE mode.
 
 ## 7. Extending the framework
 

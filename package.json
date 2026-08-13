@@ -31,6 +31,7 @@
     "wiki:check": "node --disable-warning=DEP0040 --experimental-strip-types scripts/wiki_check.ts",
     "start:a2a": "node --disable-warning=DEP0040 --experimental-strip-types scripts/a2a_server.ts",
     "test": "node --disable-warning=DEP0040 --experimental-strip-types --test tests/**/*.test.ts",
+    "memory": "node --disable-warning=DEP0040 --experimental-strip-types scripts/memory_admin.ts",
     "db:purge": "node --disable-warning=DEP0040 --experimental-strip-types scripts/purge_supabase.ts"
   },
   "dependencies": {

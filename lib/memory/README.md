@@ -170,6 +170,37 @@ in `adk_sessions` are a separate store; full erasure of a user requires
 clearing their rows there as well (`npm run db:purge` wipes ALL sessions —
 dev only).
 
+### Hand-clearing individual records (`npm run memory`)
+
+Erasure is all-or-nothing and `db:purge` is a sledgehammer; neither helps
+when a handful of restatements are crowding the ten slots recall returns.
+`scripts/memory_admin.ts` is the per-record tool.
+
+```bash
+npm run memory -- list                              # every silo, with counts
+npm run memory -- list --silo "<key>"               # the records in one silo
+npm run memory -- list --silo "<key>" --dupes       # group likely restatements
+npm run memory -- delete --silo "<key>" 59c802a0    # DRY RUN — prints what would go
+npm run memory -- delete --silo "<key>" 59c802a0 --yes
+npm run memory -- delete --silo "<key>" --all --yes # erase one silo
+```
+
+Ids are the short 8-character prefix `list` prints. A prefix matching more
+than one record is refused rather than guessed, and every delete is scoped
+to `--silo` in the WHERE clause as well as by id — a valid id belonging to
+another silo will not match, so a mistyped or pasted id cannot reach into
+someone else's memory. Nothing is deleted without `--yes`.
+
+`--dupes` groups records by word overlap within a tag and labels the groups
+by letter. It is a **reading aid**, not the semantic check the service uses
+at write time, and it deletes nothing on its own say-so.
+
+**Delete, don't retire.** Marking a row `status='superseded'` does not remove
+it from recall: `match_memory_facts` filters on `user_key` alone, and status
+is applied afterwards in the re-rank, where an active row gets `+0.05` and a
+retired one is merely relabelled. A junk record marked superseded still
+consumes a candidate slot. Cleaning up means deleting.
+
 ### Hardening
 
 Run [`db/hardening.sql`](../../db/hardening.sql) in the Supabase SQL

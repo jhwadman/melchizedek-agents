@@ -97,7 +97,9 @@ npm run syndicate:ares -- "What do you know about my project?"
 ```
 
 `npm run db:purge` wipes your sessions and memory facts when you want a
-clean slate.
+clean slate. For anything finer than everything, `npm run memory -- list`
+inspects the store per record and `delete` removes chosen records (dry
+run unless `--yes`) — see `lib/memory/README.md`.
 
 ## 5. Optional: give an agent MCP tools
 

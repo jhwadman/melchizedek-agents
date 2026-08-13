@@ -14,7 +14,8 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { Runner, LlmAgent, AgentTool, InMemorySessionService, getFunctionCalls, getFunctionResponses, setLogLevel, LogLevel } from '@google/adk';
 import { loadSyndicate } from '../lib/loadSyndicate.ts';
-import type { SyndicateYamlConfig } from '../lib/loadSyndicate.ts';
+import type { SyndicateYamlConfig, SubagentYamlConfig } from '../lib/loadSyndicate.ts';
+import { isDispatchSyndicate, resolveRoute } from '../lib/dispatch.ts';
 import { traceAgentRun } from '../lib/observability/tracer.ts';
 import { resolveModel } from '../lib/models/registry.ts';
 import { resolveTools as resolveNamedTools } from '../lib/toolRegistry.ts';
@@ -95,6 +96,52 @@ function formatToolArgs(args: Record<string, unknown> | undefined): string {
     .join(', ');
 }
 
+// ── Progress telemetry ────────────────────────────────────────────────────
+// `[STATUS]` is a consumer contract, not decoration: A2A clients scan task
+// history for messages carrying this prefix and surface them as live progress
+// (the Discord bot edits its "Considering your query..." placeholder with the
+// newest one). Keep these lines short and human-readable — they are read by a
+// person waiting for an answer, not by a parser.
+function publishWorking(
+  eventBus: ExecutionEventBus,
+  taskId: string,
+  contextId: string,
+  text: string,
+): void {
+  eventBus.publish({
+    kind: 'status-update',
+    taskId,
+    contextId,
+    status: {
+      state: 'working',
+      message: {
+        kind: 'message',
+        messageId: crypto.randomUUID(),
+        role: 'agent',
+        parts: [{ kind: 'text', text: `[STATUS] ${text}` }],
+        contextId,
+        taskId
+      },
+      timestamp: new Date().toISOString()
+    },
+    final: false
+  } as any);
+}
+
+/** Outcome of running one agent for one turn. See SyndicateExecutor.runTurn. */
+interface TurnResult {
+  /** Concatenated non-thinking text the agent emitted. */
+  text: string;
+  /** Last plain-text tool result seen — the DELEGATE-mode relay fallback. */
+  lastToolResultText: string;
+  /** Every tool/subagent name invoked, for degenerate-output detection. */
+  invokedToolNames: Set<string>;
+  /** Pre-rendered " | N tokens (M thinking)" log suffix, or ''. */
+  tokenInfo: string;
+  /** Set when an error event ended the run early. */
+  error?: { code: string; message: string };
+}
+
 // ── Native ADK AgentExecutor Bridge ───────────────────────────────────────
 class SyndicateExecutor implements AgentExecutor {
   private config: SyndicateYamlConfig;
@@ -109,6 +156,160 @@ class SyndicateExecutor implements AgentExecutor {
     this.config = config;
     this.sessionService = sessionService;
     this.memoryService = memoryService;
+  }
+
+  /**
+   * Run ONE agent for ONE turn against a named session, draining its event
+   * stream. DELEGATE mode calls this once (the orchestrator); PLAN-DISPATCH
+   * calls it twice — the classifier, then the route it chose.
+   *
+   * Errors are RETURNED rather than published, because the two callers want
+   * different things from them: a failed specialist is a failed task, but a
+   * failed classifier must fall back to the default route and still answer.
+   */
+  private async runTurn(params: {
+    agent: LlmAgent;
+    sessionId: string;
+    userId: string;
+    userParts: Array<{ text: string }>;
+    taskId: string;
+    contextId: string;
+    eventBus: ExecutionEventBus;
+    /** Emit an OTEL syndicate span. False for the classifier — it is one cheap call. */
+    trace: boolean;
+    /** Publish per-tool `[STATUS]` progress. False for the classifier (it has no tools). */
+    publishToolStatus: boolean;
+  }): Promise<TurnResult> {
+    const { agent, sessionId, userId, userParts, taskId, contextId, eventBus } = params;
+
+    const runner = new Runner({
+      agent,
+      appName: A2A_APP_NAME,
+      sessionService: this.sessionService,
+      ...(this.memoryService ? { memoryService: this.memoryService } : {})
+    });
+
+    let stream = runner.runAsync({
+      userId,
+      sessionId,
+      newMessage: { role: 'user', parts: userParts },
+      ...(this.config.max_steps !== undefined ? { maxSteps: this.config.max_steps } : {})
+    });
+
+    if (params.trace) {
+      stream = traceAgentRun(stream, {
+        syndicateName: this.config.syndicate_name || 'melchizedek-syndicate',
+        bindings: this.config.variables || {},
+        input: userParts
+      });
+    }
+
+    let combinedText = '';
+    let lastToolResultText = '';
+    const invokedToolNames = new Set<string>();
+    let lastTokenTotal = 0;
+    let lastThinkingTokens = 0;
+    let error: { code: string; message: string } | undefined;
+
+    for await (const event of stream) {
+      const evAny = event as any;
+
+      // Capture token metadata whenever the model emits it
+      if (evAny.usageMetadata?.totalTokenCount) {
+        lastTokenTotal = evAny.usageMetadata.totalTokenCount;
+        lastThinkingTokens = evAny.usageMetadata.thoughtsTokenCount ?? 0;
+      }
+
+      if ((evAny.errorCode || evAny.errorMessage) && evAny.errorCode !== 'STOP') {
+        error = {
+          code: evAny.errorCode ?? 'ERROR',
+          message: evAny.errorMessage ?? ''
+        };
+        console.error(`[A2A] Error [${error.code}]: ${error.message}`);
+        break;
+      }
+
+      // Tool calls — log formatted name + args, publish working status to eventBus
+      const calls = getFunctionCalls(event);
+      if (calls && calls.length > 0) {
+        for (const call of calls) {
+          if (call.name === 'transfer_to_agent') {
+            const target = (call.args as any)?.agentName ?? 'unknown';
+            console.log(`[A2A] → Delegating to: ${target}`);
+            if (params.publishToolStatus) {
+              publishWorking(eventBus, taskId, contextId, `Delegating to subagent: ${target}`);
+            }
+          } else {
+            const argStr = formatToolArgs(call.args as Record<string, unknown> | undefined);
+            if (call.name) invokedToolNames.add(call.name);
+            console.log(`[A2A] → Tool: ${call.name}(${argStr})`);
+            if (params.publishToolStatus) {
+              publishWorking(eventBus, taskId, contextId, `Invoking tool: ${call.name}`);
+            }
+          }
+        }
+      }
+
+      // Tool responses — log name and result size (avoids dumping raw JSON/base64 to logs)
+      const responses = getFunctionResponses(event);
+      if (responses && responses.length > 0) {
+        for (const resp of responses) {
+          const respAny = resp as any;
+          const respName = respAny.name ?? respAny.functionResponse?.name ?? 'unknown';
+          const respContent = respAny.response ?? respAny.functionResponse?.response ?? {};
+          const resultStr = typeof respContent === 'string' ? respContent : JSON.stringify(respContent);
+          if (respName && respName !== 'unknown') invokedToolNames.add(respName);
+          console.log(`[A2A] ← Result: ${respName} — ${resultStr.length.toLocaleString()} chars`);
+          // Kept as the DELEGATE-mode relay fallback below. Only plain text
+          // results qualify — a structured/base64 payload (e.g. image tools)
+          // is not a relayable answer.
+          const resultText = typeof respContent === 'string'
+            ? respContent
+            : typeof (respContent as any).result === 'string' ? (respContent as any).result : '';
+          if (resultText.trim()) {
+            lastToolResultText = resultText.trim();
+          }
+        }
+      }
+
+      // The answer is the LAST turn's text, not every turn's — the same rule
+      // AgentTool applied by returning only its final event. It mattered the
+      // moment specialists started running directly: a tool-using agent
+      // narrates between calls ("Pulling FinTwit-specific NVDA signal…"), and
+      // accumulating glued that commentary to the front of its report. A
+      // prompt rule against narrating was not enough on grok-4.5, so the rule
+      // lives here instead. Thinking traces are suppressed throughout (too
+      // verbose for the server log, and never part of the answer).
+      //
+      // Within ONE event, parts are joined — a single answer legitimately
+      // arrives in several parts. `partial` events are streaming chunks of the
+      // turn in progress, so they append rather than replace; this deployment
+      // does not enable streaming, but getting it wrong would truncate an
+      // answer, which is the failure this whole area exists to prevent.
+      let eventText = '';
+      if (event.content?.parts) {
+        for (const part of event.content.parts) {
+          const textContent = (part as any).text ?? '';
+          const isThought = (part as any).thought === true;
+          if (!isThought && textContent) {
+            eventText += textContent;
+          }
+        }
+      }
+      if (eventText) {
+        combinedText = evAny.partial === true ? combinedText + eventText : eventText;
+      }
+    }
+
+    return {
+      text: combinedText.trim(),
+      lastToolResultText,
+      invokedToolNames,
+      tokenInfo: lastTokenTotal > 0
+        ? ` | ${lastTokenTotal.toLocaleString()} tokens${lastThinkingTokens > 0 ? ` (${lastThinkingTokens.toLocaleString()} thinking)` : ''}`
+        : '',
+      error
+    };
   }
 
   async execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
@@ -165,44 +366,56 @@ class SyndicateExecutor implements AgentExecutor {
           console.warn(`[A2A] WARNING: Unknown tool '${name}' — skipping.`),
         );
 
-      // Compile ADK Nodes dynamically
-      const compileGraph = async (configObj: SyndicateYamlConfig, overrideName?: string, overrideDesc?: string): Promise<LlmAgent> => {
-        const compiledTools = await Promise.all((configObj.subagents || []).map(async (subCfg: any) => {
-          if (subCfg.yaml_reference) {
-            console.log(`[A2A] Loading nested syndicate: ${subCfg.yaml_reference}`);
-            const nestedConfig = loadSyndicate(subCfg.yaml_reference);
-            const nestedAgent = await compileGraph(nestedConfig, subCfg.name, subCfg.description);
-            return new AgentTool({ agent: nestedAgent });
-          }
+      // Compile ADK Nodes dynamically.
+      //
+      // compileSubagent builds ONE runnable agent from a subagent entry. In
+      // DELEGATE mode compileGraph wraps its result in an AgentTool; in
+      // PLAN-DISPATCH the same agent is run directly as the chosen route, so
+      // both methods dispatch to identical agents and can never drift.
+      const compileSubagent = async (subCfg: SubagentYamlConfig): Promise<LlmAgent> => {
+        if (subCfg.yaml_reference) {
+          console.log(`[A2A] Loading nested syndicate: ${subCfg.yaml_reference}`);
+          const nestedConfig = loadSyndicate(subCfg.yaml_reference);
+          return compileGraph(nestedConfig, subCfg.name, subCfg.description);
+        }
 
-          const subTools = resolveTools(subCfg.tools);
-          if (subCfg.mcp_server_url) {
-            console.log(`[A2A] Loading MCP tools: ${subCfg.mcp_server_url}`);
-            const mcpTools = await createMcpTools(subCfg.mcp_server_url);
-            for (const mcpTool of mcpTools) {
-              if (!subTools.some(t => t.name === mcpTool.name)) {
-                subTools.push(mcpTool);
-              }
+        const subTools = resolveTools(subCfg.tools);
+        if (subCfg.mcp_server_url) {
+          console.log(`[A2A] Loading MCP tools: ${subCfg.mcp_server_url}`);
+          const mcpTools = await createMcpTools(subCfg.mcp_server_url);
+          for (const mcpTool of mcpTools) {
+            if (!subTools.some(t => t.name === mcpTool.name)) {
+              subTools.push(mcpTool);
             }
           }
+        }
 
-          return new AgentTool({
-            agent: new LlmAgent({
-              name: subCfg.name,
-              description: subCfg.description,
-              model: resolveModelForRequest(subCfg.model),
-              instruction: subCfg.instruction,
-              tools: subTools.length > 0 ? subTools : undefined,
-              generateContentConfig: {
-                ...(subCfg.generateContentConfig as any),
-                toolConfig: {
-                  ...(subCfg.generateContentConfig as any)?.toolConfig,
-                  includeServerSideToolInvocations: true
-                }
-              } as any
-            })
-          });
-        }));
+        return new LlmAgent({
+          name: subCfg.name,
+          description: subCfg.description,
+          model: resolveModelForRequest(subCfg.model),
+          instruction: subCfg.instruction,
+          tools: subTools.length > 0 ? subTools : undefined,
+          outputSchema: subCfg.outputSchema as any,
+          generateContentConfig: {
+            ...(subCfg.generateContentConfig as any),
+            toolConfig: {
+              ...(subCfg.generateContentConfig as any)?.toolConfig,
+              includeServerSideToolInvocations: true
+            }
+          } as any
+        });
+      };
+
+      const compileGraph = async (configObj: SyndicateYamlConfig, overrideName?: string, overrideDesc?: string): Promise<LlmAgent> => {
+        // PLAN-DISPATCH: the orchestrator gets NO subagent tools. ADK refuses
+        // to combine outputSchema with AgentTool delegation on one agent (see
+        // config/agents/critic.yaml), and the classifier needs the schema —
+        // code, not the model, performs the hand-off.
+        const compiledTools: any[] = isDispatchSyndicate(configObj)
+          ? []
+          : await Promise.all((configObj.subagents || []).map(async (subCfg) =>
+              new AgentTool({ agent: await compileSubagent(subCfg) })));
 
         const orchestratorDirectTools = resolveTools(configObj.orchestrator.tools);
         compiledTools.push(...orchestratorDirectTools);
@@ -213,6 +426,7 @@ class SyndicateExecutor implements AgentExecutor {
           model: resolveModelForRequest(configObj.orchestrator.model),
           instruction: configObj.orchestrator.instruction,
           tools: compiledTools.length > 0 ? compiledTools : undefined,
+          outputSchema: configObj.orchestrator.outputSchema as any,
           generateContentConfig: {
             ...(configObj.orchestrator.generateContentConfig as any),
             toolConfig: {
@@ -223,161 +437,179 @@ class SyndicateExecutor implements AgentExecutor {
         });
       };
 
-      const orchestrator = await compileGraph(this.config);
-
-      let session = await this.sessionService.getSession({
-        sessionId: contextId,
-        appName: A2A_APP_NAME,
-        userId
-      });
-      if (!session) {
-        session = await this.sessionService.createSession({
-          sessionId: contextId,
+      const ensureSession = async (sessionId: string): Promise<boolean> => {
+        const existing = await this.sessionService.getSession({
+          sessionId,
           appName: A2A_APP_NAME,
           userId
         });
-      }
-      console.log(`[A2A] Session: ${session ? 'resumed' : 'new'} — context ${contextId.slice(0, 8)}`);
+        if (existing) return true;
+        await this.sessionService.createSession({
+          sessionId,
+          appName: A2A_APP_NAME,
+          userId
+        });
+        return false;
+      };
 
-      const runner = new Runner({
-        agent: orchestrator,
-        appName: A2A_APP_NAME,
-        sessionService: this.sessionService,
-        ...(this.memoryService ? { memoryService: this.memoryService } : {})
-      });
+      const failTask = (text: string): void => {
+        eventBus.publish({
+          kind: 'status-update',
+          taskId,
+          contextId,
+          status: {
+            state: 'failed',
+            message: {
+              kind: 'message',
+              messageId: crypto.randomUUID(),
+              role: 'agent',
+              parts: [{ kind: 'text', text }],
+              contextId,
+              taskId
+            },
+            timestamp: new Date().toISOString()
+          },
+          final: true
+        } as any);
+      };
 
-      let stream = runner.runAsync({
-        userId,
-        sessionId: contextId,
-        newMessage: { role: 'user', parts: userParts },
-        ...(this.config.max_steps !== undefined ? { maxSteps: this.config.max_steps } : {})
-      });
+      const resumed = await ensureSession(contextId);
+      console.log(`[A2A] Session: ${resumed ? 'resumed' : 'new'} — context ${contextId.slice(0, 8)}`);
 
-      stream = traceAgentRun(stream, {
-        syndicateName: this.config.syndicate_name || 'melchizedek-syndicate',
-        bindings: this.config.variables || {},
-        input: userParts
-      });
+      let finalText = '';
+      let tokenInfo = '';
 
-      let combinedText = '';
-      let lastTokenTotal = 0;
-      let lastThinkingTokens = 0;
+      if (isDispatchSyndicate(this.config)) {
+        // ══ PLAN ═══════════════════════════════════════════════════════════
+        // The classifier runs in its OWN session lane, derived from the same
+        // context id so the two lanes stay paired for the life of the
+        // conversation. Its JSON verdicts must never enter the user-facing
+        // transcript — the next specialist would read them as conversation —
+        // but routing a follow-up ("any X posts back this up?") needs the
+        // thread's history, so the lane keeps the user's messages beside its
+        // own decisions.
+        const routerAgent = await compileGraph(this.config);
+        const routerSessionId = `${contextId}::route`;
+        await ensureSession(routerSessionId);
 
-      for await (const event of stream) {
-        const evAny = event as any;
+        const plan = await this.runTurn({
+          agent: routerAgent,
+          sessionId: routerSessionId,
+          userId,
+          userParts,
+          taskId,
+          contextId,
+          eventBus,
+          trace: false,           // one cheap classification — not worth a span
+          publishToolStatus: false // a dispatch classifier holds no tools
+        });
 
-        // Capture token metadata whenever the model emits it
-        if (evAny.usageMetadata?.totalTokenCount) {
-          lastTokenTotal = evAny.usageMetadata.totalTokenCount;
-          lastThinkingTokens = evAny.usageMetadata.thoughtsTokenCount ?? 0;
+        // Fail-static: a dead classifier costs the user a good route, never
+        // their answer. An empty payload resolves to default_route by design.
+        const resolution = resolveRoute(plan.error ? '' : plan.text, this.config);
+        if (plan.error) {
+          console.warn(`[A2A] ⚠ Router failed [${plan.error.code}] — defaulting to '${resolution.route}'.`);
+        } else if (resolution.fellBack) {
+          console.warn(`[A2A] ⚠ Routing fell back to '${resolution.route}': ${resolution.fallbackReason}`);
         }
 
-        if ((evAny.errorCode || evAny.errorMessage) && evAny.errorCode !== 'STOP') {
-          console.error(`[A2A] Error [${evAny.errorCode ?? 'ERROR'}]: ${evAny.errorMessage ?? ''}`);
-          eventBus.publish({
-            kind: 'status-update',
-            taskId,
-            contextId,
-            status: {
-              state: 'failed',
-              message: {
-                kind: 'message',
-                messageId: crypto.randomUUID(),
-                role: 'agent',
-                parts: [{
-                  kind: 'text',
-                  text: `Error: [${evAny.errorCode ?? 'ERROR'}] The agent run failed. See server logs for details.`
-                }],
-                contextId,
-                taskId
-              },
-              timestamp: new Date().toISOString()
-            },
-            final: true
-          } as any);
+        const routeCfg = (this.config.subagents || []).find(sub => sub.name === resolution.route);
+        if (!routeCfg) {
+          throw new Error(`Dispatch failed: no subagent named '${resolution.route}' is declared.`);
+        }
+
+        const routeNote = resolution.reason ? ` — ${resolution.reason}` : '';
+        console.log(`[A2A] ⇄ Route: ${resolution.route}${routeNote}${plan.tokenInfo}`);
+        publishWorking(eventBus, taskId, contextId, `Routed to ${resolution.route}${routeNote}`);
+
+        // ══ DISPATCH ═══════════════════════════════════════════════════════
+        // The chosen route answers the user directly — its output IS the task
+        // result, with no relay turn to lose or mangle it. It runs in the
+        // SHARED session, so every route writes into one transcript: a
+        // follow-up handled by a different specialist still sees what the last
+        // one said, and long-term memory ingests real answers rather than a
+        // relay copy of them.
+        const routeAgent = await compileSubagent(routeCfg);
+        const turn = await this.runTurn({
+          agent: routeAgent,
+          sessionId: contextId,
+          userId,
+          userParts,
+          taskId,
+          contextId,
+          eventBus,
+          trace: true,
+          publishToolStatus: true
+        });
+
+        if (turn.error) {
+          failTask(`Error: [${turn.error.code}] ${resolution.route} failed to answer. See server logs for details.`);
           return;
         }
 
-        // Tool calls — log formatted name + args, publish working status to eventBus
-        const calls = getFunctionCalls(event);
-        if (calls && calls.length > 0) {
-          for (const call of calls) {
-            if (call.name === 'transfer_to_agent') {
-              const target = (call.args as any)?.agentName ?? 'unknown';
-              console.log(`[A2A] → Delegating to: ${target}`);
-              eventBus.publish({
-                kind: 'status-update',
-                taskId,
-                contextId,
-                status: {
-                  state: 'working',
-                  message: {
-                    kind: 'message',
-                    messageId: crypto.randomUUID(),
-                    role: 'agent',
-                    parts: [{ kind: 'text', text: `[STATUS] Delegating to subagent: ${target}` }],
-                    contextId,
-                    taskId
-                  },
-                  timestamp: new Date().toISOString()
-                },
-                final: false
-              } as any);
-            } else {
-              const argStr = formatToolArgs(call.args as Record<string, unknown> | undefined);
-              console.log(`[A2A] → Tool: ${call.name}(${argStr})`);
-              eventBus.publish({
-                kind: 'status-update',
-                taskId,
-                contextId,
-                status: {
-                  state: 'working',
-                  message: {
-                    kind: 'message',
-                    messageId: crypto.randomUUID(),
-                    role: 'agent',
-                    parts: [{ kind: 'text', text: `[STATUS] Invoking tool: ${call.name}` }],
-                    contextId,
-                    taskId
-                  },
-                  timestamp: new Date().toISOString()
-                },
-                final: false
-              } as any);
-            }
-          }
+        tokenInfo = turn.tokenInfo;
+        finalText = turn.text;
+        if (!finalText) {
+          // Naming the route turns a blank reply into a lead. This is the
+          // shape the XScout outage took: the specialist ran and returned
+          // nothing because its provider rejected the call upstream.
+          console.warn(`[A2A] ⚠ Route '${resolution.route}' produced no output.`);
+          finalText = `${resolution.route} returned no output — the server logs carry the upstream error.`;
+        }
+      } else {
+        // ══ DELEGATE (classic) ═════════════════════════════════════════════
+        // Subagents are AgentTools; the orchestrator relays the answer it got.
+        const orchestrator = await compileGraph(this.config);
+        const turn = await this.runTurn({
+          agent: orchestrator,
+          sessionId: contextId,
+          userId,
+          userParts,
+          taskId,
+          contextId,
+          eventBus,
+          trace: true,
+          publishToolStatus: true
+        });
+
+        if (turn.error) {
+          failTask(`Error: [${turn.error.code}] The agent run failed. See server logs for details.`);
+          return;
         }
 
-        // Tool responses — log name and result size (avoids dumping raw JSON/base64 to logs)
-        const responses = getFunctionResponses(event);
-        if (responses && responses.length > 0) {
-          for (const resp of responses) {
-            const respAny = resp as any;
-            const respName = respAny.name ?? respAny.functionResponse?.name ?? 'unknown';
-            const respContent = respAny.response ?? respAny.functionResponse?.response ?? {};
-            const resultStr = typeof respContent === 'string' ? respContent : JSON.stringify(respContent);
-            console.log(`[A2A] ← Result: ${respName} — ${resultStr.length.toLocaleString()} chars`);
-          }
-        }
+        tokenInfo = turn.tokenInfo;
 
-        // Accumulate final text; suppress thinking traces from server logs (too verbose)
-        if (event.content?.parts) {
-          for (const part of event.content.parts) {
-            const textContent = (part as any).text ?? '';
-            const isThought = (part as any).thought === true;
-            if (!isThought && textContent) {
-              combinedText += textContent;
-            }
-          }
+        // Failed-relay fallback: an orchestrator (flash-lite especially) can
+        // botch the hop that relays a specialist answer, in two observed ways —
+        // finishing STOP with zero output tokens, or emitting the bare tool NAME
+        // as its text ("FinancialAnalyst", 3 tokens) instead of the answer. Both
+        // discard a fully-formed result, so the last tool result is returned
+        // deterministically rather than retrying the relay LLM (a retry costs a
+        // full round-trip and can fail the same way again).
+        //
+        // PLAN-DISPATCH does not need any of this — it has no relay turn to
+        // fail. This branch is why the two methods exist side by side.
+        //
+        // Degenerate-text detection is deliberately narrow — an exact match to an
+        // invoked tool name after stripping non-alphanumerics — because short
+        // real answers are legitimate ("Yes, as of Q2 2026."), so no length or
+        // ratio heuristic may be used here.
+        const normalize = (s: string) => s.replace(/[^a-z0-9]/gi, '').toLowerCase();
+        finalText = turn.text;
+        const echoedToolName = finalText.length > 0 && [...turn.invokedToolNames]
+          .some(name => normalize(name) === normalize(finalText));
+
+        if ((!finalText || echoedToolName) && turn.lastToolResultText) {
+          const reason = echoedToolName
+            ? `echoed the tool name ("${finalText}")`
+            : 'emitted no text';
+          console.warn(`[A2A] ⚠ Orchestrator ${reason} — relaying last tool result verbatim (${turn.lastToolResultText.length.toLocaleString()} chars).`);
+          finalText = turn.lastToolResultText;
         }
       }
 
-      const tokenInfo = lastTokenTotal > 0
-        ? ` | ${lastTokenTotal.toLocaleString()} tokens${lastThinkingTokens > 0 ? ` (${lastThinkingTokens.toLocaleString()} thinking)` : ''}`
-        : '';
-
-      if (combinedText.trim()) {
-        console.log(`[A2A] ✓ Task ${taskId.slice(0, 8)} complete — ${combinedText.trim().length.toLocaleString()} chars${tokenInfo}`);
+      if (finalText) {
+        console.log(`[A2A] ✓ Task ${taskId.slice(0, 8)} complete — ${finalText.length.toLocaleString()} chars${tokenInfo}`);
         eventBus.publish({
           kind: 'status-update',
           taskId,
@@ -388,7 +620,7 @@ class SyndicateExecutor implements AgentExecutor {
               kind: 'message',
               messageId: crypto.randomUUID(),
               role: 'agent',
-              parts: [{ kind: 'text', text: combinedText.trim() }],
+              parts: [{ kind: 'text', text: finalText }],
               contextId,
               taskId
             },
@@ -423,7 +655,11 @@ class SyndicateExecutor implements AgentExecutor {
             userId
           });
           if (endedSession && endedSession.events.length > 0) {
-            await this.memoryService.addSessionToMemory(endedSession);
+            // The Supabase service accepts per-consumer extraction rules; the
+            // base interface does not declare them, and only that service is
+            // ever wired here (startServer constructs it directly).
+            await (this.memoryService as SupabaseVectorMemoryService)
+              .addSessionToMemory(endedSession, this.config.memory_extraction_rules);
           }
         } catch (memErr: unknown) {
           const msg = memErr instanceof Error ? memErr.message : String(memErr);
