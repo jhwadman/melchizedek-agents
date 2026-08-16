@@ -60,12 +60,29 @@ export interface ProjectionOptions {
    * the analyst route recovers older material through long-term memory.
    */
   maxHistoryChars?: number;
+  /**
+   * Ceiling on the NUMBER of past turns kept, whichever binds first with
+   * `maxHistoryChars`.
+   *
+   * A character budget alone is not a bound on prompt shape: a thread of
+   * short exchanges fits 43 turns inside 40,000 characters, and a model
+   * reading 43 turns of history to answer one question is paying attention
+   * tax no budget in bytes describes. Turns and bytes are different costs;
+   * both need a ceiling.
+   */
+  maxHistoryTurns?: number;
   /** Longest single past turn kept intact; the tail is elided. */
   maxTurnChars?: number;
 }
 
 const DEFAULT_MAX_HISTORY_CHARS = 40_000;
+const DEFAULT_MAX_HISTORY_TURNS = 16;
 const DEFAULT_MAX_TURN_CHARS = 4_000;
+
+/**
+ * Longest tool result kept in the DURABLE record. See {@link trimEventForStorage}.
+ */
+export const DEFAULT_MAX_STORED_PAYLOAD_CHARS = 2_000;
 
 /**
  * The text a successor can actually read: spoken output only.
@@ -113,13 +130,15 @@ export function projectTranscript(
   options: ProjectionOptions = {},
 ): Event[] {
   const maxHistory = options.maxHistoryChars ?? DEFAULT_MAX_HISTORY_CHARS;
+  const maxTurns = options.maxHistoryTurns ?? DEFAULT_MAX_HISTORY_TURNS;
   const maxTurn = options.maxTurnChars ?? DEFAULT_MAX_TURN_CHARS;
 
   const kept: Event[] = [];
   let budget = maxHistory;
 
-  // Backwards: when the budget runs out it is the OLDEST context that goes.
-  for (let i = events.length - 1; i >= 0; i--) {
+  // Backwards: whichever ceiling binds first, it is the OLDEST context that
+  // goes. The newest exchange is always the one the user is talking about.
+  for (let i = events.length - 1; i >= 0 && kept.length < maxTurns; i--) {
     const event = events[i];
 
     if (event.author === 'user') {
@@ -146,6 +165,104 @@ export function projectTranscript(
   }
 
   return kept.reverse();
+}
+
+/**
+ * Strip from an event what no reader of the STORED session will ever use.
+ *
+ * ── What the durable record is actually made of ───────────────────────────
+ * Measured across 128 live sessions, by part field:
+ *
+ *     thoughtSignature            14.14 MB   73.3%
+ *     functionResponse.response    2.07 MB   10.8%
+ *     text (the conversation)      1.86 MB    9.6%
+ *     toolResponse.response        1.06 MB    5.5%
+ *
+ * Nine-tenths of every byte stored is machinery. `thoughtSignature` is the
+ * opaque base64 blob Gemini attaches for thought continuity — a single part
+ * of it reached 115 KB — and tool payloads are the rest, the largest being
+ * Gemini's grounding `search_suggestions`, an HTML and CSS widget attached
+ * to every web-search result.
+ *
+ * Beware the shape of this data when measuring it: bucketing a part by
+ * whichever tool key it carries attributes the whole part to the tool
+ * response, when the weight is in a sibling field. That misattribution said
+ * "76% is tool results" and predicted a 70% saving from eliding payloads
+ * alone; the real saving from that change was 12%.
+ *
+ * ── Why none of it is needed ──────────────────────────────────────────────
+ * The stored row has exactly two readers. {@link projectTranscript} drops
+ * thought parts and tool traffic entirely on the way into a prompt, so a
+ * stored signature is never replayed to a model. The memory service's
+ * `serializeEvents` walks `part.text` alone, so a payload has never
+ * contributed one extracted fact. Everything above is written, re-uploaded
+ * on every later event in the turn (this service re-upserts the whole
+ * array), and re-fetched whole next turn — for nothing. One live session had
+ * reached 1.17 MB; a 60-turn conversation uploaded ~288 MB getting there.
+ *
+ * ── What survives ─────────────────────────────────────────────────────────
+ * A trimmed response KEEPS its shape: `id` and `name` are preserved and only
+ * the body is replaced, because ADK pairs calls to responses by id
+ * (`rearrangeEventsForLatestFunctionResponse` throws on a widowed half), so
+ * an elided result must remain a result. The marker records what was dropped
+ * and how big it was — what an operator reading the row needs. Small results
+ * pass through untouched: they are cheap, and a short one is occasionally
+ * the only record of what a number was.
+ *
+ * ── The one constraint on changing this ───────────────────────────────────
+ * Dropping `thoughtSignature` is safe BECAUSE the projection never feeds
+ * stored events back to a model. Anything that starts replaying raw stored
+ * events into Gemini would need the signature preserved, or lose thought
+ * continuity across a resumed session.
+ *
+ * Pure: returns a new event, never mutates the input. The caller applies it
+ * to the SERIALIZED COPY only — the live in-memory session must keep both
+ * signature and payloads, or the agent's own tool loop breaks mid-turn.
+ */
+export function trimEventForStorage(
+  event: Event,
+  maxPayloadChars: number = DEFAULT_MAX_STORED_PAYLOAD_CHARS,
+): Event {
+  const parts = event.content?.parts as Array<Record<string, any>> | undefined;
+  if (!parts?.length) return event;
+
+  let trimmedAny = false;
+  const next = parts.map(part => {
+    let out = part;
+
+    // The dominant cost, and never read back from storage.
+    if (out.thoughtSignature !== undefined) {
+      const { thoughtSignature, ...rest } = out;
+      out = rest;
+      trimmedAny = true;
+    }
+
+    // Both spellings occur: `functionResponse` is ADK's, `toolResponse` comes
+    // from providers whose parts ADK passes through untouched.
+    const key = out.functionResponse ? 'functionResponse' : out.toolResponse ? 'toolResponse' : null;
+    if (!key) return out;
+
+    const holder = out[key];
+    const body = holder?.response;
+    if (body === undefined) return out;
+
+    const size = typeof body === 'string' ? body.length : JSON.stringify(body).length;
+    if (size <= maxPayloadChars) return out;
+
+    trimmedAny = true;
+    return {
+      ...out,
+      [key]: {
+        ...holder,
+        response: {
+          elided: `${size.toLocaleString()} chars dropped before storage — tool results are not read back by any consumer (lib/session/transcript.ts)`,
+        },
+      },
+    };
+  });
+
+  if (!trimmedAny) return event;
+  return { ...event, content: { ...event.content, parts: next } } as Event;
 }
 
 /**

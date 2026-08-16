@@ -454,6 +454,28 @@ real `role: "model"` turns, labelled `[XScout]` when another desk spoke,
 with thoughts and tool traffic dropped. Writes still land on the real
 session, which keeps everything.
 
+Both ceilings on that projection are bounds the prompt cannot escape:
+40,000 characters of history AND 16 turns, whichever binds first. The turn
+cap is not redundant — a thread of short exchanges fits 43 turns inside the
+character budget, and 43 turns of history to answer one question is
+attention cost no byte budget describes.
+
+The stored row is trimmed on the way out, by `trimEventForStorage`. It has
+exactly two readers and neither touches Gemini's opaque `thoughtSignature`
+blobs or tool-result payloads: the projection drops thought parts and tool
+traffic before any prompt, and the memory service's `serializeEvents` walks
+`part.text` alone. Measured across 128 live sessions those two fields were
+~90% of every byte stored (`thoughtSignature` alone 73.3%), so they are
+stripped from the SERIALIZED COPY — the live in-memory session keeps them,
+or the agent's own tool loop breaks mid-turn. An elided tool result keeps
+its `id` and `name` and gains a size marker, because ADK pairs calls to
+responses by id and throws on a widowed half. 21.72 MB → 4.88 MB; existing
+rows shrink retroactively on their next write. Note the constraint this
+rests on: dropping the signature is safe only because stored events are
+never replayed to a model. The quadratic upload is untouched — `appendEvent`
+still rewrites the whole array per event — and is the next lever if row size
+returns.
+
 The classifier does not write to that session — its JSON verdicts would
 be read as conversation by the next specialist — but it must still SEE
 it, or it cannot tell a follow-up from a standalone remark. It runs in a

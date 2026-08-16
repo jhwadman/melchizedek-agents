@@ -13,6 +13,7 @@ import type {
 } from '@google/adk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
+import { trimEventForStorage } from './transcript.ts';
 
 export class SupabaseSessionService extends BaseSessionService {
     private supabase: SupabaseClient;
@@ -164,7 +165,16 @@ export class SupabaseSessionService extends BaseSessionService {
         await super.appendEvent({ session, event });
         session.lastUpdateTime = Date.now();
 
+        // Trim on the SERIALIZED COPY only. The live session keeps thought
+        // signatures and real tool payloads — the agent's own tool loop reads
+        // them back mid-turn — but nothing reads them from the ROW: the
+        // projection drops both on the way into a prompt, and the memory
+        // service walks `part.text` alone. Across 128 live sessions they were
+        // ~90% of every byte stored (73% of it Gemini's `thoughtSignature`),
+        // and this method re-uploads the whole array on every event, so those
+        // bytes were paid for again on each one. See trimEventForStorage.
         const cleanSession = JSON.parse(JSON.stringify(session));
+        cleanSession.events = (cleanSession.events as Event[]).map((e: Event) => trimEventForStorage(e));
         const expireAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
         const { error } = await this.supabase
