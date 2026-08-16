@@ -59,6 +59,26 @@ export interface DispatchConfig {
    * telemetry while the user waits. Default "reason". Optional in the schema.
    */
   reason_key?: string;
+  /**
+   * Deterministic pre-classification. Each entry pins a route for messages
+   * whose text matches `pattern`; the first match wins and the classifier
+   * never runs. For facts the message CONTAINS rather than judgments about
+   * what it means — a URL only one specialist can open, an explicit demand
+   * for a named tool. Never for topic guesses: a keyword is not a subject.
+   */
+  route_overrides?: RouteOverride[];
+}
+
+/** One deterministic routing rule, evaluated against the user's message. */
+export interface RouteOverride {
+  /** Subagent to run on a match. Ignored (with a warning) if undeclared. */
+  route: string;
+  /** JS regular expression source, tested against the raw message text. */
+  pattern: string;
+  /** Regex flags. Default "i". */
+  flags?: string;
+  /** Shown to the waiting user in place of the classifier's `reason`. */
+  reason?: string;
 }
 
 export interface RouteResolution {
@@ -70,6 +90,8 @@ export interface RouteResolution {
   fellBack: boolean;
   /** Why the fallback happened — for logs. Empty when routing succeeded. */
   fallbackReason: string;
+  /** True when a `route_overrides` rule pinned this route without a model. */
+  viaOverride: boolean;
 }
 
 /** True when this syndicate opts into plan-dispatch. */
@@ -134,6 +156,7 @@ export function resolveRoute(
     route: safeDefault,
     reason: '',
     fellBack: true,
+    viaOverride: false,
     fallbackReason: declaredDefault
       ? fallbackReason
       : `${fallbackReason}; default_route '${config.dispatch.default_route}' is not a declared subagent`,
@@ -171,5 +194,63 @@ export function resolveRoute(
     reason: typeof rawReason === 'string' ? rawReason.trim() : '',
     fellBack: false,
     fallbackReason: '',
+    viaOverride: false,
   };
+}
+
+/**
+ * Deterministic routing, evaluated BEFORE the classifier runs.
+ *
+ * Some routes are decided by what a message CONTAINS, not by what a model
+ * judges it to be about. An x.com link is the motivating case: XScout is the
+ * only route that can open X, so a message carrying one has exactly one
+ * correct destination — yet a flash-lite classifier reading "analyze this
+ * post and tell me if the solution is quantum <link>" saw an analysis
+ * request and chose the consultant, which answered from web knowledge and
+ * said the post could not be read (2026-08-15, twice, with the routing rule
+ * already stating the opposite). Prompt text competes with the rest of the
+ * message; a regex does not.
+ *
+ * Scope discipline: overrides are for facts in the text, never topic
+ * guesses. A misapplied override is worse than a misroute — it cannot be
+ * reasoned around by the classifier at all.
+ *
+ * Pure and synchronous, like resolveRoute. Fail-static: an override naming
+ * an undeclared subagent or carrying an invalid regex is SKIPPED (reported
+ * via `warnings`), leaving normal classification to answer the user.
+ *
+ * @returns the pinned resolution, or null when nothing matched.
+ */
+export function matchRouteOverride(
+  messageText: string,
+  config: SyndicateYamlConfig & { dispatch: DispatchConfig },
+  warnings?: string[],
+): RouteResolution | null {
+  const overrides = config.dispatch.route_overrides || [];
+  if (!overrides.length || !messageText) return null;
+  const subagents = config.subagents || [];
+
+  for (const override of overrides) {
+    const matched = matchSubagent(override.route ?? '', subagents);
+    if (!matched) {
+      warnings?.push(`route_overrides: '${override.route}' is not a declared subagent — rule skipped`);
+      continue;
+    }
+    let re: RegExp;
+    try {
+      re = new RegExp(override.pattern, override.flags ?? 'i');
+    } catch {
+      warnings?.push(`route_overrides: invalid pattern for '${override.route}' — rule skipped`);
+      continue;
+    }
+    if (!re.test(messageText)) continue;
+    return {
+      route: matched.name,
+      reason: (override.reason || '').trim(),
+      fellBack: false,
+      fallbackReason: '',
+      viaOverride: true,
+    };
+  }
+  return null;
 }

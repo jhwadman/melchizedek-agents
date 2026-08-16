@@ -5,7 +5,7 @@
 # ONLY meaningful difference is the `model:` line. The framework
 # reads that string and routes each agent to the right provider:
 #
-#   ollama/qwen3:8b   → local Ollama   (keyless — nothing leaves your machine)
+#   ollama/qwen3.5:9b → local Ollama   (keyless — nothing leaves your machine)
 #   claude-*          → Anthropic      (ANTHROPIC_API_KEY)
 #   grok-*            → xAI            (XAI_API_KEY)
 #   gpt-*             → OpenAI         (OPENAI_API_KEY)
@@ -35,8 +35,12 @@ orchestrator:
 
 subagents:
   - name: "qwen_local"
-    description: "Qwen 3 (8B), an open-weight model running locally via Ollama. Keyless."
-    model: "ollama/qwen3:8b"
+    # Qwen3.5 is the newest generation that ships small dense sizes; the
+    # 9B is the largest that fits a 16/18 GB laptop with room for context.
+    # Qwen3.8 is stronger but 27B-only (18 GB of weights) — see the size
+    # table in lib/models/ollamaLlm.ts before changing this line.
+    description: "Qwen 3.5 (9B), an open-weight model running locally via Ollama. Keyless."
+    model: "ollama/qwen3.5:9b"
     instruction: |
       You are a concise explainer. Answer in three short paragraphs at most,
       plain language first, one concrete example, no headings.

@@ -147,11 +147,23 @@ export class SupabaseSessionService extends BaseSessionService {
     async appendEvent(request: { session: Session, event: Event }): Promise<Event> {
         const { session, event } = request;
         const dbId = this.getDbId({ appName: session.appName, userId: session.userId, sessionId: session.id });
-        
-        // Standard ADK internal state merging
-        session.events.push(event);
+
+        // Partial events are streaming fragments of an event that is appended
+        // whole when it completes. The runner already guards this, but the
+        // base contract does too, and a service that persists them would write
+        // every token twice.
+        if (event.partial) return event;
+
+        // Standard ADK internal state merging. This MUST go through the base
+        // implementation: it applies `event.actions.stateDelta` to
+        // `session.state` and strips `temp:` keys before pushing the event.
+        // Re-implementing it as a bare `events.push` (as this did until
+        // 2026-08-15) silently drops every state write — `output_key`, any
+        // state-injected instruction variable — and leaves `session.state`
+        // permanently `{}`, which is exactly what every stored row showed.
+        await super.appendEvent({ session, event });
         session.lastUpdateTime = Date.now();
-        
+
         const cleanSession = JSON.parse(JSON.stringify(session));
         const expireAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 

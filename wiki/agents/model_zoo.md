@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-07-28
+  at: 2026-08-15
 sources:
   - resource: config/agents/model_zoo.yaml
 ---
@@ -23,7 +23,7 @@ The Model Zoo syndicate serves as a proof of model optionality, demonstrating ho
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
-| qwen_local | `ollama/qwen3:8b` | — | — |
+| qwen_local | `ollama/qwen3.5:9b` | — | — |
 | claude | `claude-sonnet-4-6` | — | — |
 | grok | `grok-4.5` | — | — |
 | gpt | `gpt-5-mini` | — | — |

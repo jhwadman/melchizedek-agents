@@ -18,13 +18,39 @@
  * HOW TO ENABLE:
  *   1. Install Ollama (https://ollama.com — macOS: brew install ollama)
  *      and start it (the desktop app, or `ollama serve`).
- *   2. Pull a model that supports tool calling:
- *        ollama pull qwen3:8b        # text + tools
- *        ollama pull qwen3-vl:8b     # text + vision + tools
- *   3. Set model: "ollama/qwen3:8b" in your YAML. No API key needed —
+ *   2. Pull a model that supports tool calling (see the table below):
+ *        ollama pull qwen3.5:9b      # the default recommendation
+ *        ollama pull qwen3.5:4b      # lighter; teaching and small machines
+ *   3. Set model: "ollama/qwen3.5:9b" in your YAML. No API key needed —
  *      registerAvailableProviders() registers this provider unconditionally.
  *   Optional: OLLAMA_BASE_URL in .env overrides the default endpoint
  *   (http://localhost:11434/v1 — Ollama's OpenAI-compatible API).
+ *
+ * CHOOSING A MODEL (current as of August 2026):
+ *   The binding constraint is memory, not taste. A model must fit in RAM
+ *   (unified memory on Apple Silicon) with room left for the KV cache and
+ *   the OS — as a rule of thumb, the weights should occupy no more than
+ *   ~70% of total memory. Every model below is Apache-2.0 and does native
+ *   tool calling, which is the capability floor for agent work.
+ *
+ *     model                Q4 size   fits comfortably in   use it for
+ *     ───────────────────────────────────────────────────────────────────
+ *     qwen3.5:2b            2.7 GB   8 GB                  toy / CI runs
+ *     qwen3.5:4b            3.4 GB   8–16 GB               teaching, demos
+ *     qwen3.5:9b            6.6 GB   16 GB+                DEFAULT — real work
+ *     qwen3.5:27b            17 GB   32 GB+                heavier local work
+ *     qwen3.8:27b            18 GB   32 GB+                strongest local
+ *
+ *   Qwen3.8 (August 2026) is the strongest open-weight Qwen and the one to
+ *   reach for on a 32 GB+ machine, but it ships in 27B ONLY — 18 GB of
+ *   weights before any context — so it does not fit the 16/18 GB laptops
+ *   this framework is usually developed on. Qwen3.5 (February 2026) is the
+ *   newest generation that offers small dense sizes, which is why the
+ *   default here is qwen3.5:9b rather than the bigger number. Qwen3.7 is
+ *   API-only and has no weights to pull.
+ *
+ *   Vision: qwen3-vl:8b remains the pinned choice for image work; the
+ *   qwen3.5 family is multimodal, so ollama/qwen3.5:9b also accepts images.
  *
  * DESIGN NOTES:
  *   - Zero dependencies: talks to Ollama's OpenAI-compatible endpoint with

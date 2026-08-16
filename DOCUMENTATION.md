@@ -437,12 +437,33 @@ That constraint shapes the method: the classifier is a leaf, and the
 hand-off happens in code, where it can be logged, traced, and streamed
 to the user as progress.
 
-**Sessions.** The classifier runs in its own lane, `<contextId>::route`,
-so its JSON verdicts never enter the user-facing transcript — the next
-specialist would read them as conversation. Every *route* runs in the
-shared `<contextId>` session, so a follow-up handled by a different
-specialist still sees what the last one said, and long-term memory
-ingests real answers instead of a relay copy of them.
+**Sessions.** Every *route* runs in the shared `<contextId>` session, so
+one transcript accumulates across routes and long-term memory ingests
+real answers instead of a relay copy of them. Sharing the session is
+necessary but not sufficient: ADK renders an event by comparing
+`event.author` against the agent now running, and under plan-dispatch
+every route is its own root agent, so the whole history fails that
+comparison and `convertForeignEvent` rewrites it to `role: "user"`
+prefixed "For context:". A route reading the raw shared session
+therefore receives the thread as one undifferentiated user monologue —
+with the previous route's private `thought:` reasoning cloned in as user
+speech and raw tool payloads inlined beside it. Routes read the session
+through `ProjectedSessionService` (`lib/session/transcript.ts`) instead:
+past agent turns are re-authored to the running agent so they survive as
+real `role: "model"` turns, labelled `[XScout]` when another desk spoke,
+with thoughts and tool traffic dropped. Writes still land on the real
+session, which keeps everything.
+
+The classifier does not write to that session — its JSON verdicts would
+be read as conversation by the next specialist — but it must still SEE
+it, or it cannot tell a follow-up from a standalone remark. It runs in a
+per-request in-memory session and receives `renderTranscriptDigest`, a
+compact both-sides summary of the exchange, above a
+`--- MESSAGE TO CLASSIFY ---` marker. It used to get a durable
+`<contextId>::route` lane of its own instead, holding only the user's
+messages and its own verdicts; that made every rule about follow-ups and
+redos unusable, and left holes wherever a `route_overrides` hit skipped
+the classifier entirely.
 
 **Fail-static.** Malformed JSON, an unknown route name, an empty
 payload, or a classifier that errors outright all resolve to

@@ -78,6 +78,18 @@ dispatch:
   default_route: "TheGeneralistSubagent"
   # [optional] JSON property holding the chosen route. Default "route".
   route_key: "route"
+  # [optional] Deterministic pre-classification: a message matching `pattern`
+  # is pinned to `route` and the classifier never runs. First match wins.
+  # For facts the message CONTAINS — a URL only one specialist can open, an
+  # explicit demand for a named tool — never for topic guesses: an override
+  # cannot be reasoned around by the classifier, so a keyword encoded here
+  # silently disables the routes it shadows. A rule naming an undeclared
+  # subagent or carrying an invalid regex is skipped with a warning.
+  route_overrides:
+    - route: "TheSpecialistOnlyItCanDoThis"
+      pattern: "(?:https?://)?example\\.com/"   # JS regex source
+      flags: "i"                               # [optional] default "i"
+      reason: "shown to the waiting user as the [STATUS] route note"
   # [optional] JSON property holding the short justification shown to the
   # waiting user as progress. Default "reason".
   reason_key: "reason"

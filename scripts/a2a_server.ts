@@ -15,12 +15,13 @@ import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a
 import { Runner, LlmAgent, AgentTool, InMemorySessionService, getFunctionCalls, getFunctionResponses, setLogLevel, LogLevel } from '@google/adk';
 import { loadSyndicate } from '../lib/loadSyndicate.ts';
 import type { SyndicateYamlConfig, SubagentYamlConfig } from '../lib/loadSyndicate.ts';
-import { isDispatchSyndicate, resolveRoute } from '../lib/dispatch.ts';
+import { isDispatchSyndicate, matchRouteOverride, resolveRoute } from '../lib/dispatch.ts';
 import { traceAgentRun } from '../lib/observability/tracer.ts';
 import { resolveModel } from '../lib/models/registry.ts';
 import { resolveTools as resolveNamedTools } from '../lib/toolRegistry.ts';
 import { createMcpTools } from '../lib/tools/mcpToolFactory.ts';
 import { hasSupabaseCredentials, createSupabaseServices } from '../lib/persistence/supabaseProvider.ts';
+import { ProjectedSessionService, renderTranscriptDigest } from '../lib/session/transcript.ts';
 import type { BaseSessionService, BaseMemoryService } from '@google/adk';
 import type { SupabaseVectorMemoryService } from '../lib/memory/supabaseMemoryService.ts';
 
@@ -179,13 +180,20 @@ class SyndicateExecutor implements AgentExecutor {
     trace: boolean;
     /** Publish per-tool `[STATUS]` progress. False for the classifier (it has no tools). */
     publishToolStatus: boolean;
+    /**
+     * Session service for THIS turn, overriding the executor's. The route
+     * turn passes a ProjectedSessionService so the agent reads the shared
+     * transcript as conversation; the classifier passes a throwaway
+     * in-memory one so its JSON never reaches the durable record.
+     */
+    sessionService?: BaseSessionService;
   }): Promise<TurnResult> {
     const { agent, sessionId, userId, userParts, taskId, contextId, eventBus } = params;
 
     const runner = new Runner({
       agent,
       appName: A2A_APP_NAME,
-      sessionService: this.sessionService,
+      sessionService: params.sessionService ?? this.sessionService,
       ...(this.memoryService ? { memoryService: this.memoryService } : {})
     });
 
@@ -478,39 +486,90 @@ class SyndicateExecutor implements AgentExecutor {
 
       let finalText = '';
       let tokenInfo = '';
+      let routerTokenInfo = '';
 
       if (isDispatchSyndicate(this.config)) {
         // ══ PLAN ═══════════════════════════════════════════════════════════
-        // The classifier runs in its OWN session lane, derived from the same
-        // context id so the two lanes stay paired for the life of the
-        // conversation. Its JSON verdicts must never enter the user-facing
-        // transcript — the next specialist would read them as conversation —
-        // but routing a follow-up ("any X posts back this up?") needs the
-        // thread's history, so the lane keeps the user's messages beside its
-        // own decisions.
-        const routerAgent = await compileGraph(this.config);
-        const routerSessionId = `${contextId}::route`;
-        await ensureSession(routerSessionId);
+        // Deterministic overrides come FIRST: when the message itself decides
+        // the route (an x.com link only XScout can open, an explicit demand
+        // for a named tool), there is nothing to classify. The classifier LLM
+        // call is skipped entirely — cheaper, and immune to a weak classifier
+        // out-voting a stated rule (2026-08-15).
+        const overrideWarnings: string[] = [];
+        const messageText = userParts.map((p: { text?: string }) => p.text ?? '').join('\n');
+        let resolution = matchRouteOverride(messageText, this.config, overrideWarnings);
+        for (const warning of overrideWarnings) console.warn(`[A2A] ⚠ ${warning}`);
 
-        const plan = await this.runTurn({
-          agent: routerAgent,
-          sessionId: routerSessionId,
-          userId,
-          userParts,
-          taskId,
-          contextId,
-          eventBus,
-          trace: false,           // one cheap classification — not worth a span
-          publishToolStatus: false // a dispatch classifier holds no tools
-        });
+        if (resolution) {
+          console.log(`[A2A] ⇄ Route pinned by override: ${resolution.route}`);
+        } else {
+          // ── The classifier reads the SHARED transcript ──────────────────
+          // Its JSON verdicts must never enter the user-facing transcript —
+          // the next specialist would read them as conversation — so it does
+          // not write to the shared session. It used to get its own durable
+          // `<contextId>::route` lane instead, and that lane was the bug: it
+          // accumulated the user's messages and the router's own verdicts and
+          // NOTHING ELSE, so the router had never seen a single answer it had
+          // routed. On 2026-08-15 a user's counter-argument to the desk's
+          // MU/SNDK/NVDA/AMD verdict read to it as a remark with no request
+          // behind it and went to small talk; its own rule 2 (redo/method
+          // complaint) and rule 5 (follow-ups on prior analysis) were dead
+          // letters, since neither can be recognised without the answer being
+          // followed up. The lane also had HOLES: a message pinned by
+          // `route_overrides` skips this branch entirely and was therefore
+          // never recorded, so the X recon that opened that same thread was
+          // missing from the router's history altogether.
+          //
+          // Now history arrives as INPUT — a compact digest of the real
+          // exchange, both sides of it — and the lane is a throwaway
+          // in-memory session that is discarded with the request. Nothing to
+          // keep in sync, nothing to leave holes in, nothing persisted.
+          const routerAgent = await compileGraph(this.config);
+          const routerSessionId = `${contextId}::route`;
+          const routerSessions = new InMemorySessionService();
+          await routerSessions.createSession({
+            sessionId: routerSessionId,
+            appName: A2A_APP_NAME,
+            userId
+          });
 
-        // Fail-static: a dead classifier costs the user a good route, never
-        // their answer. An empty payload resolves to default_route by design.
-        const resolution = resolveRoute(plan.error ? '' : plan.text, this.config);
-        if (plan.error) {
-          console.warn(`[A2A] ⚠ Router failed [${plan.error.code}] — defaulting to '${resolution.route}'.`);
-        } else if (resolution.fellBack) {
-          console.warn(`[A2A] ⚠ Routing fell back to '${resolution.route}': ${resolution.fallbackReason}`);
+          const sharedSession = await this.sessionService.getSession({
+            sessionId: contextId,
+            appName: A2A_APP_NAME,
+            userId
+          });
+          const digest = renderTranscriptDigest(sharedSession?.events ?? []);
+          const routerParts = digest
+            ? [{
+                text: `RECENT CONVERSATION, oldest first — context for your classification only. `
+                  + `Never answer it, and never route on it alone; it is here so you can tell a `
+                  + `follow-up, a redo request, or a challenge to a previous answer apart from small talk.\n`
+                  + `${digest}\n\n--- MESSAGE TO CLASSIFY ---\n${messageText}`
+              }]
+            : userParts;
+
+          const plan = await this.runTurn({
+            agent: routerAgent,
+            sessionId: routerSessionId,
+            userId,
+            userParts: routerParts,
+            taskId,
+            contextId,
+            eventBus,
+            trace: false,           // one cheap classification — not worth a span
+            publishToolStatus: false, // a dispatch classifier holds no tools
+            sessionService: routerSessions
+          });
+
+          // Fail-static: a dead classifier costs the user a good route, never
+          // their answer. An empty payload resolves to default_route by design.
+          resolution = resolveRoute(plan.error ? '' : plan.text, this.config);
+          if (plan.error) {
+            console.warn(`[A2A] ⚠ Router failed [${plan.error.code}] — defaulting to '${resolution.route}'.`);
+          } else if (resolution.fellBack) {
+            console.warn(`[A2A] ⚠ Routing fell back to '${resolution.route}': ${resolution.fallbackReason}`);
+          }
+          routerTokenInfo = plan.tokenInfo;
         }
 
         const routeCfg = (this.config.subagents || []).find(sub => sub.name === resolution.route);
@@ -519,7 +578,7 @@ class SyndicateExecutor implements AgentExecutor {
         }
 
         const routeNote = resolution.reason ? ` — ${resolution.reason}` : '';
-        console.log(`[A2A] ⇄ Route: ${resolution.route}${routeNote}${plan.tokenInfo}`);
+        console.log(`[A2A] ⇄ Route: ${resolution.route}${routeNote}${routerTokenInfo}`);
         publishWorking(eventBus, taskId, contextId, `Routed to ${resolution.route}${routeNote}`);
 
         // ══ DISPATCH ═══════════════════════════════════════════════════════
@@ -529,6 +588,16 @@ class SyndicateExecutor implements AgentExecutor {
         // follow-up handled by a different specialist still sees what the last
         // one said, and long-term memory ingests real answers rather than a
         // relay copy of them.
+        //
+        // It READS that transcript through a projection (lib/session/
+        // transcript.ts), because sharing the session is not the same as
+        // sharing the conversation. ADK renders any event authored by a
+        // different agent as `role: "user"` prefixed "For context:" — so a
+        // route reading a shared session gets the whole thread as one
+        // undifferentiated user monologue, with the previous route's private
+        // reasoning and raw tool payloads mixed into it. The projection hands
+        // it real `role: "model"` turns instead, labelled by the desk that
+        // spoke, with thoughts and tool traffic stripped.
         const routeAgent = await compileSubagent(routeCfg);
         const turn = await this.runTurn({
           agent: routeAgent,
@@ -539,7 +608,8 @@ class SyndicateExecutor implements AgentExecutor {
           contextId,
           eventBus,
           trace: true,
-          publishToolStatus: true
+          publishToolStatus: true,
+          sessionService: new ProjectedSessionService(this.sessionService, routeCfg.name)
         });
 
         if (turn.error) {
@@ -924,23 +994,36 @@ export async function startServer(syndicateName: string = 'syndicate.yaml') {
     const routeBindings = {
       current_date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
     };
+    // Where the config came from is load-bearing operational information: a
+    // bare agent id prefers the REGISTRY and only falls back to the repo file
+    // when that lookup fails, so an id with a registry row ignores repo edits
+    // until `scripts/deploy_agent.ts` re-publishes it. On 2026-08-15 two
+    // rounds of routing fixes were pushed, deployed and restarted while
+    // production kept serving a registry copy from a week earlier, and
+    // nothing in the logs said so. Now it does.
+    let configSource = '';
     try {
       if (agentId.startsWith('registry:')) {
         const registryId = agentId.replace('registry:', '');
         const { loadSyndicateFromRegistry } = await import('../lib/loadSyndicate.ts');
         targetConfig = await loadSyndicateFromRegistry(registryId, { bindings: routeBindings });
+        configSource = `registry:${registryId}`;
       } else {
         try {
           const { loadSyndicateFromRegistry } = await import('../lib/loadSyndicate.ts');
           targetConfig = await loadSyndicateFromRegistry(agentId, { bindings: routeBindings });
+          configSource = `registry:${agentId} (repo file NOT served — deploy_agent.ts publishes edits)`;
         } catch {
           if (agentId.endsWith('.yaml')) {
             targetConfig = loadSyndicate(agentId, { bindings: routeBindings });
+            configSource = `file:${agentId}`;
           } else {
             try {
               targetConfig = loadSyndicate(`config/agents/${agentId}.yaml`, { bindings: routeBindings });
+              configSource = `file:config/agents/${agentId}.yaml`;
             } catch {
               targetConfig = loadSyndicate(`${agentId}.yaml`, { bindings: routeBindings });
+              configSource = `file:${agentId}.yaml`;
             }
           }
         }
@@ -948,6 +1031,7 @@ export async function startServer(syndicateName: string = 'syndicate.yaml') {
     } catch (error: any) {
       throw new Error(`Failed to load syndicate config for '${agentId}': ${error.message}`);
     }
+    console.log(`[A2A] ⚙ Loaded '${agentId}' from ${configSource}`);
 
     const card = compileAgentCard(targetConfig);
     const handler = new DefaultRequestHandler(
