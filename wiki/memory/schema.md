@@ -8,7 +8,7 @@ tags:
   - memory
 generated:
   by: process:wiki-build
-  at: 2026-07-26
+  at: 2026-08-18
 sources:
   - resource: db/memory_v2.sql
   - resource: db/telemetry.sql
@@ -167,8 +167,11 @@ CREATE INDEX idx_adk_telemetry_trace ON adk_telemetry (trace_id);
 -- exposed through the auto-generated REST API (PostgREST) and are readable/
 -- writable with the widely-distributed `anon` key whenever Row-Level
 -- Security is disabled. Melchizedek's `adk_sessions` (conversation
--- transcripts) and `adk_memory_facts` (distilled user facts) must never be
--- reachable that way.
+-- transcripts), `adk_memory_facts` (distilled user facts) and
+-- `adk_agent_registry` (the agent definitions the A2A server boots from)
+-- must never be reachable that way. The registry is the sharpest of the
+-- three: anon write access there means replacing an agent's instruction and
+-- tool list, i.e. taking over every server that boots `registry:<id>`.
 --
 -- WHAT EACH TIER BUYS — BE HONEST WITH YOURSELF ABOUT THIS:
 --   Tier 1 (this file): closes the anon/authenticated API paths entirely.
@@ -208,6 +211,17 @@ BEGIN
   END IF;
 END $$;
 
+-- Agent registry (DOCUMENTATION.md step 6). Guarded the same way: the table
+-- only exists in deployments that boot syndicates with `registry:<id>`.
+-- Read exposure leaks every system prompt; write exposure is agent takeover.
+DO $$
+BEGIN
+  IF to_regclass('public.adk_agent_registry') IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE adk_agent_registry ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'REVOKE ALL ON adk_agent_registry FROM anon, authenticated';
+  END IF;
+END $$;
+
 -- The vector-search RPC must not be callable from the public API either
 -- (it reads adk_memory_facts on behalf of whoever calls it). The revoke
 -- resolves every existing overload by name, so it works on any schema
@@ -239,7 +253,8 @@ AS $$
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public'
-    AND c.relname IN ('adk_memory_facts', 'adk_sessions', 'adk_telemetry');
+    AND c.relname IN ('adk_memory_facts', 'adk_sessions', 'adk_telemetry',
+                      'adk_agent_registry');
 $$;
 
 REVOKE ALL ON FUNCTION melchizedek_rls_status() FROM anon, authenticated;

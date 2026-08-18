@@ -22,7 +22,8 @@ export interface PersistenceServices {
   memoryService: BaseMemoryService | undefined;
   /**
    * Checks whether the database hardening in db/hardening.sql has been
-   * applied (RLS enabled on adk_memory_facts and adk_sessions). Never
+   * applied (RLS enabled on adk_memory_facts, adk_sessions and — where it
+   * exists — adk_agent_registry). Never
    * throws — callers use this to warn operators at boot, not to gate.
    */
   checkRlsHardening: () => Promise<RlsHardeningStatus>;
@@ -98,6 +99,20 @@ export async function createSupabaseServices(
           detail: `RLS is disabled on: ${unprotected.join(', ')}`,
         };
       }
+      // adk_agent_registry is optional (only deployments that boot
+      // `registry:<id>` create it) but NOT advisory: an unprotected registry
+      // is agent takeover via the anon key, so a present-and-open table
+      // fails the check outright. Absent table => no row => nothing to say.
+      const registryRow = rows.find((r) => r.table_name === 'adk_agent_registry');
+      if (registryRow && !registryRow.rls_enabled) {
+        return {
+          applied: false,
+          detail:
+            'RLS is disabled on: adk_agent_registry (agent definitions are ' +
+            'writable with the anon key) — re-run db/hardening.sql',
+        };
+      }
+
       // Advisory only — adk_telemetry is optional (db/telemetry.sql). If it
       // exists but hardening.sql wasn't re-run afterwards, say so without
       // failing the check (the mandatory tables are protected).

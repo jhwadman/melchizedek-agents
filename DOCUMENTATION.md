@@ -537,7 +537,11 @@ tool definitions, SSE wiring, and persistent state in ~250 lines.
   variable. Nothing in the repo ships a key.
 - **Database**: default Supabase leaves `public`-schema tables readable
   by the anon key over REST. `db/hardening.sql` enables deny-by-default
-  RLS on both tables and revokes anon/authenticated privileges; the A2A
+  RLS and revokes anon/authenticated privileges on every table it finds:
+  `adk_sessions`, `adk_memory_facts`, and — where they exist — the
+  optional `adk_telemetry` sink and `adk_agent_registry` (an unprotected
+  registry is worst of all: agent definitions writable with the anon key
+  means anyone can rewrite the instructions your server boots). The A2A
   server verifies hardening at boot and is fatal on public deployments
   without it. Note `service_role` bypasses RLS by design — the hardening
   constrains the API surface, not the trusted server.
