@@ -10,6 +10,22 @@ import type { Content } from '@google/genai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS, MEMORY_EXTRACTION_MODEL } from '../config.ts';
 
+/**
+ * Harness-injected blocks the Discord surface prefixes to a user message
+ * (nihilistic-penguin stocks.py): the date marker and the portfolio payload.
+ * Neither is something the USER said. Stripped from the memory SEARCH query
+ * (a portfolio JSON would dominate the embedding and drown the question) and
+ * from the extraction transcript (a snapshot that changes daily would be
+ * re-stored as "what the user holds" every session — the analyst reads the
+ * live payload directly, memory only needs what the user SAID about it).
+ */
+export function stripHarnessBlocks(text: string): string {
+	return text
+		.replace(/\[System Context:[^\]]*\]\s*/g, '')
+		.replace(/\[(?:Portfolio Performance Payload|Stock Trade Sheet)\]\s*```[\s\S]*?```\s*/g, '')
+		.trim();
+}
+
 const FACT_EXTRACTION_PROMPT = `You are a precise record-keeping engine. Your job is to analyze a conversation transcript and distill it into structured, self-contained memory records that can be trusted and evolved in future conversations.
 
 Today's date (the session date) is {session_date}.
@@ -218,9 +234,10 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 	}
 
 	async searchMemory(request: SearchMemoryRequest): Promise<SearchMemoryResponse> {
-		console.log(`[MemoryService] Searching memory for: "${request.query}"`);
+		const query = stripHarnessBlocks(request.query) || request.query;
+		console.log(`[MemoryService] Searching memory for: "${query}"`);
 		const userKey = `${request.appName}/${request.userId}`;
-		return this.searchSupabase(userKey, request.query);
+		return this.searchSupabase(userKey, query);
 	}
 
 	private async extractRecords(transcript: string, extractionRules?: string): Promise<MemoryRecord[]> {
@@ -340,7 +357,8 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 			const textParts: string[] = [];
 			for (const p of event.content.parts) {
 				if ('text' in p && typeof p.text === 'string' && p.text.trim().length > 0) {
-					textParts.push(p.text);
+					const cleaned = stripHarnessBlocks(p.text);
+					if (cleaned) textParts.push(cleaned);
 				}
 			}
 

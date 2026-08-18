@@ -141,6 +141,23 @@ interface TurnResult {
   tokenInfo: string;
   /** Set when an error event ended the run early. */
   error?: { code: string; message: string };
+  /** Native web-search grounding the model used (Gemini groundingMetadata):
+   *  the queries it ran and the source domains it cited. Grounding is a
+   *  server-side tool — it never appears as a function call — so without
+   *  this a searched answer and a recalled one are indistinguishable. */
+  grounding?: { queries: string[]; sources: string[] };
+}
+
+/** Domain of a grounding chunk: Gemini's `web.title` is already the bare
+ *  domain (its `uri` is an opaque redirect); fall back to the URI's host. */
+function groundingDomain(chunk: any): string | null {
+  const title: string | undefined = chunk?.web?.title;
+  if (title && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(title)) return title.toLowerCase();
+  const uri: string | undefined = chunk?.web?.uri;
+  if (uri) {
+    try { return new URL(uri).hostname.replace(/^www\./, ''); } catch { /* opaque */ }
+  }
+  return title || null;
 }
 
 // ── Native ADK AgentExecutor Bridge ───────────────────────────────────────
@@ -218,9 +235,27 @@ class SyndicateExecutor implements AgentExecutor {
     let lastTokenTotal = 0;
     let lastThinkingTokens = 0;
     let error: { code: string; message: string } | undefined;
+    const groundingQueries = new Set<string>();
+    const groundingSources = new Set<string>();
 
     for await (const event of stream) {
       const evAny = event as any;
+
+      // Native search grounding rides on the model event, not on a tool call.
+      const gm = evAny.groundingMetadata;
+      if (gm && (gm.webSearchQueries?.length || gm.groundingChunks?.length)) {
+        const before = groundingQueries.size + groundingSources.size;
+        for (const q of gm.webSearchQueries ?? []) if (typeof q === 'string' && q.trim()) groundingQueries.add(q.trim());
+        for (const c of gm.groundingChunks ?? []) { const d = groundingDomain(c); if (d) groundingSources.add(d); }
+        if (groundingQueries.size + groundingSources.size > before) {
+          console.log(`[A2A] ⌕ Grounding: ${groundingQueries.size} quer${groundingQueries.size === 1 ? 'y' : 'ies'} · ${groundingSources.size} source${groundingSources.size === 1 ? '' : 's'}${groundingSources.size ? ` (${[...groundingSources].slice(0, 8).join(', ')})` : ''}`);
+          if (params.publishToolStatus && before === 0) {
+            // Same shape as a function-tool line so consumers that parse
+            // "Invoking tool:" (nihilistic-penguin RouteTrace) list it.
+            publishWorking(eventBus, taskId, contextId, `Invoking tool: web_search`);
+          }
+        }
+      }
 
       // Capture token metadata whenever the model emits it
       if (evAny.usageMetadata?.totalTokenCount) {
@@ -309,10 +344,19 @@ class SyndicateExecutor implements AgentExecutor {
       }
     }
 
+    if (params.publishToolStatus && groundingSources.size) {
+      // Published AFTER the loop so it lands once, with the full set. A
+      // consumer contract (penguin RouteTrace `_SOURCES_RE`): "Web sources: a, b".
+      publishWorking(eventBus, taskId, contextId, `Web sources: ${[...groundingSources].slice(0, 10).join(', ')}`);
+    }
+
     return {
       text: combinedText.trim(),
       lastToolResultText,
       invokedToolNames,
+      grounding: (groundingQueries.size || groundingSources.size)
+        ? { queries: [...groundingQueries], sources: [...groundingSources] }
+        : undefined,
       tokenInfo: lastTokenTotal > 0
         ? ` | ${lastTokenTotal.toLocaleString()} tokens${lastThinkingTokens > 0 ? ` (${lastThinkingTokens.toLocaleString()} thinking)` : ''}`
         : '',
