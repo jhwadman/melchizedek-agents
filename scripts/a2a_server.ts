@@ -1,4 +1,5 @@
 import express from 'express';
+import { collectGrounding, describeGrounding, newGroundingState, webSourcesLine } from '../lib/grounding.ts';
 import rateLimit from 'express-rate-limit';
 import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import type { AgentCard } from '@a2a-js/sdk';
@@ -148,17 +149,6 @@ interface TurnResult {
   grounding?: { queries: string[]; sources: string[] };
 }
 
-/** Domain of a grounding chunk: Gemini's `web.title` is already the bare
- *  domain (its `uri` is an opaque redirect); fall back to the URI's host. */
-function groundingDomain(chunk: any): string | null {
-  const title: string | undefined = chunk?.web?.title;
-  if (title && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(title)) return title.toLowerCase();
-  const uri: string | undefined = chunk?.web?.uri;
-  if (uri) {
-    try { return new URL(uri).hostname.replace(/^www\./, ''); } catch { /* opaque */ }
-  }
-  return title || null;
-}
 
 // ── Native ADK AgentExecutor Bridge ───────────────────────────────────────
 class SyndicateExecutor implements AgentExecutor {
@@ -235,32 +225,22 @@ class SyndicateExecutor implements AgentExecutor {
     let lastTokenTotal = 0;
     let lastThinkingTokens = 0;
     let error: { code: string; message: string } | undefined;
-    const groundingQueries = new Set<string>();
-    const groundingSources = new Set<string>();
+    const grounding = newGroundingState();
+    let groundingAnnounced = false;
 
     for await (const event of stream) {
       const evAny = event as any;
 
       // Native search grounding rides on the model event, not on a tool call.
-      const gm = evAny.groundingMetadata;
-      if (gm && (gm.webSearchQueries?.length || gm.groundingChunks?.length)) {
-        const before = groundingQueries.size + groundingSources.size;
-        for (const q of gm.webSearchQueries ?? []) if (typeof q === 'string' && q.trim()) groundingQueries.add(q.trim());
-        for (const c of gm.groundingChunks ?? []) { const d = groundingDomain(c); if (d) groundingSources.add(d); }
-        if (groundingQueries.size + groundingSources.size > before) {
-          console.log(`[A2A] ⌕ Grounding: ${groundingQueries.size} quer${groundingQueries.size === 1 ? 'y' : 'ies'} · ${groundingSources.size} source${groundingSources.size === 1 ? '' : 's'}${groundingSources.size ? ` (${[...groundingSources].slice(0, 8).join(', ')})` : ''}`);
-          if (params.publishToolStatus && before === 0) {
-            // Same shape as a function-tool line so consumers that parse
-            // "Invoking tool:" (nihilistic-penguin RouteTrace) list it.
-            publishWorking(eventBus, taskId, contextId, `Invoking tool: web_search`);
-          }
+      if (collectGrounding(evAny, grounding)) {
+        const firstSight = grounding.queries.size + grounding.sources.size > 0 && !groundingAnnounced;
+        console.log(`[A2A] ⌕ Grounding: ${describeGrounding(grounding)}`);
+        if (params.publishToolStatus && firstSight) {
+          // Same shape as a function-tool line so consumers that parse
+          // "Invoking tool:" (nihilistic-penguin RouteTrace) list it.
+          publishWorking(eventBus, taskId, contextId, `Invoking tool: web_search`);
         }
-      }
-
-      // Capture token metadata whenever the model emits it
-      if (evAny.usageMetadata?.totalTokenCount) {
-        lastTokenTotal = evAny.usageMetadata.totalTokenCount;
-        lastThinkingTokens = evAny.usageMetadata.thoughtsTokenCount ?? 0;
+        groundingAnnounced = true;
       }
 
       if ((evAny.errorCode || evAny.errorMessage) && evAny.errorCode !== 'STOP') {
@@ -344,18 +324,19 @@ class SyndicateExecutor implements AgentExecutor {
       }
     }
 
-    if (params.publishToolStatus && groundingSources.size) {
+    const sourcesLine = webSourcesLine(grounding);
+    if (params.publishToolStatus && sourcesLine) {
       // Published AFTER the loop so it lands once, with the full set. A
       // consumer contract (penguin RouteTrace `_SOURCES_RE`): "Web sources: a, b".
-      publishWorking(eventBus, taskId, contextId, `Web sources: ${[...groundingSources].slice(0, 10).join(', ')}`);
+      publishWorking(eventBus, taskId, contextId, sourcesLine);
     }
 
     return {
       text: combinedText.trim(),
       lastToolResultText,
       invokedToolNames,
-      grounding: (groundingQueries.size || groundingSources.size)
-        ? { queries: [...groundingQueries], sources: [...groundingSources] }
+      grounding: (grounding.queries.size || grounding.sources.size)
+        ? { queries: [...grounding.queries], sources: [...grounding.sources] }
         : undefined,
       tokenInfo: lastTokenTotal > 0
         ? ` | ${lastTokenTotal.toLocaleString()} tokens${lastThinkingTokens > 0 ? ` (${lastThinkingTokens.toLocaleString()} thinking)` : ''}`
