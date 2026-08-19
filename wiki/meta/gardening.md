@@ -33,3 +33,7 @@ Every write goes through `wiki_save` (directly, over MCP, or via an agent). It r
 ## Delegating
 
 `wiki_query` answers questions with citations; `wiki_garden` takes an instruction ("record the decision we just made: …"), reads context, drafts, and saves through the same gate — the [Scriptorium](/agents/scriptorium.md) does both conversationally. Trust stays honest either way: agent writes carry the agent actor, and only a human `verified` entry upgrades a doc to human-reviewed.
+
+## Relations
+
+Prose is only half the graph. When the knowledge is that one thing depends on, constrains, supersedes, explains, mitigates, contradicts or substitutes for another, record it as a relation with `wiki_relate` — from, to, the relation, and the sentence that justifies it — and it becomes navigable by [`wiki_graph`](/meta/knowledge-graph.md) instead of being buried in a paragraph. The same rule as planting applies, one level up: if the relation is structural — who calls a tool, what a module imports, which model an agent runs on — do not assert it. The build derives it from repo truth every run, and a hand-written copy goes stale the moment the source changes. The [Cartographers](/agents/cartographers.md) do this at scale.

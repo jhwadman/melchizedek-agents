@@ -580,20 +580,31 @@ OKF directory, or scaffold a fresh one with `npm run wiki:init`:
   and ordinary prose that rebuilds never touch.
 - **Graph** (`graph.ts`) — nodes are documents, edges are resolved links;
   orphans and broken links fall out as queries.
+- **Entity graph** (`entities.ts`, `extract.ts`) — a second layer over the
+  same files: agents, tools, models, providers, modules, tables and
+  environment variables as typed nodes. Structural relations are DERIVED
+  from repo truth on every build (zero-dependency scanners for imports,
+  `process.env` reads, DDL and npm scripts) into `.graph/graph.json`;
+  judgments that only prose carries are ASSERTED with evidence and an actor
+  into `.graph/relations.json`, which the build never rewrites.
 - **Lint** (`lint.ts`, `npm run wiki:check`) — OKF conformance, link
   integrity, index coverage, staleness, and the private-subtree closure
   rule; errors gate every write.
 - **Navigate & garden** (`lib/tools/wikiTools.ts`) — tool contracts (§3
   pattern) in three tiers: navigation (`wiki_map`, `wiki_search`,
   `wiki_read`, `wiki_links`, `wiki_dive` — a "repo dive" returns an ordered
-  reading plan for a task), the gated write (`wiki_save` — lint-validated,
-  path-jailed, auto-updates the directory index and `log.md`), and agentic
-  composites (`wiki_query`, `wiki_garden` — one-shot agents with citations
-  and honest actor attribution in frontmatter provenance).
+  reading plan for a task — and `wiki_graph`, which answers the relational
+  questions documents cannot: who calls this tool, what needs this key, how
+  do these two connect), the gated writes (`wiki_save` — lint-validated,
+  path-jailed, auto-updates the directory index and `log.md`; `wiki_relate`
+  — one evidenced relation, refusing anything the build derives), and
+  agentic composites (`wiki_query`, `wiki_garden` — one-shot agents with
+  citations and honest actor attribution in frontmatter provenance).
 
-Serving: syndicate agents declare the navigation/save tools by name
-(`config/agents/scriptorium.yaml` is the worked example —
-`npm run syndicate:scriptorium`); outside MCP clients get all eight from
+Serving: syndicate agents declare the navigation/write tools by name
+(`config/agents/scriptorium.yaml` works the prose,
+`config/agents/cartographers.yaml` the graph — `npm run syndicate:scriptorium`,
+`npm run syndicate:cartographers`); outside MCP clients get all ten from
 `npm run mcp:wiki` (loopback SSE on `:8933`). Trust is explicit in
 frontmatter: `generated.by` records who wrote a document (`human:<id>`,
 `process:<id>`, or `<producer>/<model>`), and only a `human:` entry in

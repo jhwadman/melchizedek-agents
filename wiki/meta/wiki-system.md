@@ -22,7 +22,7 @@ This directory is an **Open Knowledge Format v0.2 bundle** ([ADR 0001](/decision
 - `type` is the only required key. Vocabulary: overview, subsystem, syndicate, tool, model-provider, schema, protocol, runbook, guide, decision, doctrine, reference, meta.
 - Optional keys that matter: `title`, `description`, `tags`, `status` (draft|stable|deprecated), `stale_after`, `sources` (what a doc derives from), `generated {by, at}`, `verified [{by, at}]`.
 - Actors: `human:<id>` | `process:<id>` | `<producer>/<model>`. Trust derives from `verified`: none → unverified; machines only → machine-confirmed; any `human:` → human-reviewed. Most of this bundle is machine-produced — treat trust tiers accordingly, and add `verified` entries as you review.
-- `/private/` is the annex that never exports ([ADR 0003](/decisions/0003-path-based-visibility.md)).
+- `/private/` is the annex that never exports ([ADR 0003](/decisions/0003-path-based-visibility.md)). It keeps its own `log.md`: an entry that would NAME a private document or entity goes there, because the root log is a published file and a summary line is text like any other.
 
 ## Ownership: who writes what
 
@@ -30,9 +30,14 @@ Documents interleave three regions. `wiki:generated` markers hold machine-owned 
 
 ## The toolchain
 
-- `npm run wiki:build` — refresh structural docs + indexes, lint, census. `--fill` adds the LLM pass, `--graph` snapshots `outputs/wiki-graph.json`, `wiki:check` lints only (CI-friendly exit code).
+- `npm run wiki:build` — refresh structural docs + indexes, rebuild the entity graph, lint, census. `--fill` adds the LLM pass, `--graph` also snapshots the document graph to `outputs/wiki-graph.json`, `wiki:check` lints only (CI-friendly exit code, and the gate the export runs).
 - `npm run mcp:wiki` — serves the [wiki tools](/tools/wiki-tools.md) to any MCP client on `:8933`.
 - The [Scriptorium syndicate](/agents/scriptorium.md) works the bundle conversationally; [gardening](/meta/gardening.md) is the how-to.
+- The [Cartographers](/agents/cartographers.md) work the [knowledge graph](/meta/knowledge-graph.md) — the second layer, where entities and typed relations sit over the same files.
 - `npm run wiki:init` scaffolds a fresh bundle elsewhere (`WIKI_ROOT`) — the tooling is bundle-agnostic.
+
+## The second layer
+
+Documents linked to documents is one graph; it answers what to read. Over the same files the build derives a second one — entities (agents, tools, models, providers, modules, tables, environment variables) joined by typed relations — so relational questions have an answer that is not grep. Structural relations are derived every run and never authored; judgment is asserted separately, with evidence, through `wiki_relate`. The vocabulary, the two stores and the gate are described in [the knowledge graph](/meta/knowledge-graph.md), the reasoning in [ADR 0005](/decisions/0005-entity-graph-layer.md).
 
 The public repo receives this bundle minus `/private/` via the [export pipeline](/operations/export-pipeline.md).

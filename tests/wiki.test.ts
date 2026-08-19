@@ -11,6 +11,9 @@
  *   - search scoring and repo-dive planning
  *   - the builder's refresh contract (regenerate structure, preserve prose)
  *   - the wiki_save gate end to end (reject → accept → index + log effects)
+ *   - the source scanners behind the entity layer (imports, env, DDL, scripts)
+ *   - the entity graph: dedupe, typed walks, paths, lint, the two stores
+ *   - the wiki_relate gate (derived relations refused, closure, private log)
  */
 
 import { test } from 'node:test';
@@ -47,8 +50,34 @@ import { buildGraph, neighborhood, orphanConcepts } from '../lib/wiki/graph.ts';
 import { lintVault } from '../lib/wiki/lint.ts';
 import { repoDive, scoreDocs } from '../lib/wiki/dive.ts';
 import { refreshDoc, renderDoc, type DocSpec } from '../lib/wiki/builder.ts';
+import {
+  buildEntityGraph,
+  entityStats,
+  findNodes,
+  lintEntityGraph,
+  loadEntityGraph,
+  neighbors,
+  nodesOfKind,
+  saveRelations,
+  shortestPath,
+  snapshotDrift,
+  writeSnapshot,
+} from '../lib/wiki/entities.ts';
+import {
+  resolveLocalImport,
+  scanModule,
+  scanNpmScripts,
+  scanObjectKeys,
+  scanSql,
+  tableMentions,
+} from '../lib/wiki/extract.ts';
 import { executeContract } from '../lib/tools/toolContract.ts';
-import { wikiSaveContract, wikiSearchContract } from '../lib/tools/wikiTools.ts';
+import {
+  wikiGraphContract,
+  wikiRelateContract,
+  wikiSaveContract,
+  wikiSearchContract,
+} from '../lib/tools/wikiTools.ts';
 
 setLogLevel(LogLevel.WARN);
 
@@ -366,6 +395,277 @@ test('wiki_save rejects nonconformant drafts and lands conformant ones with inde
 
     const search = await executeContract(wikiSearchContract, { query: 'new guide', limit: 5 });
     assert.ok(search.includes('/guides/new.md'));
+  } finally {
+    delete process.env.WIKI_ROOT;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ── Source scanners (the extracted tier's eyes) ──────────────────────────────
+
+test('scanners read imports, env, DDL and scripts literally — and only literally', () => {
+  const source = [
+    "import { a } from './alpha.ts';",
+    'import {',
+    '  b,',
+    "} from '../beta/gamma.ts';",
+    "export { c } from './delta.ts';",
+    "import 'node:fs';",
+    "const late = await import('./late.ts');",
+    'const key = process.env.MY_KEY;',
+    "const other = process.env['OTHER_KEY'];",
+    "// mentions adk_sessions in prose only",
+    "await db.from('adk_memory_facts').select();",
+  ].join('\n');
+  const scan = scanModule(source, 'lib/wiki/thing.ts');
+  assert.deepEqual(scan.localImports, [
+    'lib/beta/gamma.ts',
+    'lib/wiki/alpha.ts',
+    'lib/wiki/delta.ts',
+    'lib/wiki/late.ts',
+  ]);
+  assert.deepEqual(scan.packages, ['node:fs']);
+  assert.deepEqual(scan.envVars, ['MY_KEY', 'OTHER_KEY']);
+  assert.equal(resolveLocalImport('lib/a/b.ts', '../../escape.ts'), 'escape.ts');
+  assert.equal(resolveLocalImport('lib/a/b.ts', 'yaml'), null);
+
+  // Quoted only: the comment mentioning adk_sessions must not count.
+  assert.deepEqual(
+    tableMentions(source, ['adk_memory_facts', 'adk_sessions']),
+    ['adk_memory_facts'],
+  );
+
+  const sql = scanSql(`
+    CREATE TABLE IF NOT EXISTS public.adk_telemetry (id uuid);
+    ALTER TABLE adk_memory_facts ENABLE ROW LEVEL SECURITY;
+  `);
+  assert.deepEqual(sql.defined, ['adk_telemetry']);
+  assert.deepEqual(sql.referenced, ['adk_memory_facts']);
+
+  const scripts = scanNpmScripts({
+    'syndicate:critic': 'node scripts/syndicate_chat.ts --syndicate critic',
+    build: 'tsc -p .',
+  });
+  const critic = scripts.find((s) => s.name === 'syndicate:critic')!;
+  assert.equal(critic.entry, 'scripts/syndicate_chat.ts');
+  assert.equal(critic.flags.syndicate, 'critic');
+  assert.equal(scripts.find((s) => s.name === 'build')!.entry, null);
+
+  assert.deepEqual(
+    scanObjectKeys(
+      "const TOOL_MAP: Record<string, unknown> = {\n  ...SPREAD,\n  web_search: WEB,\n  'x_search': X,\n  nested: { inner: 1 },\n};\n",
+      'TOOL_MAP',
+    ),
+    ['nested', 'web_search', 'x_search'],
+  );
+});
+
+// ── Entity graph ─────────────────────────────────────────────────────────────
+
+const NODES = [
+  { id: '/decisions/0003.md', kind: 'doc', label: 'ADR 0003' },
+  { id: '/private/secret.md', kind: 'doc', label: 'Secret', private: true },
+  { id: 'module:lib/wiki/lint.ts', kind: 'module', label: 'lint.ts' },
+  { id: 'tool:wiki_save', kind: 'tool', label: 'wiki_save' },
+  { id: 'agent:scriptorium/Illuminator', kind: 'agent', label: 'Illuminator' },
+  { id: 'syndicate:scriptorium', kind: 'syndicate', label: 'The Scriptorium' },
+];
+const EDGES = [
+  { from: 'syndicate:scriptorium', to: 'agent:scriptorium/Illuminator', rel: 'contains', tier: 'extracted' as const },
+  { from: 'agent:scriptorium/Illuminator', to: 'tool:wiki_save', rel: 'uses_tool', tier: 'extracted' as const },
+  { from: 'tool:wiki_save', to: 'module:lib/wiki/lint.ts', rel: 'defined_in', tier: 'extracted' as const },
+];
+
+test('entity graph dedupes, keeps private sticky, and walks typed relations', () => {
+  const graph = buildEntityGraph(
+    [...NODES, { id: 'tool:wiki_save', kind: 'tool', label: 'wiki_save', attrs: { extra: 1 } }],
+    [...EDGES, { ...EDGES[0] }],
+  );
+  assert.equal(graph.nodes.size, NODES.length, 'node ids are unique');
+  assert.equal(graph.edges.length, EDGES.length, 'identical edges collapse');
+  assert.equal(graph.nodes.get('tool:wiki_save')!.attrs!.extra, 1, 'attrs merge');
+
+  const out = neighbors(graph, 'syndicate:scriptorium', { depth: 3, direction: 'out' });
+  assert.deepEqual(
+    out.map((n) => n.node.id),
+    ['agent:scriptorium/Illuminator', 'tool:wiki_save', 'module:lib/wiki/lint.ts'],
+  );
+  const filtered = neighbors(graph, 'syndicate:scriptorium', { depth: 3, relations: ['contains'] });
+  assert.equal(filtered.length, 1, 'relation filter stops the walk');
+
+  // Two relations between the same pair must BOTH surface.
+  const twice = buildEntityGraph(NODES, [
+    ...EDGES,
+    { from: 'tool:wiki_save', to: 'module:lib/wiki/lint.ts', rel: 'depends_on', tier: 'inferred' as const, by: 'human:jimmy', evidence: 'the gate calls lint' },
+  ]);
+  const both = neighbors(twice, 'tool:wiki_save', { direction: 'out' });
+  assert.deepEqual(both.map((n) => n.rel).sort(), ['defined_in', 'depends_on']);
+
+  const path = shortestPath(graph, 'module:lib/wiki/lint.ts', 'syndicate:scriptorium');
+  assert.equal(path!.length, 4, 'walks edges against their direction too');
+  assert.equal(path!.at(-1)!.node.id, 'syndicate:scriptorium');
+  assert.equal(shortestPath(graph, 'tool:wiki_save', '/decisions/0003.md'), null);
+
+  assert.equal(findNodes(graph, 'wiki_save')[0].node.id, 'tool:wiki_save');
+  assert.deepEqual(nodesOfKind(graph, 'doc').map((n) => n.id), [
+    '/decisions/0003.md',
+    '/private/secret.md',
+  ]);
+  const stats = entityStats(graph);
+  assert.equal(stats.byKind.doc, 2);
+  assert.equal(stats.byRelation.contains, 1);
+  assert.equal(stats.isolated, 2, 'both docs are unconnected here');
+});
+
+test('graph lint: dangling endpoints, tiers, kinds, closure — closure only for documents', () => {
+  const findings = lintEntityGraph(
+    buildEntityGraph(NODES, [
+      { from: '/decisions/0003.md', to: 'module:nope.ts', rel: 'constrains', tier: 'inferred', by: 'human:jimmy', evidence: 'x' },
+      { from: '/decisions/0003.md', to: '/private/secret.md', rel: 'explains', tier: 'inferred', by: 'human:jimmy' },
+      { from: 'module:lib/wiki/lint.ts', to: '/private/secret.md', rel: 'depends_on', tier: 'inferred', by: 'human:jimmy' },
+      { from: 'module:lib/wiki/lint.ts', to: '/decisions/0003.md', rel: 'links_to', tier: 'extracted' },
+      { from: '/decisions/0003.md', to: 'tool:wiki_save', rel: 'constrains', tier: 'extracted' },
+      { from: '/decisions/0003.md', to: 'module:lib/wiki/lint.ts', rel: 'depends_on', tier: 'inferred' },
+    ]),
+  );
+  const rules = findings.map((f) => f.rule);
+  assert.ok(rules.includes('dangling-endpoint'));
+  assert.equal(
+    findings.filter((f) => f.rule === 'private-closure').length,
+    1,
+    'the public DOCUMENT is caught; a module pointing at private code is not',
+  );
+  // Kind constraints are declared per relation; this one asserts the rule
+  // fires, using a relation that still carries a `from` list.
+  assert.ok(rules.includes('kind-constraint'), 'links_to may only start at a document');
+  assert.ok(rules.includes('tier-mismatch'), 'an inferred relation tagged extracted is flagged');
+  assert.ok(rules.includes('unattributed-assertion'));
+  assert.ok(findings.some((f) => f.rule === 'private-closure' && f.severity === 'error'));
+});
+
+test('the two stores round-trip: derived snapshot rewritten, assertions preserved', () => {
+  const root = makeBundle({ 'index.md': '# Root\n' });
+  try {
+    const graph = buildEntityGraph(NODES, EDGES);
+    writeSnapshot(root, graph, { by: 'process:wiki-build', at: '2026-08-19' });
+    saveRelations(root, [
+      {
+        from: '/decisions/0003.md',
+        to: 'module:lib/wiki/lint.ts',
+        rel: 'constrains',
+        evidence: 'ADR 0003: "no document outside /private/ may link into it"',
+        by: 'human:jimmy',
+        at: '2026-08-19',
+      },
+    ]);
+
+    const loaded = loadEntityGraph(root);
+    assert.equal(loaded.snapshot!.generated.at, '2026-08-19');
+    assert.equal(loaded.inferredCount, 1);
+    assert.equal(loaded.graph.edges.length, EDGES.length + 1);
+    const asserted = loaded.graph.edges.find((e) => e.tier === 'inferred')!;
+    assert.equal(asserted.by, 'human:jimmy');
+    assert.ok(asserted.evidence!.includes('link into it'));
+
+    // A rebuild replaces the snapshot and must not touch the assertions.
+    writeSnapshot(root, buildEntityGraph(NODES, []), { by: 'process:wiki-build', at: '2026-08-20' });
+    const after = loadEntityGraph(root);
+    assert.equal(after.graph.edges.length, 1, 'only the assertion survives');
+    assert.equal(after.inferredCount, 1);
+
+    writeFileSync(join(root, '.graph/relations.json'), '{ not json');
+    assert.equal(loadEntityGraph(root).issues.length, 1, 'a broken store reports, never throws');
+
+    const drift = snapshotDrift(after.snapshot, ['/decisions/0003.md', '/brand-new.md']);
+    assert.deepEqual(drift.missing, ['/brand-new.md']);
+    assert.deepEqual(drift.removed, ['/private/secret.md']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ── wiki_relate gate end to end ──────────────────────────────────────────────
+
+test('wiki_relate refuses derived relations, dangling ends and closure breaks; logs privately', async () => {
+  const root = makeBundle({
+    'index.md': '# Root\n',
+    'log.md': '# Log\n\n## [2026-07-01] init | scaffolded\n',
+  });
+  writeSnapshot(root, buildEntityGraph(NODES, EDGES), {
+    by: 'process:wiki-build',
+    at: '2026-08-19',
+  });
+  process.env.WIKI_ROOT = root;
+  try {
+    const derived = await executeContract(wikiRelateContract, {
+      from: 'agent:scriptorium/Illuminator',
+      to: 'tool:wiki_save',
+      relation: 'uses_tool',
+      evidence: 'the YAML declares it',
+      actor: 'human:jimmy',
+    });
+    assert.ok(derived.startsWith('REJECTED') && derived.includes('EXTRACTED'), derived);
+
+    const dangling = await executeContract(wikiRelateContract, {
+      from: '/decisions/0003.md',
+      to: 'module:does/not/exist.ts',
+      relation: 'constrains',
+      evidence: 'ADR 0003 says so somewhere',
+      actor: 'human:jimmy',
+    });
+    assert.ok(dangling.startsWith('REJECTED') && dangling.includes('no node'), dangling);
+
+    const leak = await executeContract(wikiRelateContract, {
+      from: '/decisions/0003.md',
+      to: '/private/secret.md',
+      relation: 'explains',
+      evidence: 'a public document reaching into the annex',
+      actor: 'human:jimmy',
+    });
+    assert.ok(leak.startsWith('REJECTED') && leak.includes('private'), leak);
+
+    const ok = await executeContract(wikiRelateContract, {
+      from: '/decisions/0003.md',
+      to: 'module:lib/wiki/lint.ts',
+      relation: 'constrains',
+      evidence: 'ADR 0003: "Closure (lint error): no document outside /private/ may link into it."',
+      actor: 'human:jimmy',
+    });
+    assert.ok(ok.startsWith('ASSERTED'), ok);
+    assert.ok(ok.includes('constrains'), ok);
+    assert.ok(
+      readFileSync(join(root, 'log.md'), 'utf-8').includes('relate |'),
+      'a public assertion lands in the public log',
+    );
+
+    const again = await executeContract(wikiRelateContract, {
+      from: '/decisions/0003.md',
+      to: 'module:lib/wiki/lint.ts',
+      relation: 'constrains',
+      evidence: 'ADR 0003: "Closure (lint error): no document outside /private/ may link into it."',
+      actor: 'human:jimmy',
+    });
+    assert.ok(again.startsWith('UNCHANGED'), again);
+
+    const priv = await executeContract(wikiRelateContract, {
+      from: '/private/secret.md',
+      to: 'module:lib/wiki/lint.ts',
+      relation: 'depends_on',
+      evidence: 'the annex may point outward',
+      actor: 'human:jimmy',
+    });
+    assert.ok(priv.startsWith('ASSERTED'), priv);
+    assert.ok(
+      !readFileSync(join(root, 'log.md'), 'utf-8').includes('/private/secret.md'),
+      'the public log never names private knowledge',
+    );
+    assert.ok(
+      readFileSync(join(root, 'private/log.md'), 'utf-8').includes('/private/secret.md'),
+      'the annex keeps its own log',
+    );
+
+    const census = await executeContract(wikiGraphContract, { find: 'lint' });
+    assert.ok(census.includes('module:lib/wiki/lint.ts'), census);
   } finally {
     delete process.env.WIKI_ROOT;
     rmSync(root, { recursive: true, force: true });

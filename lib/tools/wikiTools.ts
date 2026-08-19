@@ -9,17 +9,25 @@
  *
  *   Three capability tiers, deliberately separated:
  *
- *   NAVIGATE (wiki_map, wiki_read, wiki_search, wiki_links, wiki_dive) —
- *     pure functions over the bundle. No model, no writes, instant. These
- *     are what "repo dive" means: an agent on a knowledge task orients,
- *     searches, follows links, and gets an ordered reading plan.
+ *   NAVIGATE (wiki_map, wiki_read, wiki_search, wiki_links, wiki_dive,
+ *     wiki_graph) — pure functions over the bundle. No model, no writes,
+ *     instant. These are what "repo dive" means: an agent on a knowledge
+ *     task orients, searches, follows links, and gets an ordered reading
+ *     plan. wiki_graph adds the second layer — the ENTITY graph of agents,
+ *     tools, models, modules, tables and env vars derived from repo truth
+ *     (lib/wiki/entities.ts) — which answers relational questions no
+ *     amount of document search can ("who calls this tool").
  *
- *   WRITE (wiki_save) — the ONLY write path, and it is gated: parse →
- *     profile validation → lint (errors block, including the private-
- *     closure rule) → path-jailed write → directory index refresh →
- *     log.md entry. Agents cannot corrupt the bundle through this door;
- *     the worst they can do is write mediocre prose, which lint's
- *     warnings surface and git can revert.
+ *   WRITE (wiki_save, wiki_relate) — the only two write paths, both gated.
+ *     wiki_save: parse → profile validation → lint (errors block,
+ *     including the private-closure rule) → path-jailed write → directory
+ *     index refresh → log.md entry. wiki_relate: one asserted relation,
+ *     refused unless the relation is an INFERRED one (structural relations
+ *     are derived by the build), both endpoints exist, no public document
+ *     points into the private annex, and evidence is supplied. Agents
+ *     cannot corrupt the bundle through either door; the worst they can do
+ *     is write mediocre prose, which lint's warnings surface and git can
+ *     revert.
  *
  *   AGENTIC (wiki_query, wiki_garden) — composites that put a model in
  *     the loop, running a one-shot agent equipped with the tier-1 (and for
@@ -40,9 +48,28 @@ import {
   actorSchema,
   BUILD_ACTOR,
   CONCEPT_TYPES,
+  isPrivatePath,
   isReservedFilename,
   trustTier,
 } from '../wiki/format.ts';
+import {
+  edgeKey,
+  entityStats,
+  findNodes,
+  isPrivateNode,
+  loadEntityGraph,
+  loadRelations,
+  neighbors,
+  nodesOfKind,
+  NODE_KINDS,
+  RELATIONS,
+  relationsByTier,
+  saveRelations,
+  shortestPath,
+  snapshotDrift,
+  type EntityNode,
+  type LoadedGraph,
+} from '../wiki/entities.ts';
 import { buildGraph, graphStats, neighborhood } from '../wiki/graph.ts';
 import { formatLintReport, lintDoc, lintVault } from '../wiki/lint.ts';
 import { sectionSlice } from '../wiki/markdown.ts';
@@ -77,6 +104,16 @@ function vaultOrError(): Vault | string {
   } catch (err) {
     return `Error: ${err instanceof Error ? err.message : String(err)}`;
   }
+}
+
+/**
+ * Which log an entry belongs in. `log.md` at the bundle root EXPORTS, so an
+ * entry naming a private document or a private entity would leak exactly
+ * what the private annex exists to withhold; those go to the annex's own
+ * log instead, which the export never copies.
+ */
+function logTargetFor(privateTouched: boolean): string {
+  return privateTouched ? '/private/log.md' : '/log.md';
 }
 
 function normalizeDocPath(raw: string): string {
@@ -143,6 +180,14 @@ export const wikiMapContract = defineTool({
       const index = vault.docs.get(`/${dir}/index.md`);
       const h1 = index?.parsed.headings.find((h) => h.depth === 1)?.text ?? dir;
       lines.push(`  /${dir}/ — ${h1} (${count} file(s))`);
+    }
+    const entities = loadEntityGraph(resolveWikiRoot());
+    if (entities.snapshot) {
+      const eStats = entityStats(entities.graph);
+      lines.push(
+        '',
+        `entity graph: ${eStats.nodes} nodes / ${eStats.edges} typed relations (${eStats.byTier.inferred} asserted) — query with wiki_graph`,
+      );
     }
     lines.push('', 'read /index.md for the annotated map; log.md for recent changes.');
     return lines.join('\n');
@@ -301,6 +346,274 @@ export const wikiDiveContract = defineTool({
   },
 });
 
+// ── NAVIGATE: the entity layer ───────────────────────────────────────────────
+
+/** Snapshot + asserted relations, or a message explaining what to run. */
+function entityGraphOrError(): LoadedGraph | string {
+  const loaded = loadEntityGraph(resolveWikiRoot());
+  if (!loaded.snapshot) {
+    return 'Error: no entity graph snapshot in this bundle (.graph/graph.json). It is derived from repo truth by the build — run `npm run wiki:build`. Document-only navigation (wiki_links) works without it.';
+  }
+  return loaded;
+}
+
+function describeNode(node: EntityNode): string {
+  const attrs = Object.entries(node.attrs ?? {})
+    .filter(([key]) => key !== 'description')
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(' · ');
+  const description = node.attrs?.description ? ` — ${String(node.attrs.description)}` : '';
+  return `${node.id} [${node.kind}]${node.private ? ' (private)' : ''}${
+    attrs ? ` {${attrs}}` : ''
+  }${description}`;
+}
+
+function stalenessNote(loaded: LoadedGraph): string | null {
+  let vault: Vault | string;
+  try {
+    vault = loadVault(resolveWikiRoot());
+  } catch {
+    return null;
+  }
+  if (typeof vault === 'string') return null;
+  const current = [...vault.docs.values()]
+    .filter((d) => d.kind === 'concept')
+    .map((d) => d.bundlePath);
+  const drift = snapshotDrift(loaded.snapshot, current);
+  if (drift.missing.length === 0 && drift.removed.length === 0) return null;
+  const parts: string[] = [];
+  if (drift.missing.length > 0) parts.push(`${drift.missing.length} document(s) added since`);
+  if (drift.removed.length > 0) parts.push(`${drift.removed.length} removed`);
+  return `snapshot is stale (${parts.join(', ')}) — run \`npm run wiki:build\` to refresh it.`;
+}
+
+export const wikiGraphContract = defineTool({
+  name: 'wiki_graph',
+  description:
+    'Query the ENTITY graph: agents, syndicates, models, providers, tools, MCP servers, modules, tables, env vars, npm scripts and documents, joined by typed relations (uses_tool, uses_model, imports, reads_table, requires_env, documents, depends_on, constrains…). Answers what search cannot: which syndicates call a tool, what breaks without a key, how two things connect. No arguments = census. Use `find` when you do not know a node id.',
+  schema: z.object({
+    node: z
+      .string()
+      .optional()
+      .describe('Node to centre on: "tool:web_search", "agent:critic/DrafterAgent", "/memory/schema.md"'),
+    find: z.string().optional().describe('Lexical node search when the exact id is unknown'),
+    kind: z
+      .string()
+      .optional()
+      .describe('List every node of one kind: agent, syndicate, model, provider, tool, mcp-server, module, file, table, env, script, doc, external'),
+    path_to: z
+      .string()
+      .optional()
+      .describe('With `node`: the shortest chain of relations joining the two'),
+    relations: z
+      .array(z.string())
+      .optional()
+      .describe('Restrict the walk to these relation ids'),
+    depth: z.number().int().min(1).max(3).default(1),
+    direction: z.enum(['out', 'in', 'both']).default('both'),
+    limit: z.number().int().min(1).max(200).default(40),
+  }),
+  execute: async ({ node, find, kind, path_to, relations, depth, direction, limit }) => {
+    const loaded = entityGraphOrError();
+    if (typeof loaded === 'string') return loaded;
+    const { graph } = loaded;
+    const stale = stalenessNote(loaded);
+    const footer = [
+      stale ? `\nnote: ${stale}` : '',
+      loaded.issues.length > 0 ? `\nrelation store issues: ${loaded.issues.join('; ')}` : '',
+    ].join('');
+
+    if (find) {
+      const matches = findNodes(graph, find, limit);
+      if (matches.length === 0) {
+        return `No node matches "${find}". Try wiki_graph with no arguments for the census of kinds.${footer}`;
+      }
+      return [
+        `nodes matching "${find}":`,
+        ...matches.map((m) => `  ${describeNode(m.node)}`),
+      ].join('\n') + footer;
+    }
+
+    if (kind) {
+      const list = nodesOfKind(graph, kind);
+      if (list.length === 0) {
+        return `No nodes of kind "${kind}". Kinds present: ${Object.keys(entityStats(graph).byKind).sort().join(', ')}${footer}`;
+      }
+      return [
+        `${list.length} ${kind} node(s):`,
+        ...list.slice(0, limit).map((n) => `  ${describeNode(n)}`),
+        ...(list.length > limit ? [`  …${list.length - limit} more (raise limit)`] : []),
+      ].join('\n') + footer;
+    }
+
+    if (node && path_to) {
+      const from = graph.nodes.get(node) ?? findNodes(graph, node, 1)[0]?.node;
+      const to = graph.nodes.get(path_to) ?? findNodes(graph, path_to, 1)[0]?.node;
+      if (!from) return `Error: no node "${node}" — try wiki_graph with find.${footer}`;
+      if (!to) return `Error: no node "${path_to}" — try wiki_graph with find.${footer}`;
+      const chain = shortestPath(graph, from.id, to.id);
+      if (!chain) {
+        return `No relation chain connects ${from.id} and ${to.id} within 6 hops.${footer}`;
+      }
+      return [
+        `${from.id} → ${to.id} (${chain.length - 1} hop(s)):`,
+        ...chain.map((step, i) =>
+          i === 0
+            ? `  ${step.node.id}`
+            : `  ${step.direction === 'out' ? '—' : '←'}${step.rel}${
+                step.direction === 'out' ? '→' : '—'
+              } ${step.node.id} [${step.node.kind}]`,
+        ),
+      ].join('\n') + footer;
+    }
+
+    if (node) {
+      const origin = graph.nodes.get(node) ?? findNodes(graph, node, 1)[0]?.node;
+      if (!origin) {
+        const near = findNodes(graph, node, 5);
+        return `Error: no node "${node}".${
+          near.length > 0 ? ` Nearest:\n${near.map((n) => `  ${describeNode(n.node)}`).join('\n')}` : ''
+        }${footer}`;
+      }
+      const steps = neighbors(graph, origin.id, { depth, direction, ...(relations ? { relations } : {}) });
+      if (steps.length === 0) {
+        return `${describeNode(origin)}\n  no ${direction === 'both' ? '' : `${direction}bound `}relations within depth ${depth}.${footer}`;
+      }
+      const grouped = new Map<string, string[]>();
+      for (const step of steps.slice(0, limit)) {
+        const spec = RELATIONS[step.rel];
+        const heading = `${step.direction === 'out' ? `—${step.rel}→` : `←${step.rel}—`} (${
+          spec ? spec.phrase : step.rel
+        }, ${step.tier})`;
+        const line = `    ${step.node.id} [${step.node.kind}]${
+          step.distance > 1 ? ` · ${step.distance} hops via ${step.via}` : ''
+        }${step.tier === 'inferred' && step.evidence ? `\n      evidence: ${step.evidence}` : ''}`;
+        grouped.set(heading, [...(grouped.get(heading) ?? []), line]);
+      }
+      return [
+        describeNode(origin),
+        ...[...grouped.entries()].sort().flatMap(([heading, lines]) => [`  ${heading}`, ...lines]),
+        ...(steps.length > limit ? [`  …${steps.length - limit} more relation(s)`] : []),
+      ].join('\n') + footer;
+    }
+
+    const stats = entityStats(graph);
+    return [
+      `entity graph — built ${loaded.snapshot?.generated.at ?? '?'} by ${loaded.snapshot?.generated.by ?? '?'}`,
+      `${stats.nodes} nodes, ${stats.edges} relations (${stats.byTier.extracted} extracted from repo truth, ${stats.byTier.inferred} asserted with evidence)`,
+      '',
+      'kinds:',
+      ...Object.entries(stats.byKind)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `  ${k} (${n}) — ${NODE_KINDS[k] ?? 'unknown kind'}`),
+      '',
+      'relations:',
+      ...Object.entries(stats.byRelation)
+        .sort((a, b) => b[1] - a[1])
+        .map(([r, n]) => `  ${r} (${n}) — ${RELATIONS[r]?.gloss ?? 'outside the vocabulary'}`),
+      '',
+      'centre on a node with `node`, or search with `find`.',
+    ].join('\n') + footer;
+  },
+});
+
+// ── WRITE: assert a relation the build cannot derive ─────────────────────────
+
+export const wikiRelateContract = defineTool({
+  name: 'wiki_relate',
+  description:
+    'Assert ONE typed relation the build cannot derive — a judgment read out of prose (depends_on, constrains, supersedes, explains, alternative_to, mitigates, contradicts). Requires evidence: quote the text or name the file that says so. Structural relations (uses_tool, imports…) are refused: those are derived by `npm run wiki:build` and asserting them would rot.',
+  schema: z.object({
+    from: z.string().min(1).describe('Source node id, e.g. "/decisions/0003-path-based-visibility.md"'),
+    to: z.string().min(1).describe('Target node id, e.g. "module:scripts/export-public/export.sh"'),
+    relation: z
+      .string()
+      .min(1)
+      .describe('One of: depends_on, constrains, supersedes, explains, alternative_to, mitigates, contradicts'),
+    evidence: z
+      .string()
+      .min(10)
+      .describe('Why this holds: a quotation from the document, or the path that states it'),
+    actor: actorSchema.describe('"human:<id>", "process:<id>", or "<producer>/<model>"'),
+    note: z.string().optional().describe('Optional clarification for a later reader'),
+  }),
+  execute: async ({ from, to, relation, evidence, actor, note }) => {
+    const root = resolveWikiRoot();
+    const loaded = entityGraphOrError();
+    if (typeof loaded === 'string') return loaded;
+    const { graph } = loaded;
+
+    const spec = RELATIONS[relation];
+    if (!spec) {
+      return `REJECTED — "${relation}" is not in the vocabulary. Assertable relations: ${relationsByTier(
+        'inferred',
+      ).join(', ')}.`;
+    }
+    if (spec.tier !== 'inferred') {
+      return `REJECTED — "${relation}" is an EXTRACTED relation: the build derives it from repo truth on every run, so an assertion would go stale silently. Change the source of truth instead, then run \`npm run wiki:build\`.`;
+    }
+
+    const resolveEnd = (id: string): EntityNode | null =>
+      graph.nodes.get(id) ?? (findNodes(graph, id, 1)[0]?.node ?? null);
+    const fromNode = resolveEnd(from);
+    const toNode = resolveEnd(to);
+    for (const [label, raw, resolved] of [
+      ['from', from, fromNode],
+      ['to', to, toNode],
+    ] as const) {
+      if (!resolved) {
+        const near = findNodes(graph, raw, 5);
+        return [
+          `REJECTED — no node "${raw}" (${label}).`,
+          near.length > 0
+            ? `Nearest:\n${near.map((n) => `  ${describeNode(n.node)}`).join('\n')}`
+            : 'Use wiki_graph with `find` or `kind` to see what exists.',
+        ].join('\n');
+      }
+    }
+    if (fromNode!.id === toNode!.id) {
+      return `REJECTED — a node cannot relate to itself (${fromNode!.id}).`;
+    }
+    if (fromNode!.kind === 'doc' && !isPrivateNode(fromNode!) && isPrivateNode(toNode!)) {
+      return `REJECTED — ${fromNode!.id} is a public document and ${toNode!.id} is private knowledge. Public documents never point into the private annex; move the claim to a /private/ document instead.`;
+    }
+
+    const { records } = loadRelations(root);
+    const key = edgeKey({ from: fromNode!.id, rel: relation, to: toNode!.id });
+    if (records.some((r) => edgeKey(r) === key)) {
+      return `UNCHANGED — ${key} is already asserted. wiki_graph on either node shows it.`;
+    }
+
+    const record = {
+      from: fromNode!.id,
+      to: toNode!.id,
+      rel: relation,
+      evidence,
+      by: actor,
+      at: todayIso(),
+      ...(note ? { note } : {}),
+    };
+    saveRelations(root, [...records, record]);
+    appendLog(
+      root,
+      todayIso(),
+      'relate',
+      `${fromNode!.id} —${relation}→ ${toNode!.id}`,
+      `by ${actor}`,
+      logTargetFor(isPrivateNode(fromNode!) || isPrivateNode(toNode!)),
+    );
+
+    const reverse = records.find(
+      (r) => r.from === toNode!.id && r.to === fromNode!.id && r.rel === relation,
+    );
+    return [
+      `ASSERTED ${fromNode!.id} —${relation}→ ${toNode!.id} · logged to /log.md`,
+      `reads: ${fromNode!.label} ${RELATIONS[relation].phrase} ${toNode!.label}`,
+      reverse ? `advisory: the reverse (${edgeKey(reverse)}) is also asserted — one direction is usually enough.` : 'advisories: none',
+    ].join('\n');
+  },
+});
+
 // ── WRITE ────────────────────────────────────────────────────────────────────
 
 export const wikiSaveContract = defineTool({
@@ -382,7 +695,14 @@ export const wikiSaveContract = defineTool({
         date: today,
       });
     }
-    appendLog(vault.root, today, 'garden', `${summary} (${bundlePath})`, `by ${actor}`);
+    appendLog(
+      vault.root,
+      today,
+      'garden',
+      `${summary} (${bundlePath})`,
+      `by ${actor}`,
+      logTargetFor(isPrivatePath(bundlePath)),
+    );
 
     const warnings = findings.filter((f) => f.severity !== 'error');
     return [
@@ -402,6 +722,7 @@ const NAVIGATE_CONTRACTS = [
   wikiSearchContract,
   wikiLinksContract,
   wikiDiveContract,
+  wikiGraphContract,
 ] as const;
 
 export const wikiQueryContract = defineTool({
@@ -483,6 +804,7 @@ Save with actor "melchizedek/${resolvedModel}". After saving, summarize: paths w
 export const WIKI_TOOL_CONTRACTS: readonly ToolContract<any>[] = [
   ...NAVIGATE_CONTRACTS,
   wikiSaveContract,
+  wikiRelateContract,
   wikiQueryContract,
   wikiGardenContract,
 ];
@@ -496,6 +818,7 @@ export const WIKI_TOOL_CONTRACTS: readonly ToolContract<any>[] = [
 export const WIKI_AGENT_TOOL_CONTRACTS: readonly ToolContract<any>[] = [
   ...NAVIGATE_CONTRACTS,
   wikiSaveContract,
+  wikiRelateContract,
 ];
 
 /** Lint the whole bundle — shared by the build script and tests. */

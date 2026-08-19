@@ -2,6 +2,7 @@
 
 <!-- wiki:generated section="listing" source="directory contents" -->
 - [Ares Data Extractor](/agents/ares.md) — The Ares Data Extractor syndicate.
+- [The Cartographers](/agents/cartographers.md) — Maps the knowledge graph: has the Surveyor read prose for relations a parser cannot see, and the Registrar record them with their evidence.
 - [Claude Chat](/agents/claude.md) — The Claude Chat syndicate.
 - [Council](/agents/council.md) — The Council syndicate.
 - [Critic Review Workflow](/agents/critic.md) — The Critic Review Workflow syndicate.

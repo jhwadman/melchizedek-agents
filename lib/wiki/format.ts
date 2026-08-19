@@ -208,6 +208,8 @@ export const LOG_OPS = [
   'garden',
   'ingest',
   'lint',
+  /** One asserted relation added to the entity graph (lib/wiki/entities.ts). */
+  'relate',
 ] as const;
 export type LogOp = (typeof LOG_OPS)[number];
 

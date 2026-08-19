@@ -227,15 +227,22 @@ const LOG_PREAMBLE = `# Log
 Chronological record of changes to this bundle, newest first. Entries are
 machine-parseable: \`## [YYYY-MM-DD] <op> | <summary>\`.`;
 
+/**
+ * Append one entry to a bundle log. `logPath` defaults to the root log; a
+ * caller whose entry would NAME private knowledge must pass the private
+ * annex's own log instead ('/private/log.md'), because the root log is a
+ * published file and a summary is text like any other (wiki/decisions/0003).
+ */
 export function appendLog(
   root: string,
   date: string,
   op: LogOp,
   summary: string,
   detail?: string,
+  logPath = '/log.md',
 ): void {
-  const abs = jailedAbsPath(root, '/log.md');
+  const abs = jailedAbsPath(root, logPath);
   const entry = formatLogEntry(date, op, summary, detail);
   const raw = existsSync(abs) ? readFileSync(abs, 'utf-8') : `${LOG_PREAMBLE}\n`;
-  writeDocFile(root, '/log.md', insertLogEntry(raw, entry));
+  writeDocFile(root, logPath, insertLogEntry(raw, entry));
 }

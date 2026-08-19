@@ -103,13 +103,40 @@ export class SupabaseSessionService extends BaseSessionService {
         return session;
     }
 
+    /**
+     * ADK's ListSessions contract carries paging: `limit` with either `page`
+     * (1-based, wins) or `offset` (0-based), plus an optional sort by last
+     * update, and the response must report where in the set the caller is.
+     * The window is pushed down to Postgres via .range(), and `count:
+     * 'exact'` returns the TOTAL matching rows alongside the page — so
+     * totalItems is the real total, not the slice length. With no `limit`,
+     * the whole set is one page, which is what the ADK's own docs specify
+     * ("Page size used. Equals `totalItems` when no limit was requested").
+     */
     async listSessions(request: ListSessionsRequest): Promise<ListSessionsResponse> {
-        const { data, error } = await this.supabase
+        const { limit, order } = request;
+        const offset = limit !== undefined && request.page !== undefined
+            ? (Math.max(1, request.page) - 1) * limit
+            : (request.offset ?? 0);
+
+        let query = this.supabase
             .from('adk_sessions')
-            .select('id, app_name, user_id, state, last_update_time')
+            .select('id, app_name, user_id, state, last_update_time', { count: 'exact' })
             .eq('app_name', request.appName)
             .eq('user_id', request.userId);
-            
+
+        if (order) {
+            query = query.order('last_update_time', { ascending: order === 'asc' });
+        }
+        if (limit !== undefined) {
+            query = query.range(offset, offset + limit - 1);
+        } else if (offset > 0) {
+            // An offset without a limit still means "skip these".
+            query = query.range(offset, offset + 999_999);
+        }
+
+        const { data, error, count } = await query;
+
         if (error) {
             console.error('Error listing sessions from Supabase:', error);
             throw new Error(`Failed to list sessions: ${error.message}`);
@@ -129,7 +156,15 @@ export class SupabaseSessionService extends BaseSessionService {
             };
         });
         
-        return { sessions };
+        const totalItems = count ?? sessions.length;
+        const pageSize = limit ?? totalItems;
+        return {
+            sessions,
+            page: limit ? Math.floor(offset / limit) + 1 : 1,
+            limit: pageSize,
+            totalItems,
+            totalPages: limit ? Math.max(1, Math.ceil(totalItems / limit)) : 1,
+        };
     }
 
     async deleteSession(request: DeleteSessionRequest): Promise<void> {

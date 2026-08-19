@@ -25,6 +25,7 @@
     "syndicate:council": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate council",
     "syndicate:librarian": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate librarian",
     "syndicate:scriptorium": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate scriptorium",
+    "syndicate:cartographers": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate cartographers",
     "mcp:demo": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_mcp_server.ts",
     "mcp:wiki": "node --disable-warning=DEP0040 --experimental-strip-types scripts/wiki_mcp_server.ts",
     "wiki:init": "node --disable-warning=DEP0040 --experimental-strip-types scripts/wiki_init.ts",
