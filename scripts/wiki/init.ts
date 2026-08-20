@@ -1,5 +1,5 @@
 /**
- * scripts/wiki_init.ts — scaffold a fresh OKF knowledge bundle.
+ * scripts/wiki/init.ts — scaffold a fresh OKF knowledge bundle.
  *
  * WHY this file exists:
  *   The wiki tooling (lib/wiki, lib/tools/wikiTools.ts, the MCP server) is
@@ -15,10 +15,10 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { loadEnv } from '../lib/loadEnv.ts';
-import { appendLog, indexSpec, renderDoc, upsertDoc } from '../lib/wiki/builder.ts';
-import { BUILD_ACTOR, CONCEPT_TYPES, OKF_VERSION } from '../lib/wiki/format.ts';
-import { writeDocFile, resolveWikiRoot } from '../lib/wiki/vault.ts';
+import { loadEnv } from '../../lib/loadEnv.ts';
+import { appendLog, indexSpec, renderDoc, upsertDoc } from '../../lib/wiki/builder.ts';
+import { BUILD_ACTOR, CONCEPT_TYPES, OKF_VERSION } from '../../lib/wiki/format.ts';
+import { writeDocFile, resolveWikiRoot } from '../../lib/wiki/vault.ts';
 
 loadEnv(import.meta.url);
 

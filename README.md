@@ -7,7 +7,10 @@ readable file.**
 Melchizedek runs hierarchical agent graphs called *Syndicates*: an
 orchestrator, its subagents, their tools, models, and communication laws,
 all declared in a single YAML document you can read, diff, and teach
-from. Gemini is supported natively, Claude via a bundled adapter, and
+from. The engine (`lib/`) knows no syndicate by name — `config/agents/`
+is where YOUR syndicates go, and the ones shipped in
+`config/agents/examples/` are a starter pack to copy from, not the
+product. Gemini is supported natively, Claude via a bundled adapter, and
 **open-weight models run locally through Ollama with no key at all**
 (`lib/models/ollamaLlm.ts`) — switching any agent's model is a one-line
 change. Agents can also extend their own reach at runtime: point a

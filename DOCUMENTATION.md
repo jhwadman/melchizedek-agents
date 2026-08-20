@@ -23,7 +23,8 @@ see [`QUICKSTART.md`](./QUICKSTART.md).
 ## 1. Architecture
 
 ```
-config/agents/*.yaml      syndicate definitions (the product surface)
+config/agents/            YOUR syndicate definitions (the engine's input)
+config/agents/examples/   the starter pack — shipped example syndicates
 lib/loadSyndicate.ts      YAML → validated config (+ variable binding)
 lib/dispatch.ts           plan-dispatch route resolution (§6, A2A-only)
 lib/toolRegistry.ts       tool name → live ADK tool instance
@@ -125,7 +126,7 @@ instance:
 load time. `lib/tools/mcpToolFactory.ts` dials the server over SSE,
 lists its tools, and wraps each one as a live `FunctionTool` — the
 agent's reach is decided by the server, not compiled in.
-`config/agents/librarian.yaml` plus the demo catalog server
+`config/agents/examples/librarian.yaml` plus the demo catalog server
 (`npm run mcp:demo`, `scripts/demo_mcp_server.ts`) are the worked
 example: read tools *and* write tools, so the agent demonstrably
 modifies data on the far side of the protocol. The factory refuses
@@ -315,8 +316,8 @@ present (Ollama needs none) into the ADK's LLM registry, so the YAML
 string finds its provider; missing keys produce clear skip messages,
 and only the providers a syndicate actually declares are required.
 Mixed graphs are supported — each agent picks its own provider, one
-line each. `config/agents/claude.yaml` is the minimal Claude example;
-`config/agents/model_zoo.yaml` declares one lightweight agent per
+line each. `config/agents/examples/claude.yaml` is the minimal Claude example;
+`config/agents/examples/model_zoo.yaml` declares one lightweight agent per
 provider, and `npm run demo:models` proves the whole surface: one
 prompt to every available provider, printing input, thinking (qwen3
 `<think>` blocks, Claude extended thinking, GPT reasoning summaries,
@@ -363,7 +364,7 @@ route through `lib/models/ollamaLlm.ts` to a local Ollama daemon over
 its OpenAI-compatible API (`OLLAMA_BASE_URL`, default
 `http://localhost:11434/v1`). No key is required, and a syndicate whose
 *every* agent is `ollama/*` runs with no `.env` at all —
-`config/agents/tutor.yaml` (single agent) and `council.yaml` (council)
+`config/agents/examples/tutor.yaml` (single agent) and `council.yaml` (council)
 are the worked examples. The adapter translates ADK content to
 OpenAI-style messages, including tool calls (so delegation works),
 image parts as data URIs (so `ollama/qwen3-vl:8b` can see), and JSON
@@ -432,7 +433,7 @@ shrinks from a whole relayed answer to ~15 tokens of JSON.
 
 **Why the classifier is tool-less.** ADK refuses to combine
 `outputSchema` with AgentTool delegation on one agent (see
-`config/agents/critic.yaml` — an orchestrator holding both deadlocks).
+`config/agents/examples/critic.yaml` — an orchestrator holding both deadlocks).
 That constraint shapes the method: the classifier is a leaf, and the
 hand-off happens in code, where it can be logged, traced, and streamed
 to the user as progress.
@@ -513,9 +514,11 @@ copy into any repo that has `@google/adk` installed. Add
 `registerAvailableProviders()` from `lib/models/registry.ts` and the
 same block runs `claude-*` / `gpt-*` / `grok-*` / `ollama/*` ids too.
 
-**Add a syndicate**: create `config/agents/<name>.yaml` (start from
-`syndicateSchema.yaml`), then `npm run chat:syndicate -- --syndicate
-<name>`. No code changes.
+**Add a syndicate**: create `config/agents/<name>.yaml` — copy the
+closest starter-pack file from `config/agents/examples/` or start from
+`syndicateSchema.yaml` — then `npm run chat:syndicate -- --syndicate
+<name>`. No code changes. The loader checks the root first, then
+`examples/`, so your syndicate and the starter pack never collide.
 
 **Add a tool**: implement a `FunctionTool` in `lib/tools/`, register the
 name in `lib/toolRegistry.ts`, reference it from YAML. The two image
@@ -602,8 +605,8 @@ OKF directory, or scaffold a fresh one with `npm run wiki:init`:
   citations and honest actor attribution in frontmatter provenance).
 
 Serving: syndicate agents declare the navigation/write tools by name
-(`config/agents/scriptorium.yaml` works the prose,
-`config/agents/cartographers.yaml` the graph — `npm run syndicate:scriptorium`,
+(`config/agents/examples/scriptorium.yaml` works the prose,
+`config/agents/examples/cartographers.yaml` the graph — `npm run syndicate:scriptorium`,
 `npm run syndicate:cartographers`); outside MCP clients get all ten from
 `npm run mcp:wiki` (loopback SSE on `:8933`). Trust is explicit in
 frontmatter: `generated.by` records who wrote a document (`human:<id>`,

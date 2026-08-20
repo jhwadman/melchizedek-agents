@@ -11,21 +11,22 @@
  * Existing process.env values always win — the file only fills in what's unset.
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
  * Populate process.env from the repo-root `.env` file.
  *
- * @param moduleUrl Pass `import.meta.url` from a script in `scripts/` so the
- *   `.env` is resolved relative to the repo root regardless of cwd. When
- *   omitted, `process.cwd()` is used.
+ * @param moduleUrl Pass `import.meta.url` from any entrypoint script; the
+ *   repo root is found by walking up from the script to the nearest
+ *   directory containing `package.json`, so scripts may live at any depth
+ *   under `scripts/`. When omitted, `process.cwd()` is used.
  */
 export function loadEnv(moduleUrl?: string): void {
   try {
     const root = moduleUrl
-      ? join(fileURLToPath(moduleUrl), '..', '..')
+      ? findRepoRoot(dirname(fileURLToPath(moduleUrl)))
       : process.cwd();
     const raw = readFileSync(join(root, '.env'), 'utf-8');
     for (const line of raw.split('\n')) {
@@ -39,5 +40,16 @@ export function loadEnv(moduleUrl?: string): void {
     }
   } catch {
     // .env not present — rely on the ambient environment.
+  }
+}
+
+/** Nearest ancestor of `dir` containing package.json; `dir` itself if none. */
+function findRepoRoot(dir: string): string {
+  let current = dir;
+  while (true) {
+    if (existsSync(join(current, 'package.json'))) return current;
+    const parent = dirname(current);
+    if (parent === current) return dir;
+    current = parent;
   }
 }

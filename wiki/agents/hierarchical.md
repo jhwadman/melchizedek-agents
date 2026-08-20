@@ -6,9 +6,9 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-13
+  at: 2026-08-20
 sources:
-  - resource: config/agents/hierarchical.yaml
+  - resource: config/agents/examples/hierarchical.yaml
 ---
 
 # Hierarchical Task Decomposition

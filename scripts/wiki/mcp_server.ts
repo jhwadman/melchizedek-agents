@@ -1,5 +1,5 @@
 /**
- * scripts/wiki_mcp_server.ts — the knowledge bundle, served over MCP.
+ * scripts/wiki/mcp_server.ts — the knowledge bundle, served over MCP.
  *
  * WHY this file exists:
  *   The wiki's whole tool surface (lib/tools/wikiTools.ts) reaches outside
@@ -34,14 +34,14 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { loadEnv } from '../lib/loadEnv.ts';
+import { loadEnv } from '../../lib/loadEnv.ts';
 import {
   executeContract,
   toMcpToolDefinition,
-} from '../lib/tools/toolContract.ts';
-import type { ToolContract } from '../lib/tools/toolContract.ts';
-import { WIKI_TOOL_CONTRACTS } from '../lib/tools/wikiTools.ts';
-import { resolveWikiRoot } from '../lib/wiki/vault.ts';
+} from '../../lib/tools/toolContract.ts';
+import type { ToolContract } from '../../lib/tools/toolContract.ts';
+import { WIKI_TOOL_CONTRACTS } from '../../lib/tools/wikiTools.ts';
+import { resolveWikiRoot } from '../../lib/wiki/vault.ts';
 
 loadEnv(import.meta.url);
 

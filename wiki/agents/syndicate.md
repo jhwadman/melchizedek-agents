@@ -6,9 +6,9 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-07-28
+  at: 2026-08-20
 sources:
-  - resource: config/agents/syndicate.yaml
+  - resource: config/agents/examples/syndicate.yaml
 ---
 
 # Global Synthesis Council

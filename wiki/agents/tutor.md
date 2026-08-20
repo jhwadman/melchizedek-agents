@@ -5,10 +5,10 @@ description: The Tutor syndicate.
 tags:
   - syndicate
 generated:
-  by: melchizedek/gemini-3.6-flash
-  at: 2026-07-28
+  by: process:wiki-build
+  at: 2026-08-20
 sources:
-  - resource: config/agents/tutor.yaml
+  - resource: config/agents/examples/tutor.yaml
 ---
 
 # Tutor

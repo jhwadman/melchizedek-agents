@@ -7,11 +7,11 @@ tags:
   - graph
 generated:
   by: process:wiki-build
-  at: 2026-08-19
+  at: 2026-08-20
 sources:
   - resource: lib/wiki/entities.ts
   - resource: lib/wiki/extract.ts
-  - resource: scripts/wiki_build.ts
+  - resource: scripts/wiki/build.ts
 ---
 
 # The knowledge graph
@@ -28,14 +28,14 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 
 | Kind | Id form | Now | What it is |
 |---|---|---|---|
-| `agent` | `agent:<name>` | 58 | one orchestrator or subagent inside a syndicate |
+| `agent` | `agent:<name>` | 61 | one orchestrator or subagent inside a syndicate |
 | `module` | `module:<name>` | 57 | one source module |
-| `doc` | `/dir/doc.md` | 46 | a concept document in the bundle — identity is its bundle path |
+| `doc` | `/dir/doc.md` | 47 | a concept document in the bundle — identity is its bundle path |
+| `file` | `file:<name>` | 32 | a repo file that is not a source module (DDL, config, prose) |
 | `script` | `script:<name>` | 32 | an npm script entrypoint |
-| `file` | `file:<name>` | 31 | a repo file that is not a source module (DDL, config, prose) |
+| `env` | `env:<name>` | 28 | an environment variable the code reads |
 | `tool` | `tool:<name>` | 27 | a tool an agent may declare by name |
-| `env` | `env:<name>` | 27 | an environment variable the code reads |
-| `syndicate` | `syndicate:<name>` | 21 | one agent-team definition (a YAML) |
+| `syndicate` | `syndicate:<name>` | 22 | one agent-team definition (a YAML) |
 | `model` | `model:<name>` | 8 | a model id exactly as written in configuration |
 | `provider` | `provider:<name>` | 5 | a provider adapter the model registry routes to |
 | `mcp-server` | `mcp-server:<name>` | 4 | a remote MCP endpoint an agent dials at runtime |
@@ -50,20 +50,21 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 
 | Relation | Tier | Reads as | Now | Meaning |
 |---|---|---|---|---|
-| `imports` | extracted | A imports B | 148 | a static import edge between source files |
+| `imports` | extracted | A imports B | 156 | a static import edge between source files |
 | `links_to` | extracted | A links to B | 107 | a resolved markdown link between documents |
-| `uses_tool` | extracted | A calls B | 70 | the agent declares this tool by name |
-| `contains` | extracted | A contains B | 58 | the first is composed of the second |
-| `uses_model` | extracted | A runs on B | 58 | the agent is configured with this model id |
-| `requires_env` | extracted | A requires B | 51 | this environment variable must be set for the node to work |
+| `uses_tool` | extracted | A calls B | 74 | the agent declares this tool by name |
+| `contains` | extracted | A contains B | 61 | the first is composed of the second |
+| `uses_model` | extracted | A runs on B | 61 | the agent is configured with this model id |
+| `requires_env` | extracted | A requires B | 52 | this environment variable must be set for the node to work |
+| `runs` | extracted | A runs B | 47 | an entrypoint — a script, a process, a dyno — executes this |
 | `derives_from` | extracted | A derives from B | 46 | declared in the document’s `sources:` frontmatter |
-| `runs` | extracted | A runs B | 45 | an entrypoint — a script, a process, a dyno — executes this |
-| `defined_in` | extracted | A is defined in B | 44 | where the thing is declared in source |
-| `documents` | extracted | A documents B | 41 | the document derives from, and describes, this entity |
+| `defined_in` | extracted | A is defined in B | 45 | where the thing is declared in source |
+| `documents` | extracted | A documents B | 42 | the document derives from, and describes, this entity |
 | `reads_table` | extracted | A reads or writes B | 13 | the module names this table |
 | `routes_to` | extracted | A routes to B | 8 | the model id resolves to this provider adapter |
 | `connects_mcp` | extracted | A dials B | 4 | the agent discovers tools from this MCP server at runtime |
 | `delegates_to` | extracted | A delegates to B | 2 | the agent is a reference to another syndicate, resolved at load time |
+| `references` | extracted | A points readers at B | 0 | the source names this resource for the reader to open |
 | `constrains` | inferred | A constrains B | 15 | a decision or doctrine limits what the target may do |
 | `explains` | inferred | A explains B | 11 | the document is where the target’s rationale is written down |
 | `depends_on` | inferred | A depends on B | 7 | the first cannot do its job unless the second holds |

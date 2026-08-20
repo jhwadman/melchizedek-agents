@@ -5,10 +5,10 @@ description: The Ares Data Extractor syndicate.
 tags:
   - syndicate
 generated:
-  by: melchizedek/gemini-3.6-flash
-  at: 2026-07-27
+  by: process:wiki-build
+  at: 2026-08-20
 sources:
-  - resource: config/agents/ares.yaml
+  - resource: config/agents/examples/ares.yaml
 ---
 
 # Ares Data Extractor

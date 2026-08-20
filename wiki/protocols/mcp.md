@@ -10,7 +10,7 @@ generated:
   at: 2026-07-26
 sources:
   - resource: lib/tools/mcpToolFactory.ts
-  - resource: scripts/wiki_mcp_server.ts
+  - resource: scripts/wiki/mcp_server.ts
   - resource: scripts/demo_mcp_server.ts
 ---
 

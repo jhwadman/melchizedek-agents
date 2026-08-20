@@ -10,7 +10,7 @@ generated:
   at: 2026-07-26
 sources:
   - resource: lib/wiki/format.ts
-  - resource: scripts/wiki_build.ts
+  - resource: scripts/wiki/build.ts
 ---
 
 # How this knowledge bundle works

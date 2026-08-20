@@ -15,7 +15,7 @@
  *       so rebuilds are idempotent and diffs stay honest.
  *
  *   The engine is bundle-agnostic: what to generate FROM (agent YAMLs, tool
- *   contracts, SQL) is the caller's business (scripts/wiki_build.ts here);
+ *   contracts, SQL) is the caller's business (scripts/wiki/build.ts here);
  *   this module only guarantees the mechanics.
  */
 

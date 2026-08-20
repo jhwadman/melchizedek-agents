@@ -24,7 +24,7 @@
  *
  *   Everything here is bundle-agnostic. WHAT to extract from (this repo's
  *   agent YAMLs, its SQL, its package.json) is the caller's business —
- *   scripts/wiki_build.ts does that privately. This module owns the
+ *   scripts/wiki/build.ts does that privately. This module owns the
  *   vocabulary, the graph mechanics, the two stores, and the lint rules,
  *   including the same private-closure invariant the document lint
  *   enforces (wiki/decisions/0003): a public node may never point at a
@@ -185,6 +185,11 @@ export const RELATIONS: Record<string, RelationSpec> = {
     phrase: 'derives from',
     gloss: 'declared in the document’s `sources:` frontmatter',
     from: ['doc'],
+  },
+  references: {
+    tier: 'extracted',
+    phrase: 'points readers at',
+    gloss: 'the source names this resource for the reader to open',
   },
   links_to: {
     tier: 'extracted',

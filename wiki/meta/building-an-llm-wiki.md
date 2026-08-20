@@ -10,7 +10,7 @@ generated:
   by: claude-code/claude-fable-5
   at: 2026-08-19
 sources:
-  - resource: scripts/wiki_build.ts
+  - resource: scripts/wiki/build.ts
   - resource: lib/wiki/builder.ts
   - resource: lib/wiki/entities.ts
 ---

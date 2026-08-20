@@ -292,7 +292,11 @@ export function parseCliBindings(argv: string[]): VariableMap {
 /**
  * Load and fully resolve a syndicate YAML definition.
  *
- * @param filename  YAML filename inside `config/agents/`
+ * @param filename  YAML filename inside `config/agents/`. Production
+ *   syndicates live at the root; the shipped starter-pack examples live in
+ *   `config/agents/examples/`. A bare filename is resolved against the root
+ *   first, then `examples/`, so callers (and nested `yaml_reference`s) never
+ *   need to know which side of the split a file is on.
  * @param options   Bindings and optional overrides
  *
  * @example
@@ -313,9 +317,18 @@ export function loadSyndicate(
   // network-controlled path segment (see a2a_server dynamic routes), so we must
   // reject any value that resolves outside the agents directory (e.g. "../../.env").
   const agentsDir = path.join(process.cwd(), 'config', 'agents');
-  const filePath = path.resolve(agentsDir, filename);
+  let filePath = path.resolve(agentsDir, filename);
   if (filePath !== agentsDir && !filePath.startsWith(agentsDir + path.sep)) {
     throw new Error(`Invalid syndicate path: '${filename}' resolves outside config/agents`);
+  }
+  // Starter-pack fallback: a name not found at the root is looked up in
+  // examples/ (still inside the jail), so moving a YAML between the two
+  // never breaks a bare-id A2A route or an npm script.
+  if (!fs.existsSync(filePath)) {
+    const inExamples = path.resolve(agentsDir, 'examples', filename);
+    if (inExamples.startsWith(agentsDir + path.sep) && fs.existsSync(inExamples)) {
+      filePath = inExamples;
+    }
   }
   const fileContent = fs.readFileSync(filePath, 'utf-8');
   const raw = parse(fileContent) as SyndicateYamlConfig;

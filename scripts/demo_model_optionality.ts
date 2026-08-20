@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     if (span.name === 'llm.request') llmSpans.push(span);
   });
 
-  const config = loadSyndicate('model_zoo.yaml');
+  const config = loadSyndicate('examples/model_zoo.yaml');
 
   console.log(`\n${c.bold}MODEL OPTIONALITY DEMO${c.reset} — one prompt, five providers`);
   console.log(`${c.dim}Syndicate: ${config.syndicate_name} (config/agents/model_zoo.yaml)${c.reset}`);

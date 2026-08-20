@@ -5,10 +5,10 @@ description: "Maps the knowledge graph: has the Surveyor read prose for relation
 tags:
   - syndicate
 generated:
-  by: claude-code/claude-fable-5
-  at: 2026-08-19
+  by: process:wiki-build
+  at: 2026-08-20
 sources:
-  - resource: config/agents/cartographers.yaml
+  - resource: config/agents/examples/cartographers.yaml
 ---
 
 # The Cartographers

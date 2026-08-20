@@ -6,9 +6,9 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-15
+  at: 2026-08-20
 sources:
-  - resource: config/agents/model_zoo.yaml
+  - resource: config/agents/examples/model_zoo.yaml
 ---
 
 # Model Zoo

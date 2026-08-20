@@ -1,5 +1,5 @@
 /**
- * scripts/wiki_check.ts — lint the knowledge bundle; exit 1 on errors.
+ * scripts/wiki/check.ts — lint the knowledge bundle; exit 1 on errors.
  *
  * WHY this file exists:
  *   The generic health gate for any OKF bundle the wiki tooling serves:
@@ -10,9 +10,9 @@
  * RUN:  npm run wiki:check          (bundle at $WIKI_ROOT or <repo>/wiki)
  */
 
-import { loadEnv } from '../lib/loadEnv.ts';
-import { formatLintReport, lintVault } from '../lib/wiki/lint.ts';
-import { loadVault, resolveWikiRoot } from '../lib/wiki/vault.ts';
+import { loadEnv } from '../../lib/loadEnv.ts';
+import { formatLintReport, lintVault } from '../../lib/wiki/lint.ts';
+import { loadVault, resolveWikiRoot } from '../../lib/wiki/vault.ts';
 
 loadEnv(import.meta.url);
 

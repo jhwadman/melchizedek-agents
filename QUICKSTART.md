@@ -146,10 +146,13 @@ See `demo/a2a_demo.mjs` for a working client and `DOCUMENTATION.md`
 ## Where to go next
 
 - Read a syndicate the way the course does: start with
-  `config/agents/tutor.yaml` and map its instruction blocks —
+  `config/agents/examples/tutor.yaml` and map its instruction blocks —
   identity, doctrine, communication laws, boundaries — then see the
   same anatomy grown to full size in `patient_advocate.yaml`.
 - The interactive curriculum walks every pattern in this repo:
   [lyceumagents.com/curriculum](https://lyceumagents.com/curriculum/).
-- Author your own syndicate: copy `syndicateSchema.yaml`, keep one
-  orchestrator and one subagent, and grow only when the work divides.
+- Author your own syndicate: everything in `config/agents/examples/` is
+  a starter pack — copy the closest one into `config/agents/` (or start
+  from `syndicateSchema.yaml`), keep one orchestrator and one subagent,
+  and grow only when the work divides. The root of `config/agents/` is
+  yours; the examples are teaching material you can gut or delete.

@@ -125,7 +125,9 @@ export function scanModule(text: string, relPath: string): ModuleScan {
   for (const specifier of specifiers) {
     const local = resolveLocalImport(relPath, specifier);
     if (local) {
-      localImports.add(local);
+      // A file cannot import itself; a match on its own path came from a
+      // usage example in a comment, which is documentation, not an edge.
+      if (local !== relPath) localImports.add(local);
       continue;
     }
     const pkg = packageName(specifier);

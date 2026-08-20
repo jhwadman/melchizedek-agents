@@ -6,9 +6,9 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-13
+  at: 2026-08-20
 sources:
-  - resource: config/agents/delegation.yaml
+  - resource: config/agents/examples/delegation.yaml
 ---
 
 # Delegation Router Workflow

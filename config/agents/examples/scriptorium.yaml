@@ -15,7 +15,7 @@
 # Both declare wiki tools by NAME from lib/toolRegistry.ts —
 # the contracts live in lib/tools/wikiTools.ts, and the same
 # contracts are served to outside MCP clients by
-# scripts/wiki_mcp_server.ts (npm run mcp:wiki). Declared
+# scripts/wiki/mcp_server.ts (npm run mcp:wiki). Declared
 # tools and MCP are the same capability layer, reached two
 # ways; this YAML takes the declared route so it runs in one
 # terminal with no second server.
