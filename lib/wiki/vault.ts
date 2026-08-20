@@ -26,7 +26,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, posix, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import {
   conceptFrontmatterSchema,
@@ -72,13 +71,15 @@ export type ResolvedLink =
 // ── Bundle root ──────────────────────────────────────────────────────────────
 
 /**
- * WIKI_ROOT env var wins; default is `<repo>/wiki`, derived from this
- * module's location (lib/wiki/ → repo root) so cwd never matters.
+ * WIKI_ROOT env var wins; default is `<cwd>/wiki`. The default used to be
+ * derived from this module's location (lib/wiki/ → repo root), which is
+ * wrong the moment the engine ships as a package (node_modules/<pkg>/wiki
+ * exists for no one) — and every real caller either sets WIKI_ROOT or runs
+ * from the repo root via npm scripts, where cwd IS the repo root.
  */
 export function resolveWikiRoot(): string {
   if (process.env.WIKI_ROOT) return resolve(process.env.WIKI_ROOT);
-  const here = dirname(fileURLToPath(import.meta.url));
-  return resolve(here, '..', '..', 'wiki');
+  return resolve(process.cwd(), 'wiki');
 }
 
 // ── Loading ──────────────────────────────────────────────────────────────────

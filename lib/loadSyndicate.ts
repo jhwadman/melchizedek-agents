@@ -154,6 +154,15 @@ export interface LoadSyndicateOptions {
    * Direct property overrides applied after binding interpolation.
    */
   overrides?: Partial<SyndicateYamlConfig>;
+  /**
+   * Root directory the loader is jailed to. Resolution order:
+   * this option → `MELCHIZEDEK_AGENTS_DIR` env → `<cwd>/config/agents`.
+   * Lets a consumer repo keep its syndicates anywhere (the engine is a
+   * package, not a place). NOTE: nested `yaml_reference:` loads made by
+   * callers that don't thread options through resolve via env/default,
+   * so a non-default root is best set process-wide via the env var.
+   */
+  agentsDir?: string;
 }
 
 // ── Variable Injection (private) ──────────────────────────
@@ -313,13 +322,18 @@ export function loadSyndicate(
 ): SyndicateYamlConfig {
   const { bindings = {}, overrides } = options;
 
-  // Security: confine reads to config/agents. `filename` can originate from a
-  // network-controlled path segment (see a2a_server dynamic routes), so we must
-  // reject any value that resolves outside the agents directory (e.g. "../../.env").
-  const agentsDir = path.join(process.cwd(), 'config', 'agents');
+  // Security: confine reads to the agents root. `filename` can originate from
+  // a network-controlled path segment (see a2a_server dynamic routes), so we
+  // must reject any value that resolves outside that root (e.g. "../../.env").
+  // The root itself is trusted configuration: option → env → cwd default.
+  const agentsDir = path.resolve(
+    options.agentsDir ??
+      process.env.MELCHIZEDEK_AGENTS_DIR ??
+      path.join(process.cwd(), 'config', 'agents'),
+  );
   let filePath = path.resolve(agentsDir, filename);
   if (filePath !== agentsDir && !filePath.startsWith(agentsDir + path.sep)) {
-    throw new Error(`Invalid syndicate path: '${filename}' resolves outside config/agents`);
+    throw new Error(`Invalid syndicate path: '${filename}' resolves outside the agents directory`);
   }
   // Starter-pack fallback: a name not found at the root is looked up in
   // examples/ (still inside the jail), so moving a YAML between the two

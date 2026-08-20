@@ -15,7 +15,7 @@
 import { FunctionTool } from '@google/adk';
 import { GoogleGenAI, type Schema } from '@google/genai';
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 
@@ -99,7 +99,10 @@ export const generateImageTool = new FunctionTool({
           if (inlineData?.data) {
             const { mimeType, data } = inlineData;
             const ext = (mimeType as string)?.split('/')[1] ?? 'png';
-            const outputDir = join(process.cwd(), 'outputs');
+            // OUTPUTS_DIR env overrides the cwd default (package consumers).
+            const outputDir = process.env.OUTPUTS_DIR
+              ? resolve(process.env.OUTPUTS_DIR)
+              : join(process.cwd(), 'outputs');
             
             console.log(`[ImageTool] Found inline image data. MimeType: ${mimeType}, Data Length: ${data.length} chars.`);
             console.log(`[ImageTool] Ensuring output directory exists: ${outputDir}`);

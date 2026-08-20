@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createInterface } from 'node:readline';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';

@@ -55,3 +55,7 @@ demo/library.json
 
 # local-only ops helper (reads SUPABASE_DB_URL from .env)
 scripts/apply_hardening.sh
+
+# package build output (public repo packaging; never committed)
+/dist/
+*.tgz

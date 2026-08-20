@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import express from 'express';
 import { collectGrounding, describeGrounding, newGroundingState, webSourcesLine } from '../lib/grounding.ts';
 import rateLimit from 'express-rate-limit';

@@ -61,8 +61,11 @@ export const inspectImageTool = new FunctionTool({
     console.log(`[InspectTool] Blind inventory requested for: ${image_path}`);
 
     // Confine reads to the outputs/ directory — this tool inventories
-    // generated artifacts, not the filesystem.
-    const outputsDir = resolve(process.cwd(), 'outputs');
+    // generated artifacts, not the filesystem. OUTPUTS_DIR env overrides
+    // the cwd default (must match generateImageTool's).
+    const outputsDir = process.env.OUTPUTS_DIR
+      ? resolve(process.env.OUTPUTS_DIR)
+      : resolve(process.cwd(), 'outputs');
     const fullPath = resolve(process.cwd(), image_path);
     if (!fullPath.startsWith(outputsDir + sep)) {
       throw new Error('inspect_image only reads files under outputs/');

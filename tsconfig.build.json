@@ -1,0 +1,19 @@
+{
+  "//": "Package build: compiles lib/ (+ the two bins) to dist/ as JS + d.ts. Node refuses to strip types under node_modules, so the npm package must ship compiled output; the cloned repo keeps running the .ts sources directly. rewriteRelativeImportExtensions turns the source's './x.ts' specifiers into './x.js' on emit (TypeScript >= 5.7).",
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true
+  },
+  "include": ["lib/**/*.ts", "scripts/a2a_server.ts", "scripts/syndicate_chat.ts"]
+}
