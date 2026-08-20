@@ -38,6 +38,27 @@ npm run syndicate:tutor    # a single open-weight agent, on your machine
 npm run syndicate:council  # a three-agent council, still no keys
 ```
 
+Or consume the engine from **your own repo** — your syndicates live with
+your code, the framework is a dependency:
+
+```bash
+npm install melchizedek-agents
+```
+
+```typescript
+import { loadSyndicate, registerAvailableProviders } from 'melchizedek-agents';
+
+registerAvailableProviders();
+const config = loadSyndicate('mine.yaml'); // reads <your-repo>/config/agents/
+```
+
+The starter pack ships inside the package (`node_modules/melchizedek-agents/config/agents/examples/`)
+— copy any example out as your starting point. `npx melchizedek-serve`
+runs the A2A server over your `config/agents/`; `npx melchizedek-chat --syndicate <name>`
+opens the interactive CLI. A different syndicate location is one option
+away: `loadSyndicate(file, { agentsDir })` or the `MELCHIZEDEK_AGENTS_DIR`
+env var — the loader's path-jail follows whichever root you configure.
+
 With a free Gemini API key, the full syndicate library opens:
 
 ```bash

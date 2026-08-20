@@ -156,3 +156,9 @@ See `demo/a2a_demo.mjs` for a working client and `DOCUMENTATION.md`
   from `syndicateSchema.yaml`), keep one orchestrator and one subagent,
   and grow only when the work divides. The root of `config/agents/` is
   yours; the examples are teaching material you can gut or delete.
+- Outgrow the clone: `npm install melchizedek-agents` in your own repo
+  gives you the same engine as a typed dependency — `loadSyndicate` reads
+  your repo's `config/agents/` (or any root via `agentsDir` /
+  `MELCHIZEDEK_AGENTS_DIR`), the starter pack ships inside the package,
+  and `npx melchizedek-serve` / `npx melchizedek-chat` replace the repo's
+  npm scripts. See the README's quick start for the four-line version.

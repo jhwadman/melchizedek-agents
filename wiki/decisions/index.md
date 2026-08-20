@@ -7,4 +7,5 @@
 - [ADR 0004: Wiki tool exposure tiers](/decisions/0004-wiki-tool-exposure.md) — Navigation primitives and the gated save go to syndicate agents; the agentic composites (query, garden) are MCP-only; every write passes one validated gate.
 - [ADR 0005: An entity layer over the document graph](/decisions/0005-entity-graph-layer.md) — Add typed entities and relations derived from repo truth as a second layer inside the bundle, with judgment asserted separately and evidenced — rather than adopting a parallel graph store.
 - [ADR 0006: The starter pack is not the product](/decisions/0006-starter-pack-split.md) — Split config/agents/ into a root for the deployment's live syndicates and an examples/ subdirectory for the shipped teaching syndicates, with loader fallback — rather than extracting the engine into a package.
+- [ADR 0007: The engine ships as an npm package, published from the export](/decisions/0007-engine-as-package.md) — Publish lib/ as the melchizedek-agents package built inside the sanitized public mirror by the existing export pipeline — rather than restructuring the private repo into a workspace monorepo.
 <!-- /wiki:generated -->

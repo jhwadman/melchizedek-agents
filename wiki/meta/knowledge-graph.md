@@ -30,10 +30,10 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 |---|---|---|---|
 | `agent` | `agent:<name>` | 61 | one orchestrator or subagent inside a syndicate |
 | `module` | `module:<name>` | 57 | one source module |
-| `doc` | `/dir/doc.md` | 48 | a concept document in the bundle — identity is its bundle path |
+| `doc` | `/dir/doc.md` | 49 | a concept document in the bundle — identity is its bundle path |
 | `file` | `file:<name>` | 33 | a repo file that is not a source module (DDL, config, prose) |
 | `script` | `script:<name>` | 32 | an npm script entrypoint |
-| `env` | `env:<name>` | 28 | an environment variable the code reads |
+| `env` | `env:<name>` | 30 | an environment variable the code reads |
 | `tool` | `tool:<name>` | 27 | a tool an agent may declare by name |
 | `syndicate` | `syndicate:<name>` | 22 | one agent-team definition (a YAML) |
 | `model` | `model:<name>` | 8 | a model id exactly as written in configuration |
@@ -51,12 +51,12 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 | Relation | Tier | Reads as | Now | Meaning |
 |---|---|---|---|---|
 | `imports` | extracted | A imports B | 156 | a static import edge between source files |
-| `links_to` | extracted | A links to B | 107 | a resolved markdown link between documents |
+| `links_to` | extracted | A links to B | 108 | a resolved markdown link between documents |
 | `uses_tool` | extracted | A calls B | 74 | the agent declares this tool by name |
-| `derives_from` | extracted | A derives from B | 63 | declared in the document’s `sources:` frontmatter |
+| `derives_from` | extracted | A derives from B | 65 | declared in the document’s `sources:` frontmatter |
 | `contains` | extracted | A contains B | 61 | the first is composed of the second |
 | `uses_model` | extracted | A runs on B | 61 | the agent is configured with this model id |
-| `requires_env` | extracted | A requires B | 52 | this environment variable must be set for the node to work |
+| `requires_env` | extracted | A requires B | 55 | this environment variable must be set for the node to work |
 | `runs` | extracted | A runs B | 47 | an entrypoint — a script, a process, a dyno — executes this |
 | `defined_in` | extracted | A is defined in B | 45 | where the thing is declared in source |
 | `documents` | extracted | A documents B | 42 | the document derives from, and describes, this entity |
