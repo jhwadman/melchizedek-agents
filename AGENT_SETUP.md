@@ -52,7 +52,7 @@ After the agent reports back:
    (https://ollama.com) and run `ollama pull qwen3:8b`. The two
    open-weight syndicates (`npm run syndicate:tutor`, `npm run
    syndicate:council`) then run with an empty `.env` — every agent is a
-   local model, nothing leaves your machine. This is the Part 1 course
+   local model, nothing leaves your machine. This is the open-weight course
    path; the cloud syndicates below still want a key.
 2. **Get a Gemini API key** (free): https://aistudio.google.com →
    create key → open `.env` in your editor and set
@@ -179,7 +179,7 @@ Deploying the server itself (Heroku, Fly, a VPS) needs `PUBLIC_URL` set
 — at which point the server refuses to start without the bearer secret,
 by design. Run `db/hardening.sql` before real user data arrives, and
 read the deployment notes in `lib/memory/README.md` end to end. The
-patient in module 2.02's specimen would expect no less of you.
+patient in module 2.05's specimen would expect no less of you.
 
 ## 5. When your agents outgrow the clone
 

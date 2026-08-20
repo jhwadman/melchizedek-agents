@@ -2,7 +2,7 @@
 # Council — basic orchestration on open weights
 # ============================================================
 #
-# WHY: The curriculum's first multi-agent specimen (Part 1 finale).
+# WHY: The curriculum's first multi-agent specimen (module 2.03).
 # Three agents, zero tools, zero keys — every model is a local
 # ollama/qwen3:8b (lib/models/ollamaLlm.ts), so the user's first
 # orchestration runs entirely on their own machine.

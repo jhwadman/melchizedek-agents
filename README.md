@@ -19,13 +19,15 @@ discovered, wrapped, and handed to the agent live.
 
 This is the public companion repository to the interactive curriculum at
 **[lyceumagents.com/curriculum](https://lyceumagents.com/curriculum/)** —
-a two-part course taught through the syndicates in this repo. Part 1
-(LLM fundamentals through single-agent building to basic orchestration)
-runs on the open-weight specimens, entirely on your own machine. Part 2
-(the Melchizedek protocol: advanced orchestration, memory systems, MCP,
-multi-modal review, agentic coding) uses the full framework. You can use
-the framework without the course, or the course without running the
-framework; together they're better.
+a course taught through the syndicates in this repo. Part 1 (LLM
+fundamentals: what a model computes, running one on open weights, and
+the mechanism underneath) starts entirely on your own machine. Part 2
+(agent design: single-agent anatomy, testing, orchestration, then the
+Melchizedek protocol — memory systems, MCP, multi-modal review,
+fact-checking, agentic coding) opens on the open-weight specimens and
+grows into the full framework. A third part, agent observability, is in
+preparation. You can use the framework without the course, or the
+course without running the framework; together they're better.
 
 ## Quick start
 
@@ -92,18 +94,18 @@ worked specimen for a curriculum module:
 
 | Syndicate | Pattern | Course module |
 |---|---|---|
-| `tutor.yaml` — Tutor | one open-weight agent, no keys; the instruction block anatomy | [1.03 · running your own model](https://lyceumagents.com/curriculum/your-own-model/) |
-| `council.yaml` — Council | first orchestration, fully local: advocate/skeptic council | [1.05 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
-| `critic.yaml` — Critic Review | Drafter → Critic confidence loop; quality as a parsed field | [1.04 · testing & refinement](https://lyceumagents.com/curriculum/testing-and-refinement/) |
-| `delegation.yaml` — Router | triage to specialists; descriptions as the routing API | [1.05 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
-| `hierarchical.yaml` — Decomposer | split one goal, delegate parts, merge | [1.05 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
-| `style_council.yaml` — Style Council | identical knowledge, three engineered voices | [1.05 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
-| `syndicate.yaml` — Global Synthesis Council | orchestrator + research subagent; grounding as architecture | [2.01 · the protocol](https://lyceumagents.com/curriculum/melchizedek-protocol/) |
-| `ares.yaml` — Knowledge Keeper | long-term memory pipeline, exercised | [2.02 · memory systems](https://lyceumagents.com/curriculum/memory-systems/) |
-| `patient_advocate.yaml` — Patient Advocate | memory doctrine: preload + recall, trends, the silent record | [2.02 · memory systems](https://lyceumagents.com/curriculum/memory-systems/) |
-| `librarian.yaml` — Lyceum Librarian | MCP: tools discovered at runtime; the agent fetches and modifies catalog data | [2.03 · MCP](https://lyceumagents.com/curriculum/mcp-extending-reach/) |
-| `image_production.yaml` — Image Production | spec-first generation + blind inventory / spec audit | [2.04 · multi-modal agents](https://lyceumagents.com/curriculum/multimodal-agents/) |
-| `augustin.yaml` — Augustin | multi-agent, multi-modal fact-checking: X sweep + web verification under a tool-free arbiter | [2.05 · the fact-checking arbiter](https://lyceumagents.com/curriculum/fact-checking-agent/) |
+| `tutor.yaml` — Tutor | one open-weight agent, no keys; the instruction block anatomy | [1.02 · running your own model](https://lyceumagents.com/curriculum/your-own-model/) |
+| `council.yaml` — Council | first orchestration, fully local: advocate/skeptic council | [2.03 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
+| `critic.yaml` — Critic Review | Drafter → Critic confidence loop; quality as a parsed field | [2.02 · testing & refinement](https://lyceumagents.com/curriculum/testing-and-refinement/) |
+| `delegation.yaml` — Router | triage to specialists; descriptions as the routing API | [2.03 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
+| `hierarchical.yaml` — Decomposer | split one goal, delegate parts, merge | [2.03 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
+| `style_council.yaml` — Style Council | identical knowledge, three engineered voices | [2.03 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
+| `syndicate.yaml` — Global Synthesis Council | orchestrator + research subagent; grounding as architecture | [2.04 · the protocol](https://lyceumagents.com/curriculum/melchizedek-protocol/) |
+| `ares.yaml` — Knowledge Keeper | long-term memory pipeline, exercised | [2.05 · memory systems](https://lyceumagents.com/curriculum/memory-systems/) |
+| `patient_advocate.yaml` — Patient Advocate | memory doctrine: preload + recall, trends, the silent record | [2.05 · memory systems](https://lyceumagents.com/curriculum/memory-systems/) |
+| `librarian.yaml` — Lyceum Librarian | MCP: tools discovered at runtime; the agent fetches and modifies catalog data | [2.06 · MCP](https://lyceumagents.com/curriculum/mcp-extending-reach/) |
+| `image_production.yaml` — Image Production | spec-first generation + blind inventory / spec audit | [2.07 · multi-modal agents](https://lyceumagents.com/curriculum/multimodal-agents/) |
+| `augustin.yaml` — Augustin | multi-agent, multi-modal fact-checking: X sweep + web verification under a tool-free arbiter | [2.08 · the fact-checking arbiter](https://lyceumagents.com/curriculum/fact-checking-agent/) |
 | `claude.yaml` — Claude Chat | minimal single-agent config; the multi-model adapter in one file | — |
 | `model_zoo.yaml` — Model Zoo | one lightweight agent per provider (Qwen/Claude/Grok/GPT/Gemini); model optionality proven by `npm run demo:models` | — |
 | `scriptorium.yaml` — The Scriptorium | agents over the shipped knowledge bundle: query with citations, author through a validated save gate | — |
@@ -129,7 +131,7 @@ your own.
   corrections supersede old records, which are kept as linked history.
 - **Native tools** — web search, image generation, and a blind
   image-inventory tool whose file-path-only signature makes expectation
-  bias structurally impossible (see module 2.04).
+  bias structurally impossible (see module 2.07).
 - **A2A service mode** — serve any syndicate as a JSON-RPC
   agent-to-agent endpoint with bearer auth and rate limiting
   (`npm run start:a2a`).

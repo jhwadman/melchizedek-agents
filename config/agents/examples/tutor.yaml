@@ -2,7 +2,7 @@
 # Tutor — the open-weight single agent
 # ============================================================
 #
-# WHY: The curriculum's first specimen (Part 1, module 1.03). One
+# WHY: The curriculum's first specimen (Part 1, module 1.02). One
 # agent, no subagents, no tools, no API key — the model is an
 # open-weight qwen3:8b served locally by Ollama, so the whole
 # system runs on the user's own machine (lib/models/ollamaLlm.ts).

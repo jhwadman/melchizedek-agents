@@ -14,7 +14,7 @@ sources:
 # Style Council
 
 <!-- wiki:fill slot="charter" -->
-The Style Council is a teaching syndicate created for module 1.05 of the lyceumagents.com curriculum (Agent workflows & conversation styles). It proves that an agent's voice is authored through system instructions rather than emergent from the model itself.
+The Style Council is a teaching syndicate created for module 2.03 of the lyceumagents.com curriculum (Agent workflows & conversation styles). It proves that an agent's voice is authored through system instructions rather than emergent from the model itself.
 
 Led by the Router orchestrator, the syndicate conducts three stylists—Analyst, Peer, and Mentor—who share identical factual knowledge but adhere to strictly different communication laws. It excels at delivering unedited answers tailored to specific registers, ranging from telegraphic analyst briefings to scannable peer advice and reflective mentor guidance.
 
