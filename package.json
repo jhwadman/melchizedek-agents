@@ -1,6 +1,6 @@
 {
   "name": "melchizedek-agents",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "A multi-model, multi-agent orchestration framework on Google ADK — YAML-defined syndicates, Supabase session persistence, pgvector long-term memory. Companion repo to the lyceumagents.com curriculum.",
   "type": "module",
   "license": "MIT",
@@ -57,6 +57,7 @@
     "syndicate:librarian": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate librarian",
     "syndicate:scriptorium": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate scriptorium",
     "syndicate:cartographers": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate cartographers",
+    "syndicate:augustin": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate augustin",
     "demo:models": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_model_optionality.ts",
     "demo:direct": "node --disable-warning=DEP0040 --experimental-strip-types scripts/direct_call.ts",
     "mcp:demo": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_mcp_server.ts",

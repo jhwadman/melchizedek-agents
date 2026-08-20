@@ -4,6 +4,16 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## 0.9.2 — 2026-08-20
+
+- **The starter pack gains Augustin** —
+  `config/agents/examples/augustin.yaml`, a fact-checking arbiter of
+  world events: a grok X-sweep researcher and a Gemini web-verification
+  researcher under a tool-free Arbiter that writes a conversational
+  lead plus sourced bullet facts. Multi-provider (needs `XAI_API_KEY`
+  and `GOOGLE_GENAI_API_KEY`); `npm run syndicate:augustin` in a clone.
+  The pattern is taught as a standalone lesson in the curriculum.
+
 ## 0.9.1 — 2026-08-19
 
 - **Fix: `melchizedek-serve` actually starts.** The run-as-main guard

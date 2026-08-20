@@ -180,3 +180,15 @@ Deploying the server itself (Heroku, Fly, a VPS) needs `PUBLIC_URL` set
 by design. Run `db/hardening.sql` before real user data arrives, and
 read the deployment notes in `lib/memory/README.md` end to end. The
 patient in module 2.02's specimen would expect no less of you.
+
+## 5. When your agents outgrow the clone
+
+Everything above runs inside the cloned course repo, and that stays the
+right place to learn. When a syndicate of yours deserves its own
+repository, the same engine installs as a typed npm dependency —
+`npm install melchizedek-agents` — with the starter pack inside the
+package to copy from, `loadSyndicate` reading your repo's own
+`config/agents/`, and the two CLIs (`npx melchizedek-chat`,
+`npx melchizedek-serve`) replacing the npm scripts. QUICKSTART §7 in the
+repo is the complete recipe; hand it to your coding agent when the time
+comes.

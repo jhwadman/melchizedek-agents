@@ -8,7 +8,7 @@ generated:
   by: process:wiki-build
   at: 2026-08-20
 sources:
-  - resource: config/agents/augustin.yaml
+  - resource: config/agents/examples/augustin.yaml
 ---
 
 # Augustin

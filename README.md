@@ -103,6 +103,7 @@ worked specimen for a curriculum module:
 | `patient_advocate.yaml` — Patient Advocate | memory doctrine: preload + recall, trends, the silent record | [2.02 · memory systems](https://lyceumagents.com/curriculum/memory-systems/) |
 | `librarian.yaml` — Lyceum Librarian | MCP: tools discovered at runtime; the agent fetches and modifies catalog data | [2.03 · MCP](https://lyceumagents.com/curriculum/mcp-extending-reach/) |
 | `image_production.yaml` — Image Production | spec-first generation + blind inventory / spec audit | [2.04 · multi-modal agents](https://lyceumagents.com/curriculum/multimodal-agents/) |
+| `augustin.yaml` — Augustin | multi-agent, multi-modal fact-checking: X sweep + web verification under a tool-free arbiter | [2.05 · the fact-checking arbiter](https://lyceumagents.com/curriculum/fact-checking-agent/) |
 | `claude.yaml` — Claude Chat | minimal single-agent config; the multi-model adapter in one file | — |
 | `model_zoo.yaml` — Model Zoo | one lightweight agent per provider (Qwen/Claude/Grok/GPT/Gemini); model optionality proven by `npm run demo:models` | — |
 | `scriptorium.yaml` — The Scriptorium | agents over the shipped knowledge bundle: query with citations, author through a validated save gate | — |
