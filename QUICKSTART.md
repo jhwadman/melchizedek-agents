@@ -131,6 +131,38 @@ agent card, bearer-token auth (`A2A_SERVER_SECRET`), and rate limiting.
 See `demo/a2a_demo.mjs` for a working client and `DOCUMENTATION.md`
 §A2A for the protocol details.
 
+## 7. Use the engine from your own repo (the npm package)
+
+Everything above runs inside a clone. When your syndicates deserve their
+own repo, the same engine is a typed dependency:
+
+```bash
+npm install melchizedek-agents
+```
+
+```typescript
+import { loadSyndicate, registerAvailableProviders } from 'melchizedek-agents';
+
+registerAvailableProviders();                 // registers every model whose key is present
+const config = loadSyndicate('mine.yaml');    // reads <your-repo>/config/agents/mine.yaml
+```
+
+- **Your syndicates live with your code.** The loader reads
+  `<cwd>/config/agents/` by default; point it anywhere with
+  `loadSyndicate(file, { agentsDir })` or the `MELCHIZEDEK_AGENTS_DIR`
+  env var — the path-jail follows whichever root you configure.
+- **The starter pack ships in the package.** Copy any example out of
+  `node_modules/melchizedek-agents/config/agents/examples/` (and
+  `syndicateSchema.yaml` beside it) as your starting point.
+- **The CLIs come with it.** `npx melchizedek-chat --syndicate <name>`
+  is the interactive runner (replaces `npm run chat:syndicate`);
+  `npx melchizedek-serve` is the A2A server from §6, serving *your*
+  `config/agents/`.
+- Deeper imports are available as subpaths — `melchizedek-agents/models/registry`,
+  `melchizedek-agents/tools/webExtractTool`, `melchizedek-agents/memory`,
+  and friends — all typed. `@google/adk` installs alongside as a peer:
+  your app owns the ADK version.
+
 ## Common first-run errors
 
 | Symptom | Cause / fix |
@@ -156,9 +188,5 @@ See `demo/a2a_demo.mjs` for a working client and `DOCUMENTATION.md`
   from `syndicateSchema.yaml`), keep one orchestrator and one subagent,
   and grow only when the work divides. The root of `config/agents/` is
   yours; the examples are teaching material you can gut or delete.
-- Outgrow the clone: `npm install melchizedek-agents` in your own repo
-  gives you the same engine as a typed dependency — `loadSyndicate` reads
-  your repo's `config/agents/` (or any root via `agentsDir` /
-  `MELCHIZEDEK_AGENTS_DIR`), the starter pack ships inside the package,
-  and `npx melchizedek-serve` / `npx melchizedek-chat` replace the repo's
-  npm scripts. See the README's quick start for the four-line version.
+- Outgrow the clone: §7 above — the engine as an npm dependency in your
+  own repo, starter pack included.
