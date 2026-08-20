@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import express from 'express';
 import { collectGrounding, describeGrounding, newGroundingState, webSourcesLine } from '../lib/grounding.ts';
 import rateLimit from 'express-rate-limit';
@@ -1130,8 +1132,32 @@ export async function startServer(syndicateName: string = 'syndicate.yaml') {
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  // Running as a script
+// Run-as-main guard. Compare against the REALPATH of argv[1]: when invoked
+// through the npm bin (`npx melchizedek-serve`), argv[1] is the .bin symlink
+// while import.meta.url is the resolved file — a naive string compare never
+// matches and the server silently does nothing (the 0.9.0 bin bug).
+const invokedAsMain = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return import.meta.url === `file://${process.argv[1]}`;
+  }
+})();
+
+if (invokedAsMain) {
   const syndicateFile = process.argv[2] || 'syndicate.yaml';
-  startServer(syndicateFile).catch(console.error);
+  startServer(syndicateFile).catch((error) => {
+    if (error?.code === 'ENOENT' && !process.argv[2]) {
+      // Package consumers rarely have a syndicate.yaml — name the fix.
+      console.error(
+        '[A2A] No default syndicate.yaml in your agents directory.\n' +
+          '      Pass your syndicate: melchizedek-serve <name>.yaml\n' +
+          '      (agents directory: option --, MELCHIZEDEK_AGENTS_DIR, or <cwd>/config/agents)',
+      );
+      process.exit(1);
+    }
+    console.error(error);
+    process.exit(1);
+  });
 }
