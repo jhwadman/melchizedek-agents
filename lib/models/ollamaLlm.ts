@@ -83,6 +83,11 @@ const DEFAULT_BASE_URL = 'http://localhost:11434/v1';
 // ── OllamaLlm ─────────────────────────────────────────────────────────────────
 
 export class OllamaLlm extends OpenAiCompatibleLlm {
+  /** Ollama's OpenAI-compatible endpoint takes json_object, not json_schema. */
+  protected override supportsJsonSchemaFormat(): boolean {
+    return false;
+  }
+
   /**
    * Model ids namespaced "ollama/<model>" route here after registration,
    * e.g. model: "ollama/qwen3:8b" in a syndicate YAML.

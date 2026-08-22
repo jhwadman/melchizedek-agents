@@ -170,7 +170,10 @@ orchestrator:
   generateContentConfig:
 
     # Sampling temperature. Lower = more deterministic. Range: [0.0, 2.0]
-    temperature: 0.7
+    # ⚠ Do NOT set this on current Gemini models — they are tuned for their
+    #   own default sampling and the knob is not part of their contract.
+    #   Set it only for claude-*, gpt-*, grok-*, or ollama/* agents.
+    # temperature: 0.7
 
     # Nucleus sampling. Tokens sampled until cumulative prob = topP.
     topP: 0.95
@@ -283,7 +286,6 @@ subagents:
     # Same fields as orchestrator above. Only set what you want to override.
 
     generateContentConfig:
-      temperature: 0.4
       maxOutputTokens: 1024
 
       thinkingConfig:

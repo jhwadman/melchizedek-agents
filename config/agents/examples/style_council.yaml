@@ -30,7 +30,6 @@ orchestrator:
 
     Never paraphrase, trim, or edit a stylist's answer. The lesson of this council is that the differences the user sees are engineered in the stylists' instructions — preserve them exactly.
   generateContentConfig:
-    temperature: 0.3
     maxOutputTokens: 8192
     thinkingConfig:
       thinkingLevel: "LOW"
@@ -49,7 +48,6 @@ subagents:
       - Maximum 90 words, dense prose, no bullet points.
       - End when the cargo is delivered. No closing remarks.
     generateContentConfig:
-      temperature: 0.4
       maxOutputTokens: 2048
 
   - name: "Peer"
@@ -64,7 +62,6 @@ subagents:
       - Around 120 words. Define any technical term inline the first time it appears.
       - End with exactly one short question that moves the reader's thinking forward.
     generateContentConfig:
-      temperature: 0.5
       maxOutputTokens: 2048
 
   - name: "Mentor"
@@ -79,5 +76,4 @@ subagents:
       - Precision beneath the calm: name the actual mechanism; the reflection must never blur the facts.
       - Around 150 words. Close on the idea, not on a pleasantry.
     generateContentConfig:
-      temperature: 0.7
       maxOutputTokens: 2048

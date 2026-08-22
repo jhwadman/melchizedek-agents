@@ -68,7 +68,7 @@ import {
   collectionsMaxResultsFromEnv,
 } from '../tools/collectionsSearchTool.ts';
 import { providerForModel } from './providerMap.ts';
-import { toLowercaseJsonSchema } from './schemaNormalize.ts';
+import { toLowercaseJsonSchema, toStrictJsonSchema } from './schemaNormalize.ts';
 
 /** Reasoning-capable ids: o-series and the gpt-5 family. The reasoning
  *  param is also dropped and retried once on a 400, so a miss here only
@@ -368,7 +368,10 @@ export class GptLlm extends BaseLlm {
               format: {
                 type: 'json_schema',
                 name: 'response',
-                schema: toLowercaseJsonSchema(cfg.responseSchema),
+                // Strict: the API enforces the exact property names, so a
+                // judge rubric's fields arrive as declared, never renamed.
+                strict: true,
+                schema: toStrictJsonSchema(cfg.responseSchema),
               },
             },
           }

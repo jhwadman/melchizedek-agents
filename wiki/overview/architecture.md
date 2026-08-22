@@ -33,7 +33,7 @@ Condensed from the design essay in DOCUMENTATION.md §12 — five structural adv
 1. **Less tool fatigue.** An agent choosing among many tools mis-selects and mis-parameterizes more; scoping each subagent to its domain's tools shrinks the search space.
 2. **No narrative drift.** Subagents work in isolation and cannot see each other's findings, so an early bullish/bearish/etc. bias in one lane cannot contaminate the others; the orchestrator must reconcile genuinely independent assessments.
 3. **Prompt clarity.** Three focused instructions beat one diluted mega-persona; each is debuggable on its own.
-4. **Per-role hyperparameters.** Data-gathering runs cold (t≈0.2), synthesis warmer (t≈0.5–0.7) — impossible with a single agent's single temperature.
+4. **Per-role hyperparameters.** Data-gathering runs with thinking off and a tight output cap, synthesis with a MEDIUM thinking level and room to reason — impossible with a single agent's single config. (Where a provider still exposes sampling, temperature is per-role too; current Gemini models take none.)
 5. **Observability.** When the conclusion is wrong, intermediate subagent outputs show whether retrieval, analysis, or synthesis failed.
 
 The syndicate catalog in [/agents/](/agents/) shows the pattern at every scale, from two-role debate ([Council](/agents/council.md)) to tool-discovering MCP teams ([Lyceum Librarian](/agents/librarian.md)).

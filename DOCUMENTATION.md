@@ -67,7 +67,6 @@ orchestrator:
   tools:
     - "google_search"             # names resolved via lib/toolRegistry.ts
   generateContentConfig:
-    temperature: 0.7
     maxOutputTokens: 4096
     thinkingConfig:
       thinkingLevel: "MEDIUM"     # or thinkingBudget on older models
@@ -337,27 +336,19 @@ Every model request also emits an `llm.request` OpenTelemetry span
 spans to the `adk_telemetry` table (run `db/telemetry.sql`, then
 re-run `db/hardening.sql` — schema below):
 
-```sql
-CREATE TABLE adk_telemetry (
-  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  ts              TIMESTAMPTZ NOT NULL DEFAULT now(),
-  trace_id        TEXT NOT NULL,
-  span_id         TEXT NOT NULL,
-  span_name       TEXT NOT NULL,          -- 'llm.request' | 'Syndicate Execution: <name>'
-  syndicate       TEXT,
-  agent           TEXT,
-  provider        TEXT,                   -- 'gemini' | 'anthropic' | 'openai' | 'xai' | 'ollama'
-  model           TEXT,
-  input_tokens    INTEGER,
-  output_tokens   INTEGER,
-  thinking_tokens INTEGER,
-  latency_ms      DOUBLE PRECISION,
-  span            JSONB NOT NULL
-);
-
-CREATE INDEX idx_adk_telemetry_ts    ON adk_telemetry (ts DESC);
-CREATE INDEX idx_adk_telemetry_trace ON adk_telemetry (trace_id);
-```
+`db/telemetry.sql` (idempotent) creates three tables: `adk_turns` — one
+row per turn with input, output, the responding agent, the plan-dispatch
+route, errors, tokens, model-vs-tool latency, the tool calls with their
+responses, the ids that join it to `adk_sessions` (`session_id`,
+`invocation_id`), provenance (`config_hash`, `engine_version`) and a
+full-text `search` column; `adk_telemetry` — one row per `llm.request` /
+root span; and `adk_payloads` — full prompts and responses per model call,
+kept by policy (`TELEMETRY_PAYLOADS=off|errors|sample|all`,
+`TELEMETRY_PAYLOAD_SAMPLE`, `TELEMETRY_PAYLOAD_TTL_DAYS`) and expired by
+`melchizedek_prune_telemetry()`. The view `adk_turns_production` excludes
+eval and classifier turns. Operate it with `npm run telemetry:stats`,
+`telemetry:prune` and `telemetry:replay` (the exporter spools failed
+batches to `outputs/telemetry-deadletter.ndjson`).
 
 **Open-weight local models**: `ollama/*` ids (e.g. `ollama/qwen3:8b`)
 route through `lib/models/ollamaLlm.ts` to a local Ollama daemon over

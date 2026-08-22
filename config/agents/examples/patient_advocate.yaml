@@ -78,7 +78,6 @@ orchestrator:
     - "preload_memory"
     - "load_memory"
   generateContentConfig:
-    temperature: 0.6
     maxOutputTokens: 8192
     thinkingConfig:
       thinkingLevel: "MEDIUM"
@@ -100,7 +99,6 @@ subagents:
     tools:
       - "google_search"
     generateContentConfig:
-      temperature: 0.2
       maxOutputTokens: 4096
       thinkingConfig:
         thinkingLevel: "LOW"

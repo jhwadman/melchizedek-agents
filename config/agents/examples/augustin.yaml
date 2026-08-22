@@ -162,7 +162,6 @@ orchestrator:
       </output_format>
     </prompt_instructions>
   generateContentConfig:
-    temperature: 0.2
     maxOutputTokens: 8192
     thinkingConfig:
       thinkingLevel: MEDIUM
@@ -243,7 +242,6 @@ subagents:
       SOURCES: the domains consulted.
       No analysis, no verdicts on who is right.
     generateContentConfig:
-      temperature: 0.2
       maxOutputTokens: 8192
       thinkingConfig:
         thinkingLevel: MEDIUM

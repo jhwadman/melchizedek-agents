@@ -43,14 +43,31 @@ ALTER TABLE adk_sessions     ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON adk_memory_facts FROM anon, authenticated;
 REVOKE ALL ON adk_sessions     FROM anon, authenticated;
 
--- Optional telemetry sink (db/telemetry.sql). Guarded: the table only
--- exists when the operator opted into TELEMETRY_SUPABASE. Token counts and
--- span payloads are operational data — same lockdown as the other tables.
+-- Optional observability ledger (db/telemetry.sql). Guarded: the tables only
+-- exist when the operator opted into TELEMETRY_SUPABASE. adk_turns holds
+-- user input and output, adk_payloads full prompts — same lockdown as the
+-- transcript tables, for the same reason.
 DO $$
+DECLARE t text;
 BEGIN
-  IF to_regclass('public.adk_telemetry') IS NOT NULL THEN
-    EXECUTE 'ALTER TABLE adk_telemetry ENABLE ROW LEVEL SECURITY';
-    EXECUTE 'REVOKE ALL ON adk_telemetry FROM anon, authenticated';
+  FOREACH t IN ARRAY ARRAY['adk_telemetry', 'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+      EXECUTE format('REVOKE ALL ON %I FROM anon, authenticated', t);
+    END IF;
+  END LOOP;
+  -- The production view and the retention function read/delete those
+  -- tables on behalf of the caller; neither belongs on the public API.
+  FOREACH t IN ARRAY ARRAY['adk_turns_production', 'adk_kpi_daily', 'adk_kpi_routes_daily', 'adk_kpi_judges_daily', 'adk_kpi_hourly'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON %I FROM anon, authenticated', t);
+    END IF;
+  END LOOP;
+  IF to_regprocedure('public.melchizedek_prune_telemetry(integer)') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION melchizedek_prune_telemetry(integer) FROM anon, authenticated';
+  END IF;
+  IF to_regprocedure('public.match_turns(vector, integer, timestamptz, text, text, boolean)') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION match_turns(vector, integer, timestamptz, text, text, boolean) FROM anon, authenticated';
   END IF;
 END $$;
 
@@ -97,6 +114,7 @@ AS $$
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public'
     AND c.relname IN ('adk_memory_facts', 'adk_sessions', 'adk_telemetry',
+                      'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels',
                       'adk_agent_registry');
 $$;
 

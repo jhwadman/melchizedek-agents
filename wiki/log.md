@@ -3,6 +3,18 @@
 Chronological record of changes to this bundle, newest first. Entries are
 machine-parseable: `## [YYYY-MM-DD] <op> | <summary>`.
 
+## [2026-08-22] build | structural build: 0 created, 4 updated
+
+by process:wiki-build
+
+## [2026-08-22] build | structural build: 0 created, 4 updated
+
+by process:wiki-build
+
+## [2026-08-22] build | structural build: 0 created, 3 updated
+
+by process:wiki-build
+
 ## [2026-08-20] build | structural build: 0 created, 3 updated
 
 by process:wiki-build

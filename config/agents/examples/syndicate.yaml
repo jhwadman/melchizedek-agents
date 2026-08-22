@@ -13,7 +13,6 @@ orchestrator:
     You MUST call upon your 'NewsResearcher' subagent to gather the news for the day before you formulate your final answer.
     Once the NewsResearcher reports back, reason over the facts and provide a profound, multi-paragraph synthesis to the user.
   generateContentConfig:
-    temperature: 0.7
     maxOutputTokens: 2048
     thinkingConfig:
       thinkingBudget: 1024
@@ -30,5 +29,3 @@ subagents:
       Return a concise bulleted list of the top {{headline_count}} news items found.
     tools:
       - "google_search"
-    generateContentConfig:
-      temperature: 0.4

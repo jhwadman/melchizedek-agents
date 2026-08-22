@@ -4,6 +4,29 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## 0.9.3 — 2026-08-22
+
+- **`outputSchema` is enforced on every provider, not just Gemini** —
+  the Claude adapter now carries an agent's `outputSchema` as a forced
+  tool call (`tool_choice` on a synthetic `structured_output` tool whose
+  `input_schema` is the schema) and turns the validated `tool_use` block
+  back into JSON text, so the keys arrive as declared instead of drifting
+  (`"grade"` for `"correctness"`); the OpenAI adapter sends
+  `json_schema` with `strict: true` over a schema where every object
+  forbids extra properties and requires all of its own
+  (`toStrictJsonSchema`), which the API previously rejected; the
+  OpenAI-compatible adapter (xAI) does the same, while Ollama keeps
+  `json_object`. Anything that reads structured fields by name — critic
+  loops, plan-dispatch routers on non-Gemini models, LLM judges — now
+  works across providers.
+- **Engine additions behind the A2A server**: the shared YAML→ADK compiler
+  (`lib/compile.ts`), provenance stamps (`lib/observability/lineage.ts`),
+  embeddings (`lib/observability/embeddings.ts`), the three-tier
+  observability ledger in `db/telemetry.sql` with identity and
+  provenance on every span, and `scripts/telemetry_admin.ts`. New
+  optional dependency `@opentelemetry/exporter-trace-otlp-http` for
+  `OTEL_EXPORTER_OTLP_ENDPOINT`.
+
 ## 0.9.2 — 2026-08-20
 
 - **The starter pack gains Augustin** —

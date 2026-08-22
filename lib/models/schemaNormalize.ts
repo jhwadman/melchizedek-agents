@@ -53,3 +53,36 @@ function normalizeNode(node: unknown): unknown {
   }
   return out;
 }
+
+/**
+ * The lowercase schema in the shape OpenAI-style "strict" structured output
+ * demands: every object node carries `additionalProperties: false` and lists
+ * ALL of its properties as required. Optional fields are expressed by the
+ * model emitting a null/empty value, not by omission — that is the strict
+ * contract, and it is what makes a judge's rubric fields arrive under the
+ * names the harness expects rather than improvised ones.
+ */
+export function toStrictJsonSchema(schema: unknown): Record<string, unknown> {
+  return strictNode(toLowercaseJsonSchema(schema)) as Record<string, unknown>;
+}
+
+function strictNode(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(strictNode);
+  if (!node || typeof node !== 'object') return node;
+  const out: Record<string, unknown> = { ...(node as Record<string, unknown>) };
+  const type = out.type;
+  const isObject = type === 'object' || (Array.isArray(type) && type.includes('object')) || isPlainObject(out.properties);
+  if (isObject && isPlainObject(out.properties)) {
+    const props: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(out.properties as Record<string, unknown>)) props[k] = strictNode(v);
+    out.properties = props;
+    out.required = Object.keys(props);
+    out.additionalProperties = false;
+  }
+  if (out.items !== undefined) out.items = strictNode(out.items);
+  return out;
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}

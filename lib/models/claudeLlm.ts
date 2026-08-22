@@ -75,6 +75,9 @@ type AnthropicContentBlock =
   | { type: 'tool_result'; tool_use_id: string; content: string };
 
 /** Anthropic's minimum extended-thinking budget. */
+/** Name of the synthetic tool that carries an ADK outputSchema answer. */
+const STRUCTURED_OUTPUT_TOOL = 'structured_output';
+
 const MIN_THINKING_BUDGET = 1024;
 
 // ── Request building (exported for offline tests) ────────────────────────────
@@ -251,12 +254,31 @@ export class ClaudeLlm extends BaseLlm {
       maxTokens = Math.max(maxTokens, budget + 2048);
     }
 
+    // ── Structured output (ADK outputSchema → forced tool use) ──────────────
+    // The Messages API has no response_format. Left to prose, Claude returns
+    // JSON whose KEYS drift from the schema ("grade" for "correctness"), which
+    // silently breaks any consumer that reads fields by name — the
+    // observatory's rubric judges first of all. A tool whose input_schema IS
+    // the output schema, with tool_choice forcing it, makes the API validate
+    // the shape; finalResponse() turns the tool_use block back into text.
+    // Forced tool_choice is incompatible with extended thinking, so with a
+    // thinking budget the tool is offered under 'auto' instead.
+    const structuredTool = cfg.responseSchema
+      ? {
+          name: STRUCTURED_OUTPUT_TOOL,
+          description: 'Return the final answer as a JSON object matching this schema. Call this exactly once.',
+          input_schema: toLowercaseJsonSchema(cfg.responseSchema),
+        }
+      : undefined;
+    const allTools = structuredTool ? [...anthropicTools, structuredTool] : anthropicTools;
+
     const requestBase = {
       model: this.model,
       max_tokens: maxTokens,
       system: systemParts.join('\n\n') || undefined,
       messages,
-      tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+      tools: allTools.length > 0 ? allTools : undefined,
+      ...(structuredTool && !thinking ? { tool_choice: { type: 'tool', name: STRUCTURED_OUTPUT_TOOL } } : {}),
       ...(thinking ? { thinking } : {}),
     };
 
@@ -325,6 +347,9 @@ export class ClaudeLlm extends BaseLlm {
     for (const block of response.content ?? []) {
       if (block.type === 'text' && includeText) {
         parts.push({ text: block.text });
+      } else if (block.type === 'tool_use' && block.name === STRUCTURED_OUTPUT_TOOL) {
+        // The schema-validated answer, as the JSON text every consumer expects.
+        parts.push({ text: JSON.stringify(block.input ?? {}) });
       } else if (block.type === 'tool_use') {
         parts.push({
           functionCall: { name: block.name, args: block.input, id: block.id },

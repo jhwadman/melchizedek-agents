@@ -16,14 +16,16 @@ import {
 import type { AgentExecutor, ExecutionEventBus } from '@a2a-js/sdk/server';
 import { AsyncLocalStorage } from 'async_hooks';
 import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a-js/sdk/server/express';
-import { Runner, LlmAgent, AgentTool, InMemorySessionService, getFunctionCalls, getFunctionResponses, setLogLevel, LogLevel } from '@google/adk';
+import { Runner, LlmAgent, InMemorySessionService, getFunctionCalls, getFunctionResponses, setLogLevel, LogLevel } from '@google/adk';
 import { loadSyndicate } from '../lib/loadSyndicate.ts';
 import type { SyndicateYamlConfig, SubagentYamlConfig } from '../lib/loadSyndicate.ts';
 import { isDispatchSyndicate, matchRouteOverride, resolveRoute } from '../lib/dispatch.ts';
+import type { RouteResolution } from '../lib/dispatch.ts';
 import { traceAgentRun } from '../lib/observability/tracer.ts';
+import { configDigest } from '../lib/observability/lineage.ts';
 import { resolveModel } from '../lib/models/registry.ts';
-import { resolveTools as resolveNamedTools } from '../lib/toolRegistry.ts';
-import { createMcpTools } from '../lib/tools/mcpToolFactory.ts';
+import { compileGraph as compileGraphShared, compileSubagent as compileSubagentShared } from '../lib/compile.ts';
+import type { CompileOptions } from '../lib/compile.ts';
 import { hasSupabaseCredentials, createSupabaseServices } from '../lib/persistence/supabaseProvider.ts';
 import { ProjectedSessionService, renderTranscriptDigest } from '../lib/session/transcript.ts';
 import type { BaseSessionService, BaseMemoryService } from '@google/adk';
@@ -159,6 +161,9 @@ class SyndicateExecutor implements AgentExecutor {
   private sessionService: BaseSessionService;
   private memoryService: BaseMemoryService | undefined;
 
+  /** Provenance stamp for every turn this executor serves (lineage.ts). */
+  private configHash: string | undefined;
+
   constructor(
     config: SyndicateYamlConfig,
     sessionService: BaseSessionService,
@@ -167,6 +172,17 @@ class SyndicateExecutor implements AgentExecutor {
     this.config = config;
     this.sessionService = sessionService;
     this.memoryService = memoryService;
+  }
+
+  private configHashFor(): string {
+    if (!this.configHash) {
+      try {
+        this.configHash = configDigest(this.config, (ref) => loadSyndicate(ref));
+      } catch {
+        this.configHash = 'unhashable';
+      }
+    }
+    return this.configHash;
   }
 
   /**
@@ -186,10 +202,14 @@ class SyndicateExecutor implements AgentExecutor {
     taskId: string;
     contextId: string;
     eventBus: ExecutionEventBus;
-    /** Emit an OTEL syndicate span. False for the classifier — it is one cheap call. */
+    /** Emit an OTEL syndicate span (one adk_turns row when the ledger is on). */
     trace: boolean;
+    /** Which kind of turn this is: delegate | dispatch | classify. */
+    stage: 'delegate' | 'dispatch' | 'classify';
     /** Publish per-tool `[STATUS]` progress. False for the classifier (it has no tools). */
     publishToolStatus: boolean;
+    /** Plan-dispatch resolution, recorded on the root span (`syndicate.route*`). */
+    route?: RouteResolution;
     /**
      * Session service for THIS turn, overriding the executor's. The route
      * turn passes a ProjectedSessionService so the agent reads the shared
@@ -214,17 +234,38 @@ class SyndicateExecutor implements AgentExecutor {
       ...(this.config.max_steps !== undefined ? { maxSteps: this.config.max_steps } : {})
     });
 
+    let combinedText = '';
+    let lastToolResultText = '';
+    const invokedToolNames = new Set<string>();
+
+    // The DELEGATE relay-fallback predicate, evaluated by the tracer in its
+    // finally (after the last event) so the turn row records whether the
+    // orchestrator's relay failed. Same rule as the substitution below.
+    const normalizeName = (s: string) => s.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const relayFallbackFired = (): boolean => {
+      const text = combinedText.trim();
+      const echoed = text.length > 0 && [...invokedToolNames].some((n) => normalizeName(n) === normalizeName(text));
+      return (!text || echoed) && !!lastToolResultText;
+    };
+
     if (params.trace) {
       stream = traceAgentRun(stream, {
         syndicateName: this.config.syndicate_name || 'melchizedek-syndicate',
         bindings: this.config.variables || {},
-        input: userParts
+        input: userParts,
+        route: params.route,
+        // Identity: the CONVERSATION id (contextId), not the classifier's
+        // throwaway lane — every stage of one turn shares session/task ids.
+        sessionId: contextId,
+        userId,
+        taskId,
+        stage: params.stage,
+        configHash: this.configHashFor(),
+        onEnd: () => ({
+          'syndicate.relay_fallback': params.stage === 'delegate' && relayFallbackFired(),
+        }),
       });
     }
-
-    let combinedText = '';
-    let lastToolResultText = '';
-    const invokedToolNames = new Set<string>();
     let lastTokenTotal = 0;
     let lastThinkingTokens = 0;
     let error: { code: string; message: string } | undefined;
@@ -397,81 +438,21 @@ class SyndicateExecutor implements AgentExecutor {
           defaultProvider: authContext.provider,
         });
 
-      const resolveTools = (toolNames: string[] = []): any[] =>
-        resolveNamedTools(toolNames, (name) =>
-          console.warn(`[A2A] WARNING: Unknown tool '${name}' — skipping.`),
-        );
-
-      // Compile ADK Nodes dynamically.
-      //
-      // compileSubagent builds ONE runnable agent from a subagent entry. In
-      // DELEGATE mode compileGraph wraps its result in an AgentTool; in
-      // PLAN-DISPATCH the same agent is run directly as the chosen route, so
-      // both methods dispatch to identical agents and can never drift.
-      const compileSubagent = async (subCfg: SubagentYamlConfig): Promise<LlmAgent> => {
-        if (subCfg.yaml_reference) {
-          console.log(`[A2A] Loading nested syndicate: ${subCfg.yaml_reference}`);
-          const nestedConfig = loadSyndicate(subCfg.yaml_reference);
-          return compileGraph(nestedConfig, subCfg.name, subCfg.description);
-        }
-
-        const subTools = resolveTools(subCfg.tools);
-        if (subCfg.mcp_server_url) {
-          console.log(`[A2A] Loading MCP tools: ${subCfg.mcp_server_url}`);
-          const mcpTools = await createMcpTools(subCfg.mcp_server_url);
-          for (const mcpTool of mcpTools) {
-            if (!subTools.some(t => t.name === mcpTool.name)) {
-              subTools.push(mcpTool);
-            }
-          }
-        }
-
-        return new LlmAgent({
-          name: subCfg.name,
-          description: subCfg.description,
-          model: resolveModelForRequest(subCfg.model),
-          instruction: subCfg.instruction,
-          tools: subTools.length > 0 ? subTools : undefined,
-          outputSchema: subCfg.outputSchema as any,
-          generateContentConfig: {
-            ...(subCfg.generateContentConfig as any),
-            toolConfig: {
-              ...(subCfg.generateContentConfig as any)?.toolConfig,
-              includeServerSideToolInvocations: true
-            }
-          } as any
-        });
+      // Compile ADK nodes through the shared compiler (lib/compile.ts) — the
+      // observatory runs the same function, so the graph an eval measures is
+      // the graph this server serves. compileSubagent builds ONE runnable
+      // agent from a subagent entry; in DELEGATE mode compileGraph wraps it in
+      // an AgentTool, in PLAN-DISPATCH the same agent is run directly as the
+      // chosen route, so both methods dispatch to identical agents.
+      const compileOpts: CompileOptions = {
+        resolveModel: resolveModelForRequest,
+        onUnknownTool: (name) => console.warn(`[A2A] WARNING: Unknown tool '${name}' — skipping.`),
+        log: (message) => console.log(`[A2A] ${message}`),
       };
-
-      const compileGraph = async (configObj: SyndicateYamlConfig, overrideName?: string, overrideDesc?: string): Promise<LlmAgent> => {
-        // PLAN-DISPATCH: the orchestrator gets NO subagent tools. ADK refuses
-        // to combine outputSchema with AgentTool delegation on one agent (see
-        // config/agents/critic.yaml), and the classifier needs the schema —
-        // code, not the model, performs the hand-off.
-        const compiledTools: any[] = isDispatchSyndicate(configObj)
-          ? []
-          : await Promise.all((configObj.subagents || []).map(async (subCfg) =>
-              new AgentTool({ agent: await compileSubagent(subCfg) })));
-
-        const orchestratorDirectTools = resolveTools(configObj.orchestrator.tools);
-        compiledTools.push(...orchestratorDirectTools);
-
-        return new LlmAgent({
-          name: overrideName || configObj.orchestrator.name,
-          description: overrideDesc || configObj.orchestrator.description,
-          model: resolveModelForRequest(configObj.orchestrator.model),
-          instruction: configObj.orchestrator.instruction,
-          tools: compiledTools.length > 0 ? compiledTools : undefined,
-          outputSchema: configObj.orchestrator.outputSchema as any,
-          generateContentConfig: {
-            ...(configObj.orchestrator.generateContentConfig as any),
-            toolConfig: {
-              ...(configObj.orchestrator.generateContentConfig as any)?.toolConfig,
-              includeServerSideToolInvocations: true
-            }
-          } as any
-        });
-      };
+      const compileSubagent = (subCfg: SubagentYamlConfig): Promise<LlmAgent> =>
+        compileSubagentShared(subCfg, compileOpts);
+      const compileGraph = (configObj: SyndicateYamlConfig): Promise<LlmAgent> =>
+        compileGraphShared(configObj, compileOpts);
 
       const ensureSession = async (sessionId: string): Promise<boolean> => {
         const existing = await this.sessionService.getSession({
@@ -584,7 +565,8 @@ class SyndicateExecutor implements AgentExecutor {
             taskId,
             contextId,
             eventBus,
-            trace: false,           // one cheap classification — not worth a span
+            trace: true,            // one row per classification: misroutes are diagnosable from stored data
+            stage: 'classify',
             publishToolStatus: false, // a dispatch classifier holds no tools
             sessionService: routerSessions
           });
@@ -636,7 +618,9 @@ class SyndicateExecutor implements AgentExecutor {
           contextId,
           eventBus,
           trace: true,
+          stage: 'dispatch',
           publishToolStatus: true,
+          route: resolution,
           sessionService: new ProjectedSessionService(this.sessionService, routeCfg.name)
         });
 
@@ -667,6 +651,7 @@ class SyndicateExecutor implements AgentExecutor {
           contextId,
           eventBus,
           trace: true,
+          stage: 'delegate',
           publishToolStatus: true
         });
 

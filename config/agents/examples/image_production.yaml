@@ -70,7 +70,6 @@ subagents:
     model: "gemini-3.7-flash"
     generateContentConfig:
       responseMimeType: "application/json"
-      temperature: 0.2
       maxOutputTokens: 4096
     outputSchema:
       type: "OBJECT"

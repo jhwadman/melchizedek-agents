@@ -40,7 +40,7 @@ import {
   wantsWebSearch,
   isWebSearchSentinel,
 } from '../tools/webSearchTool.ts';
-import { toLowercaseJsonSchema } from './schemaNormalize.ts';
+import { toLowercaseJsonSchema, toStrictJsonSchema } from './schemaNormalize.ts';
 
 // ── OpenAI-compatible wire types (the subset these providers implement) ──────
 
@@ -99,6 +99,11 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
   }
 
   /** Provider-specific request body fields (merged last). */
+  /** Whether the endpoint accepts response_format json_schema (strict). */
+  protected supportsJsonSchemaFormat(): boolean {
+    return true;
+  }
+
   protected extraBodyFields(_llmRequest: LlmRequest): Record<string, unknown> {
     return {};
   }
@@ -189,10 +194,15 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
         ? { max_tokens: cfg.maxOutputTokens }
         : {}),
       ...(openAiTools.length > 0 ? { tools: openAiTools } : {}),
-      // critic-style structured output: responseMimeType JSON → json mode
-      ...(cfg.responseMimeType === 'application/json'
-        ? { response_format: { type: 'json_object' } }
-        : {}),
+      // Structured output: an ADK outputSchema becomes a strict json_schema
+      // response_format where the endpoint supports it (xAI does; Ollama's
+      // OpenAI-compatible endpoint does not, see supportsJsonSchemaFormat),
+      // else plain JSON mode.
+      ...(cfg.responseSchema && this.supportsJsonSchemaFormat()
+        ? { response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: toStrictJsonSchema(cfg.responseSchema) } } }
+        : cfg.responseMimeType === 'application/json' || cfg.responseSchema
+          ? { response_format: { type: 'json_object' } }
+          : {}),
       ...this.extraBodyFields(llmRequest),
     };
 
