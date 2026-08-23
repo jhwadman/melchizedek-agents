@@ -36,6 +36,23 @@ interface A2AContext {
   provider: string;
   /** Optional end-user identifier supplied via X-User-Id (validated in middleware). */
   siteUserId?: string;
+  /**
+   * Optional surface identity supplied via X-Surface-* (validated in
+   * middleware). TELEMETRY ONLY — deliberately separate from siteUserId,
+   * which silos sessions and long-term memory. A caller naming its Discord
+   * channel must not thereby change what the desk remembers, so nothing
+   * here reaches the session key, the memory silo, or any prompt.
+   */
+  surface?: SurfaceContext;
+}
+
+/** Where a request came from, as the caller reports it. */
+interface SurfaceContext {
+  name: string;
+  guild?: string;
+  channel?: string;
+  /** A pseudonym the caller derives (a salted hash), never a platform id. */
+  user?: string;
 }
 const requestContextStorage = new AsyncLocalStorage<A2AContext>();
 
@@ -43,6 +60,31 @@ const A2A_APP_NAME = 'melchizedek-a2a';
 
 /** X-User-Id must be short and filesystem/key-safe; anything else is rejected. */
 const SITE_USER_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+
+/** X-Surface-* values obey the same charset rule, for the same reason. */
+const SURFACE_VALUE_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+const SURFACE_HEADERS = [
+  ['x-surface', 'name'],
+  ['x-surface-guild', 'guild'],
+  ['x-surface-channel', 'channel'],
+  ['x-surface-user', 'user'],
+] as const;
+
+/**
+ * Root-span attributes for the caller's surface. Absent headers produce no
+ * attributes at all, so a caller that names nothing writes NULLs rather than
+ * a row full of 'unknown' — an unnamed surface and a surface named 'unknown'
+ * are different facts and the ledger should not conflate them.
+ */
+function surfaceAttributes(ctx: A2AContext | undefined): Record<string, string> {
+  const s = ctx?.surface;
+  if (!s) return {};
+  const attrs: Record<string, string> = { 'surface.name': s.name };
+  if (s.guild) attrs['surface.guild'] = s.guild;
+  if (s.channel) attrs['surface.channel'] = s.channel;
+  if (s.user) attrs['surface.user'] = s.user;
+  return attrs;
+}
 
 /**
  * Memory/session silo derivation.
@@ -261,6 +303,7 @@ class SyndicateExecutor implements AgentExecutor {
         taskId,
         stage: params.stage,
         configHash: this.configHashFor(),
+        attributes: surfaceAttributes(requestContextStorage.getStore()),
         onEnd: () => ({
           'syndicate.relay_fallback': params.stage === 'delegate' && relayFallbackFired(),
         }),
@@ -912,7 +955,27 @@ export async function startServer(syndicateName: string = 'syndicate.yaml') {
       siteUserId = rawUserId;
     }
 
-    requestContextStorage.run({ apiKey, provider, siteUserId }, () => {
+    // X-Surface-* (optional): where this request came from, for telemetry
+    // only. Same validation as X-User-Id, and a bad value is refused rather
+    // than dropped — a silently ignored header makes a dashboard lie about
+    // coverage. `X-Surface` is required for the others to mean anything.
+    let surface: SurfaceContext | undefined;
+    for (const [header, field] of SURFACE_HEADERS) {
+      const raw = req.headers[header] as string | undefined;
+      if (raw === undefined || raw === '') continue;
+      if (!SURFACE_VALUE_PATTERN.test(raw)) {
+        res.status(400).json({ error: `Invalid ${header}: must match [A-Za-z0-9._-]{1,64}` });
+        return;
+      }
+      if (field === 'name') { surface = { name: raw }; continue; }
+      if (!surface) {
+        res.status(400).json({ error: `${header} requires X-Surface to name the surface` });
+        return;
+      }
+      surface[field] = raw;
+    }
+
+    requestContextStorage.run({ apiKey, provider, siteUserId, surface }, () => {
       next();
     });
   });

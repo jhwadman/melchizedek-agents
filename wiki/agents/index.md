@@ -17,4 +17,5 @@
 - [Style Council](/agents/style_council.md) — The Style Council syndicate.
 - [Global Synthesis Council](/agents/syndicate.md) — The Global Synthesis Council syndicate.
 - [Tutor](/agents/tutor.md) — The Tutor syndicate.
+- [Ymir Judge](/agents/ymir_judge.md) — The Ymir Judge syndicate.
 <!-- /wiki:generated -->

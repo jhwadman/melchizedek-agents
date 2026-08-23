@@ -8,7 +8,7 @@ tags:
   - memory
 generated:
   by: process:wiki-build
-  at: 2026-08-22
+  at: 2026-08-23
 sources:
   - resource: db/memory_v2.sql
   - resource: db/telemetry.sql
@@ -239,6 +239,37 @@ CREATE INDEX IF NOT EXISTS idx_adk_turns_syndicate ON adk_turns (syndicate, ts D
 CREATE INDEX IF NOT EXISTS idx_adk_turns_route     ON adk_turns (route);
 CREATE INDEX IF NOT EXISTS idx_adk_turns_eval_run  ON adk_turns (eval_run);
 CREATE INDEX IF NOT EXISTS idx_adk_turns_search    ON adk_turns USING gin (search);
+
+-- ── Surface identity: WHERE the turn came from ───────────────────────────
+-- The ledger's own identity columns describe the SERVER's view of a turn
+-- (conversation, credential, task). They cannot say which Discord channel
+-- asked, because the contextId is an opaque conversation key and user_id is
+-- the caller's credential hash. A caller may name its own surface with the
+-- optional X-Surface-* request headers; the server validates them, stamps
+-- them on the root span, and they land here.
+--
+-- Deliberately additive and deliberately NOT tied to memory: the X-User-Id
+-- header silos long-term memory, so using it to carry a Discord author id
+-- would give every human their own memory silo and change what the desk
+-- remembers. Observability must not change behavior, so this is a separate
+-- channel that only ever reaches telemetry.
+--
+-- surface_user is a PSEUDONYM, not an account id: callers are expected to
+-- send a salted hash (nihilistic-penguin sends one), so a channel's traffic
+-- stays sliceable without the ledger holding a platform identity.
+ALTER TABLE adk_turns ADD COLUMN IF NOT EXISTS surface         TEXT;  -- 'discord' | 'cli' | 'web' | ...
+ALTER TABLE adk_turns ADD COLUMN IF NOT EXISTS surface_guild   TEXT;  -- Discord guild (server) id
+ALTER TABLE adk_turns ADD COLUMN IF NOT EXISTS surface_channel TEXT;  -- Discord channel id
+ALTER TABLE adk_turns ADD COLUMN IF NOT EXISTS surface_user    TEXT;  -- salted hash of the asker
+
+CREATE INDEX IF NOT EXISTS idx_adk_turns_surface_channel
+  ON adk_turns (surface, surface_channel, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_adk_turns_surface_user
+  ON adk_turns (surface, surface_user, ts DESC);
+-- Note for anyone applying these ALTERs by hand rather than re-running this
+-- file: adk_turns_production below is `SELECT *`, and Postgres expands that
+-- at CREATE time. It does not gain these columns until it is re-created, so
+-- run the whole file, in order.
 
 -- ── adk_payloads: full prompt/response per model call, by policy, expiring ─
 CREATE TABLE IF NOT EXISTS adk_payloads (

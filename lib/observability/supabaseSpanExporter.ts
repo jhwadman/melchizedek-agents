@@ -78,6 +78,11 @@ export interface TurnRow {
   user_id: string | null;
   task_id: string | null;
   invocation_id: string | null;
+  /** Where the turn came from, when the caller named it (X-Surface-* headers). */
+  surface: string | null;
+  surface_guild: string | null;
+  surface_channel: string | null;
+  surface_user: string | null;
   syndicate: string;
   stage: string;
   agent: string | null;
@@ -310,6 +315,10 @@ export function toTurnRow(span: ReadableSpan): TurnRow {
     user_id: str(attrs, 'user.id'),
     task_id: str(attrs, 'a2a.task_id'),
     invocation_id: str(attrs, 'adk.invocation_id'),
+    surface: str(attrs, 'surface.name'),
+    surface_guild: str(attrs, 'surface.guild'),
+    surface_channel: str(attrs, 'surface.channel'),
+    surface_user: str(attrs, 'surface.user'),
     syndicate: syndicateOf(span) ?? 'unknown',
     stage: str(attrs, 'syndicate.stage') ?? 'delegate',
     agent: str(attrs, 'syndicate.agent'),

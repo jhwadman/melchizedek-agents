@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-22
+  at: 2026-08-23
 sources:
   - resource: config/agents/examples/augustin.yaml
 ---
