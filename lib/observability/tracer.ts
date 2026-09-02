@@ -85,6 +85,7 @@ export function onSpanEnd(
 // on a server they would put every prompt into the log stream.
 const ADK_SCOPE = 'gcp.vertex.agent';
 const PRINT_ALL_SPANS = process.env.OTEL_CONSOLE_ALL_SPANS === 'true';
+const PRINT_CONSOLE_SPANS = process.env.OTEL_CONSOLE_SPANS !== 'false';
 
 function spanScopeName(span: ReadableSpan): string {
   const s = span as any;
@@ -101,6 +102,7 @@ class JsonConsoleExporter implements SpanExporter {
           /* a listener bug must not break the export pipeline */
         }
       }
+      if (!PRINT_CONSOLE_SPANS) continue;
       if (!PRINT_ALL_SPANS && spanScopeName(span) === ADK_SCOPE) continue;
       // Create a clean JSON representation of the span
       const jsonSpan = {
