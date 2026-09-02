@@ -295,7 +295,7 @@ export class GptLlm extends BaseLlm {
     stream = false,
   ): AsyncGenerator<LlmResponse, void> {
     yield* traceLlmGeneration(
-      { provider: this.providerId(), model: this.model },
+      { provider: this.providerId(), model: this.model, llmRequest },
       this.generateInner(llmRequest, stream),
     );
   }

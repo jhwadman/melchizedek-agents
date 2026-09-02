@@ -77,6 +77,99 @@ export function splitThinkBlocks(text: string): {
   return { reasoning: blocks.join('\n\n'), answer };
 }
 
+const OPEN_THINK = '<think>';
+const CLOSE_THINK = '</think>';
+
+/** Length of the longest suffix of `s` that is a proper prefix of `tag`. */
+function partialTagSuffix(s: string, tag: string): number {
+  const max = Math.min(s.length, tag.length - 1);
+  for (let n = max; n > 0; n--) {
+    if (s.endsWith(tag.slice(0, n))) return n;
+  }
+  return 0;
+}
+
+/**
+ * Incremental counterpart to splitThinkBlocks, for the SSE path.
+ *
+ * WHY a state machine rather than the regex: on a stream the closing
+ * `</think>` has usually NOT arrived yet, so the regex matches nothing and
+ * the whole scratchpad would be printed as the reply. A tag can also be
+ * split mid-delta ("<thi" + "nk>"), so any tail that could still grow into
+ * a tag is held back instead of being emitted as answer text.
+ *
+ * Providers that report reasoning in a discrete field (Ollama's
+ * `delta.reasoning`, others' `reasoning_content`) never open a think block
+ * and pass straight through this untouched.
+ */
+export class ThinkStreamSplitter {
+  private inThink = false;
+  private held = '';
+
+  /** Routes one content delta into reasoning/answer text. */
+  push(chunk: string): { reasoning: string; answer: string } {
+    let buf = this.held + chunk;
+    let reasoning = '';
+    let answer = '';
+
+    for (;;) {
+      const tag = this.inThink ? CLOSE_THINK : OPEN_THINK;
+      const at = buf.indexOf(tag);
+      if (at === -1) break;
+      if (this.inThink) reasoning += buf.slice(0, at);
+      else answer += buf.slice(0, at);
+      buf = buf.slice(at + tag.length);
+      this.inThink = !this.inThink;
+    }
+
+    // Hold back only what could still become the tag we're watching for.
+    const pending = this.inThink ? CLOSE_THINK : OPEN_THINK;
+    const keep = partialTagSuffix(buf, pending);
+    this.held = keep > 0 ? buf.slice(buf.length - keep) : '';
+    const emit = keep > 0 ? buf.slice(0, buf.length - keep) : buf;
+    if (this.inThink) reasoning += emit;
+    else answer += emit;
+
+    return { reasoning, answer };
+  }
+
+  /** Releases the held tail; the stream ended, so it was never a tag. */
+  flush(): { reasoning: string; answer: string } {
+    const rest = this.held;
+    this.held = '';
+    return this.inThink
+      ? { reasoning: rest, answer: '' }
+      : { reasoning: '', answer: rest };
+  }
+}
+
+/** Yields parsed `data:` payloads from an SSE response body. */
+async function* sseChunks(res: Response): AsyncGenerator<any> {
+  const reader = (res.body as any)?.getReader?.();
+  if (!reader) return;
+  const decoder = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      // Blank separators and ":" keep-alive comments carry no payload.
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice('data:'.length).trim();
+      if (payload === '[DONE]') return;
+      try {
+        yield JSON.parse(payload);
+      } catch {
+        /* a chunk that isn't valid JSON is not worth killing the turn for */
+      }
+    }
+  }
+}
+
 // ── OpenAiCompatibleLlm ──────────────────────────────────────────────────────
 
 export abstract class OpenAiCompatibleLlm extends BaseLlm {
@@ -101,6 +194,14 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
   /** Provider-specific request body fields (merged last). */
   /** Whether the endpoint accepts response_format json_schema (strict). */
   protected supportsJsonSchemaFormat(): boolean {
+    return true;
+  }
+
+  /**
+   * Whether the endpoint honors stream_options.include_usage. Without it an
+   * SSE turn reports no token counts at all; Ollama and xAI both support it.
+   */
+  protected supportsStreamUsage(): boolean {
     return true;
   }
 
@@ -146,7 +247,7 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
   protected httpError(status: number, detail: string): LlmResponse {
     return {
       errorCode: `${this.providerId().toUpperCase()}_HTTP_ERROR`,
-      errorMessage: `${this.providerId()} returned ${status}: ${detail.slice(0, 400)}`,
+      errorMessage: `${this.providerId()} returned ${status}: ${detail.slice(0, 4000)}`,
     };
   }
 
@@ -165,14 +266,14 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
     stream = false,
   ): AsyncGenerator<LlmResponse, void> {
     yield* traceLlmGeneration(
-      { provider: this.providerId(), model: this.model },
+      { provider: this.providerId(), model: this.model, llmRequest },
       this.generateInner(llmRequest, stream),
     );
   }
 
   private async *generateInner(
     llmRequest: LlmRequest,
-    _stream: boolean,
+    stream: boolean,
   ): AsyncGenerator<LlmResponse, void> {
     const missing = this.missingRequirement();
     if (missing) {
@@ -187,7 +288,11 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
     const body: Record<string, unknown> = {
       model: this.wireModelName(),
       messages,
-      stream: false,
+      stream,
+      // SSE reports token usage only if asked, in a final choices-less chunk.
+      ...(stream && this.supportsStreamUsage()
+        ? { stream_options: { include_usage: true } }
+        : {}),
       ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
       ...(cfg.topP !== undefined ? { top_p: cfg.topP } : {}),
       ...(cfg.maxOutputTokens !== undefined
@@ -245,6 +350,11 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
         return;
       }
 
+      if (stream) {
+        yield* this.streamResponse(res);
+        return;
+      }
+
       const data: any = await res.json();
       const message = data.choices?.[0]?.message ?? {};
 
@@ -289,6 +399,110 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
       const msg = err instanceof Error ? err.message : String(err);
       yield this.unreachable(msg);
     }
+  }
+
+  /**
+   * SSE path: display-only partials as the tokens land, then ONE final
+   * non-partial response carrying the complete text, tool calls and usage.
+   *
+   * WHY the final repeats text already streamed: ADK's runner persists only
+   * non-partial events (`if (!event.partial) appendEvent(...)`), so a final
+   * without text would show the reply on screen and lose it from session
+   * history. Printers therefore skip text on a turnComplete event whose
+   * partials they already rendered — see scripts/syndicate_chat.ts.
+   *
+   * Thinking is deliberately NOT carried on the final: the scratchpad is
+   * display-only and stays out of history, which is what keeps it from
+   * being replayed to the model on the next turn.
+   */
+  private async *streamResponse(
+    res: Response,
+  ): AsyncGenerator<LlmResponse, void> {
+    const splitter = new ThinkStreamSplitter();
+    const toolCalls = new Map<
+      number,
+      { id?: string; name?: string; args: string }
+    >();
+    let answer = '';
+    let answerStarted = false;
+    let usage: any;
+
+    const partial = (text: string, thought: boolean): LlmResponse => ({
+      content: {
+        role: 'model',
+        parts: [thought ? ({ text, thought: true } as any) : { text }],
+      },
+      partial: true,
+    });
+
+    // The scratchpad is usually trailed by blank lines; the reply must not
+    // open with them, but only the FIRST answer text may be trimmed.
+    const openAnswer = (text: string): string =>
+      answerStarted ? text : text.trimStart();
+
+    for await (const chunk of sseChunks(res)) {
+      if (chunk.usage) usage = chunk.usage;
+      const delta = chunk.choices?.[0]?.delta;
+      if (!delta) continue;
+
+      // Reasoning as a discrete field (Ollama `reasoning`, others
+      // `reasoning_content`) — already separated, no tag parsing needed.
+      const fieldReasoning: string =
+        delta.reasoning ?? delta.reasoning_content ?? '';
+      if (fieldReasoning) yield partial(fieldReasoning, true);
+
+      if (typeof delta.content === 'string' && delta.content) {
+        const split = splitter.push(delta.content);
+        if (split.reasoning) yield partial(split.reasoning, true);
+        if (split.answer) {
+          const text = openAnswer(split.answer);
+          if (text) {
+            answerStarted = true;
+            answer += text;
+            yield partial(text, false);
+          }
+        }
+      }
+
+      // Tool arguments arrive as fragments keyed by index, not whole.
+      for (const call of delta.tool_calls ?? []) {
+        const index = call.index ?? 0;
+        const acc = toolCalls.get(index) ?? { args: '' };
+        if (call.id) acc.id = call.id;
+        if (call.function?.name) acc.name = call.function.name;
+        if (call.function?.arguments) acc.args += call.function.arguments;
+        toolCalls.set(index, acc);
+      }
+    }
+
+    const tail = splitter.flush();
+    if (tail.reasoning) yield partial(tail.reasoning, true);
+    if (tail.answer) {
+      const text = openAnswer(tail.answer);
+      if (text) {
+        answer += text;
+        yield partial(text, false);
+      }
+    }
+
+    const parts: any[] = [];
+    if (answer) parts.push({ text: answer });
+    for (const [, acc] of [...toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
+      let args: unknown = {};
+      try {
+        args = JSON.parse(acc.args || '{}');
+      } catch {
+        args = { raw: acc.args };
+      }
+      parts.push({ functionCall: { name: acc.name, args, id: acc.id } });
+    }
+
+    const usageMetadata = mapUsage(usage);
+    yield {
+      content: { role: 'model', parts },
+      turnComplete: true,
+      ...(usageMetadata ? { usageMetadata } : {}),
+    };
   }
 
   // ── Translation helpers ────────────────────────────────────────────────────

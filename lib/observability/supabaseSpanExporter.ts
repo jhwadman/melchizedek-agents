@@ -222,7 +222,13 @@ export function isRootSpan(span: ReadableSpan): boolean {
   return span.name.startsWith(ROOT_PREFIX);
 }
 export function isPayloadSpan(span: ReadableSpan): boolean {
-  return span.name === 'call_llm' && scopeName(span) === ADK_SCOPE;
+  if (span.name === 'call_llm' && scopeName(span) === ADK_SCOPE) return true;
+  // Errored calls: ADK's call_llm span is unreliable on error (its end() is
+  // skipped when the consumer stops at the error event, and traceCallLlm
+  // never ran for a thrown error), so traceLlmGeneration attaches the
+  // request + error body to its own llm.request span instead — but only on
+  // error, so clean turns never produce a second payload row.
+  return span.name === 'llm.request' && !!attrsOf(span)['llm.payload.response'];
 }
 
 /** `syndicate.input` is JSON.stringify of either a string or A2A parts. */
@@ -371,8 +377,10 @@ export function toPayloadRow(
   turn: { sessionId: string | null; invocationId: string | null } | undefined,
 ): PayloadRow {
   const attrs = attrsOf(span);
-  const request = str(attrs, 'gcp.vertex.agent.llm_request') ?? '';
-  const response = str(attrs, 'gcp.vertex.agent.llm_response') ?? '';
+  const request =
+    str(attrs, 'gcp.vertex.agent.llm_request') ?? str(attrs, 'llm.payload.request') ?? '';
+  const response =
+    str(attrs, 'gcp.vertex.agent.llm_response') ?? str(attrs, 'llm.payload.response') ?? '';
   const started = span.startTime[0] * 1000 + span.startTime[1] / 1e6;
   return {
     ts: new Date(started).toISOString(),

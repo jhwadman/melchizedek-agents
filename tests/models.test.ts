@@ -25,7 +25,7 @@ import { OllamaLlm } from '../lib/models/ollamaLlm.ts';
 import { GrokLlm } from '../lib/models/grokLlm.ts';
 import { ClaudeLlm, buildAnthropicTools } from '../lib/models/claudeLlm.ts';
 import { GptLlm, buildResponsesInput, buildResponsesTools, streamEventDelta } from '../lib/models/gptLlm.ts';
-import { splitThinkBlocks, mapUsage } from '../lib/models/openAiCompatibleLlm.ts';
+import { splitThinkBlocks, mapUsage, ThinkStreamSplitter } from '../lib/models/openAiCompatibleLlm.ts';
 import { WebSearchTool, WEB_SEARCH, wantsWebSearch } from '../lib/tools/webSearchTool.ts';
 import { COLLECTIONS_SEARCH } from '../lib/tools/collectionsSearchTool.ts';
 import { X_SEARCH } from '../lib/tools/xSearchTool.ts';
@@ -138,6 +138,35 @@ test('splitThinkBlocks separates the scratchpad from the answer', () => {
   assert.deepEqual(splitThinkBlocks('plain'), { reasoning: '', answer: 'plain' });
 });
 
+test('ThinkStreamSplitter routes deltas and survives a tag split mid-chunk', () => {
+  const s = new ThinkStreamSplitter();
+  // The opening tag arrives in three pieces, so nothing may be emitted as
+  // answer text until it is resolved — this is the case the regex cannot see.
+  assert.deepEqual(s.push('<th'), { reasoning: '', answer: '' });
+  assert.deepEqual(s.push('in'), { reasoning: '', answer: '' });
+  assert.deepEqual(s.push('k>weigh'), { reasoning: 'weigh', answer: '' });
+  assert.deepEqual(s.push('ing it'), { reasoning: 'ing it', answer: '' });
+  // Closing tag split too; the text before it is still scratchpad.
+  assert.deepEqual(s.push(' done</thi'), { reasoning: ' done', answer: '' });
+  assert.deepEqual(s.push('nk>Hello'), { reasoning: '', answer: 'Hello' });
+  assert.deepEqual(s.push(' world'), { reasoning: '', answer: ' world' });
+  assert.deepEqual(s.flush(), { reasoning: '', answer: '' });
+});
+
+test('ThinkStreamSplitter passes untagged text straight through', () => {
+  const s = new ThinkStreamSplitter();
+  assert.deepEqual(s.push('just an answer'), { reasoning: '', answer: 'just an answer' });
+  assert.deepEqual(s.flush(), { reasoning: '', answer: '' });
+});
+
+test('ThinkStreamSplitter flushes a held partial tag that never completed', () => {
+  const s = new ThinkStreamSplitter();
+  // "<thi" looks like the start of a tag, so it is withheld...
+  assert.deepEqual(s.push('answer<thi'), { reasoning: '', answer: 'answer' });
+  // ...and released as ordinary text once the stream ends without the tag.
+  assert.deepEqual(s.flush(), { reasoning: '', answer: '<thi' });
+});
+
 test('mapUsage maps OpenAI-style usage to GenAI usageMetadata', () => {
   assert.deepEqual(
     mapUsage({
@@ -182,6 +211,78 @@ test('OllamaLlm yields thought part, answer, and usageMetadata from a stubbed re
 
     assert.match(requestedUrl, /\/chat\/completions$/);
     assert.equal(requestBody.model, 'qwen3:8b'); // ollama/ namespace stripped
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+/** One SSE frame, in the wire shape Ollama actually emits. */
+const sseFrame = (o: any) => `data: ${JSON.stringify(o)}\n\n`;
+
+test('OllamaLlm (SSE) streams reasoning and text, then repeats the whole text on the final event', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: any;
+  const body =
+    sseFrame({ choices: [{ index: 0, delta: { reasoning: 'weigh' } }] }) +
+    sseFrame({ choices: [{ index: 0, delta: { reasoning: 'ing it' } }] }) +
+    sseFrame({ choices: [{ index: 0, delta: { content: 'Hello' } }] }) +
+    sseFrame({ choices: [{ index: 0, delta: { content: ' world' } }] }) +
+    sseFrame({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }) +
+    sseFrame({ choices: [], usage: { prompt_tokens: 20, completion_tokens: 136, total_tokens: 156 } }) +
+    'data: [DONE]\n\n';
+  globalThis.fetch = (async (_url: any, init: any) => {
+    requestBody = JSON.parse(init.body);
+    return new Response(body, { status: 200 });
+  }) as any;
+  try {
+    const llm = new OllamaLlm({ model: 'ollama/qwen3:8b' });
+    const responses = await collect(llm.generateContentAsync(makeRequest(), true));
+
+    assert.equal(requestBody.stream, true);
+    assert.deepEqual(requestBody.stream_options, { include_usage: true });
+
+    const part = (r: LlmResponse) => (r.content?.parts?.[0] as any) ?? {};
+    const thoughts = responses.filter((r) => part(r).thought);
+    assert.deepEqual(thoughts.map((r) => part(r).text), ['weigh', 'ing it']);
+    assert.ok(
+      thoughts.every((r) => (r as any).partial),
+      'thinking must stay partial — partials are what keep it out of history',
+    );
+
+    const streamedText = responses.filter(
+      (r) => (r as any).partial && part(r).text && !part(r).thought,
+    );
+    assert.deepEqual(streamedText.map((r) => part(r).text), ['Hello', ' world']);
+
+    // The final event is the ONLY one ADK persists (runner: `if
+    // (!event.partial) appendEvent(...)`), so it must carry the whole
+    // reply — otherwise the turn renders on screen and vanishes from history.
+    const final = responses.find((r) => r.turnComplete);
+    assert.ok(final, 'expected a final response');
+    assert.ok(!(final as any).partial, 'final must not be partial');
+    assert.equal(part(final!).text, 'Hello world');
+    assert.equal(final!.usageMetadata?.promptTokenCount, 20);
+    assert.equal(final!.usageMetadata?.candidatesTokenCount, 136);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('OllamaLlm (SSE) reassembles tool-call arguments split across frames', async () => {
+  const originalFetch = globalThis.fetch;
+  const body =
+    sseFrame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'lookup', arguments: '{"q":' } }] } }] }) +
+    sseFrame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '"zeno"}' } }] } }] }) +
+    'data: [DONE]\n\n';
+  globalThis.fetch = (async () => new Response(body, { status: 200 })) as any;
+  try {
+    const llm = new OllamaLlm({ model: 'ollama/qwen3:8b' });
+    const responses = await collect(llm.generateContentAsync(makeRequest(), true));
+    const final = responses.find((r) => r.turnComplete);
+    const call = (final!.content!.parts![0] as any).functionCall;
+    assert.equal(call.name, 'lookup');
+    assert.equal(call.id, 'c1');
+    assert.deepEqual(call.args, { q: 'zeno' });
   } finally {
     globalThis.fetch = originalFetch;
   }

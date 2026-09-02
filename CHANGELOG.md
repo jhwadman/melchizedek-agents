@@ -4,6 +4,33 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## 0.9.4 — 2026-09-02
+
+- **Thinking and replies stream live.** The OpenAI-compatible adapter
+  (Ollama, xAI) now honours ADK's `stream` flag instead of ignoring it:
+  it sends `stream: true`, parses the SSE frames, and yields each
+  reasoning and text delta as a display-only partial. `melchizedek-chat`
+  runs with `streamingMode: SSE`, so a local qwen3 turn shows its
+  scratchpad token by token from ~1.5s rather than dumping the whole
+  turn after ~15s. `CHAT_STREAMING=false` restores one-block output —
+  useful when piping a transcript or for structured-output agents.
+  Reasoning is read from a discrete `reasoning` / `reasoning_content`
+  delta field where the provider sends one (Ollama does), and otherwise
+  from inline `<think>` tags via a new exported `ThinkStreamSplitter`,
+  which tracks block state across frames so a tag split mid-delta
+  ("<thi" + "nk>") is not mistaken for reply text.
+- **Fix: a streamed Claude turn no longer vanishes from session
+  history.** ADK's runner persists only NON-partial events, and the
+  Claude streaming path built its final response with the text omitted,
+  so a reply would render on screen and leave no record — the next turn
+  saw no assistant message. The final response now carries the full
+  text; printers skip text on a `turnComplete` event whose partials they
+  already rendered. This path was unreachable before this release, since
+  nothing requested SSE.
+- **`OTEL_CONSOLE_SPANS=false`** silences the `[OTEL_SPAN_JSON]` console
+  lines. In-process span listeners and the Supabase sink are unaffected,
+  so no telemetry is lost — it only unclutters an interactive session.
+
 ## 0.9.3 — 2026-08-22
 
 - **`outputSchema` is enforced on every provider, not just Gemini** —

@@ -124,7 +124,7 @@ export class OllamaLlm extends OpenAiCompatibleLlm {
   protected httpError(status: number, detail: string): LlmResponse {
     return {
       errorCode: 'OLLAMA_HTTP_ERROR',
-      errorMessage: `Ollama returned ${status}: ${detail.slice(0, 400)}. Is the model pulled? Try: ollama pull ${this.wireModelName()}`,
+      errorMessage: `Ollama returned ${status}: ${detail.slice(0, 4000)}. Is the model pulled? Try: ollama pull ${this.wireModelName()}`,
     };
   }
 

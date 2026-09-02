@@ -85,6 +85,10 @@ export function onSpanEnd(
 // on a server they would put every prompt into the log stream.
 const ADK_SCOPE = 'gcp.vertex.agent';
 const PRINT_ALL_SPANS = process.env.OTEL_CONSOLE_ALL_SPANS === 'true';
+// OTEL_CONSOLE_SPANS=false silences the [OTEL_SPAN_JSON] lines entirely.
+// The in-process listeners below still fire and the Supabase sink still
+// records, so this costs no telemetry — it only unclutters a chat session.
+const PRINT_CONSOLE_SPANS = process.env.OTEL_CONSOLE_SPANS !== 'false';
 
 function spanScopeName(span: ReadableSpan): string {
   const s = span as any;
@@ -101,6 +105,7 @@ class JsonConsoleExporter implements SpanExporter {
           /* a listener bug must not break the export pipeline */
         }
       }
+      if (!PRINT_CONSOLE_SPANS) continue;
       if (!PRINT_ALL_SPANS && spanScopeName(span) === ADK_SCOPE) continue;
       // Create a clean JSON representation of the span
       const jsonSpan = {
@@ -456,7 +461,10 @@ export async function* traceAgentRun(
       if (event.content && event.content.parts) {
         for (const part of event.content.parts) {
           const p = part as any;
-          if (p.text && !p.thought) {
+          // Under SSE the reply streams as partials and is then repeated
+          // whole on the final event. Count it once, from the final, or
+          // syndicate.output records every answer twice.
+          if (p.text && !p.thought && !ev.partial) {
             outputText += p.text;
             if (ev.author) respondingAgent = String(ev.author);
           }
@@ -494,7 +502,7 @@ export async function* traceAgentRun(
     if (respondingAgent) span.setAttribute('syndicate.agent', respondingAgent);
     if (errorCode) {
       span.setAttribute('syndicate.error.code', errorCode);
-      span.setAttribute('syndicate.error.message', errorMessage.slice(0, 2000));
+      span.setAttribute('syndicate.error.message', errorMessage.slice(0, 4000));
     }
     turnContexts.delete(span.spanContext().traceId);
     const stats = takeTraceStats(span.spanContext().traceId);
@@ -522,9 +530,47 @@ export interface LlmCallMeta {
   provider: string;
   /** The model id as declared in the agent YAML (e.g. 'ollama/qwen3:8b'). */
   model: string;
+  /**
+   * The full LlmRequest, attached to the span ONLY when the call errors.
+   * ADK's own call_llm payload capture is lost on error — the consumer stops
+   * pulling after the error event, so that span's end() (not in a finally)
+   * never runs and the exporter never sees it. This span always ends, so an
+   * errored call keeps its request + error body in adk_payloads regardless.
+   */
+  llmRequest?: unknown;
 }
 
 const THINKING_EVENT_MAX_CHARS = 600;
+const ERROR_PAYLOAD_MAX_CHARS = 200_000;
+const ERROR_MESSAGE_MAX_CHARS = 4_000;
+
+/** JSON.stringify that never throws and never exceeds the cap. */
+function safePayloadJson(value: unknown): string {
+  let json: string;
+  try {
+    json = JSON.stringify(value) ?? String(value);
+  } catch {
+    json = String(value);
+  }
+  return json.length > ERROR_PAYLOAD_MAX_CHARS
+    ? json.slice(0, ERROR_PAYLOAD_MAX_CHARS)
+    : json;
+}
+
+/**
+ * Providers throw errors whose message IS the API's JSON error body
+ * (Gemini: {"error":{"code":503,"message":...,"status":...}}). Pull the
+ * numeric code out so llm.error_code reads "503", not "THROWN".
+ */
+function refineErrorCode(code: string, message: string): string {
+  try {
+    const parsed = JSON.parse(message);
+    if (parsed?.error?.code) return String(parsed.error.code);
+  } catch {
+    /* not a JSON body — keep the code we have */
+  }
+  return code;
+}
 
 /**
  * Wraps one adapter `generateContentAsync` invocation in an `llm.request`
@@ -569,6 +615,9 @@ export async function* traceLlmGeneration(
   let outputTokens = 0;
   let thinkingTokens = 0;
   let thinkingPreview = '';
+  let errorCode = '';
+  let errorMessage = '';
+  let errorResponse: unknown;
 
   const ctx = trace.setSpan(context.active(), span);
 
@@ -585,7 +634,9 @@ export async function* traceLlmGeneration(
         thinkingTokens = resp.usageMetadata.thoughtsTokenCount ?? thinkingTokens;
       }
       if (resp.errorCode) {
-        span.setAttribute('llm.error_code', resp.errorCode);
+        errorCode = String(resp.errorCode);
+        errorMessage = String((resp as any).errorMessage ?? '');
+        errorResponse = resp;
       }
       for (const part of resp.content?.parts ?? []) {
         const p = part as any;
@@ -598,10 +649,25 @@ export async function* traceLlmGeneration(
     }
   } catch (error: any) {
     span.recordException(error);
+    // Gemini (and any adapter that throws instead of yielding an error
+    // response) lands here; the message is often the raw API error body.
+    errorMessage = error instanceof Error ? error.message : String(error);
+    errorCode = refineErrorCode(errorCode || 'THROWN', errorMessage);
+    errorResponse = { errorCode, errorMessage };
     throw error;
   } finally {
     if (thinkingPreview) {
       span.addEvent('llm.thinking', { 'thinking.preview': thinkingPreview });
+    }
+    if (errorCode) {
+      span.setAttribute('llm.error_code', errorCode);
+      span.setAttribute('llm.error_message', errorMessage.slice(0, ERROR_MESSAGE_MAX_CHARS));
+      // Make this span a payload candidate (see supabaseSpanExporter's
+      // isPayloadSpan): the request as sent and the error as received.
+      if (meta.llmRequest !== undefined) {
+        span.setAttribute('llm.payload.request', safePayloadJson(meta.llmRequest));
+      }
+      span.setAttribute('llm.payload.response', safePayloadJson(errorResponse ?? { errorCode, errorMessage }));
     }
     span.setAttribute('llm.tokens.input', inputTokens);
     span.setAttribute('llm.tokens.output', outputTokens);

@@ -67,7 +67,7 @@ export class TracedGemini extends Gemini {
     stream?: boolean,
   ): AsyncGenerator<LlmResponse, void> {
     yield* traceLlmGeneration(
-      { provider: 'gemini', model: this.model },
+      { provider: 'gemini', model: this.model, llmRequest },
       this.tagAndGenerate(llmRequest, stream),
     );
   }

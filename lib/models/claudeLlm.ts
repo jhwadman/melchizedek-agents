@@ -140,7 +140,7 @@ export class ClaudeLlm extends BaseLlm {
     stream = false,
   ): AsyncGenerator<LlmResponse, void> {
     yield* traceLlmGeneration(
-      { provider: 'anthropic', model: this.model },
+      { provider: 'anthropic', model: this.model, llmRequest },
       this.generateInner(llmRequest, stream),
     );
   }
@@ -310,9 +310,15 @@ export class ClaudeLlm extends BaseLlm {
           }
         }
 
-        // Final message: tool_use blocks, thinking stash, and token usage.
+        // Final message: full text, tool_use blocks, thinking stash, usage.
+        //
+        // WHY includeText is true even though the text was just streamed:
+        // ADK's runner persists only NON-partial events, so a final without
+        // text would render the reply on screen and lose it from session
+        // history — the next turn would have no record the model answered.
+        // Printers drop text on a turnComplete event they already streamed.
         const final = await streamResponse.finalMessage();
-        yield this.finalResponse(final, /*includeText=*/ false);
+        yield this.finalResponse(final, /*includeText=*/ true);
       } else {
         // Non-streaming path
         const response = await client.messages.create(requestBase);

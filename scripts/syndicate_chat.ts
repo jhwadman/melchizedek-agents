@@ -15,7 +15,8 @@ import {
 	getFunctionResponses,
 	AgentTool,
 	setLogLevel,
-	LogLevel
+	LogLevel,
+	StreamingMode
 } from '@google/adk';
 import { randomUUID } from 'node:crypto';
 
@@ -230,6 +231,10 @@ async function main(): Promise<void> {
 	const SESSION_USER_ID = process.env.MELCHIZEDEK_USER_ID?.trim() || 'local-user';
 	const SESSION_ID = randomUUID();
 
+	// Live token-by-token output. Off gives one block per turn — useful when
+	// piping a transcript, or for an agent whose reply is structured JSON.
+	const STREAM_REPLIES = process.env.CHAT_STREAMING !== 'false';
+
 	// ── Detect persistence mode ──────────────────────────────────────────────
 	const persistence = detectPersistenceConfig(config.memory_system);
 
@@ -409,7 +414,13 @@ async function main(): Promise<void> {
 			let stream = runner.runAsync({
 				userId: SESSION_USER_ID,
 				sessionId: SESSION_ID,
-				newMessage: { role: 'user', parts: [{ text: trimmed }] }
+				newMessage: { role: 'user', parts: [{ text: trimmed }] },
+				// SSE makes the adapters emit display-only partials as tokens
+				// land, so thinking and the reply appear as they are produced
+				// rather than in one block when the call returns.
+				runConfig: {
+					streamingMode: STREAM_REPLIES ? StreamingMode.SSE : StreamingMode.NONE
+				}
 			});
 
 			stream = traceAgentRun(stream, {
@@ -419,8 +430,14 @@ async function main(): Promise<void> {
 			});
 
 			let currentMode: 'thinking' | 'text' | 'none' = 'none';
+			// Under SSE the reply arrives as partials and is then REPEATED whole
+			// on the final event — the one ADK persists to session history. Show
+			// the partials, skip the repeat. With streaming off nothing is
+			// partial, so this stays false and every event prints as before.
+			let streamedText = false;
 
 			for await (const event of stream) {
+				const isPartial = (event as any).partial === true;
 				const calls = getFunctionCalls(event);
 				if (calls && calls.length > 0) {
 					for (const call of calls) {
@@ -457,6 +474,7 @@ async function main(): Promise<void> {
 							}
 							process.stdout.write(c.dim + part.text + c.reset);
 						} else if (part.text) {
+							if (!isPartial && streamedText) continue;
 							if (currentMode === 'thinking') {
 								console.log(`\n\n${c.magenta}${c.bold}${event.author}${c.reset} › `);
 								currentMode = 'text';
@@ -465,6 +483,7 @@ async function main(): Promise<void> {
 								currentMode = 'text';
 							}
 							process.stdout.write(part.text);
+							if (isPartial) streamedText = true;
 						} else if ((part as any).inlineData) {
 							// WHY: Image generation models return binary data as base64-encoded
 							// inlineData parts. We detect these, decode them, and save to disk
@@ -480,6 +499,9 @@ async function main(): Promise<void> {
 						}
 					}
 				}
+
+				// A complete event ends the turn; the next one starts fresh.
+				if (!isPartial) streamedText = false;
 			}
 			console.log('\n');
 
