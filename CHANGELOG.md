@@ -27,9 +27,12 @@ bins, and the starter pack), not the repo's full history.
   text; printers skip text on a `turnComplete` event whose partials they
   already rendered. This path was unreachable before this release, since
   nothing requested SSE.
-- **`OTEL_CONSOLE_SPANS=false`** silences the `[OTEL_SPAN_JSON]` console
-  lines. In-process span listeners and the Supabase sink are unaffected,
-  so no telemetry is lost — it only unclutters an interactive session.
+- **Chat is silent about telemetry.** `melchizedek-chat` and every
+  `syndicate:*` script no longer print `[OTEL_SPAN_JSON]` lines; set
+  `OTEL_CONSOLE_SPANS=true` (shell or `.env`) to see them, and
+  `OTEL_CONSOLE_SPANS=false` to silence them in other scripts. In-process
+  span listeners and the Supabase sink are unaffected either way, so no
+  telemetry is lost.
 
 ## 0.9.3 — 2026-08-22
 

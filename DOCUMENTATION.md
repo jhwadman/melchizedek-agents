@@ -331,8 +331,10 @@ Anthropic extended thinking (thinking + tool use on the same Claude
 agent is not supported yet).
 
 Every model request also emits an `llm.request` OpenTelemetry span
-(provider, model, input/output/thinking tokens, latency) printed as an
-`[OTEL_SPAN_JSON]` line; set `TELEMETRY_SUPABASE=true` to persist
+(provider, model, input/output/thinking tokens, latency). Scripts print it
+as an `[OTEL_SPAN_JSON]` line; `melchizedek-chat` and the `syndicate:*`
+scripts keep those lines off unless `OTEL_CONSOLE_SPANS=true`. Set
+`TELEMETRY_SUPABASE=true` to persist
 spans to the `adk_telemetry` table (run `db/telemetry.sql`, then
 re-run `db/hardening.sql` — schema below):
 

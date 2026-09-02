@@ -149,6 +149,12 @@ function banner(
 
 async function main(): Promise<void> {
 	loadEnv(import.meta.url);
+	// Interactive chat is for reading the agent, not its telemetry: the
+	// [OTEL_SPAN_JSON] lines are off here unless OTEL_CONSOLE_SPANS is set
+	// (in .env, which loadEnv() has just read, or in the shell). Spans still
+	// reach the in-process listeners and the Supabase sink either way.
+	if (process.env.OTEL_CONSOLE_SPANS === undefined) process.env.OTEL_CONSOLE_SPANS = 'false';
+
 
 	// ── Register LLM providers ───────────────────────────────────────────────
 	// WHY: Must run AFTER loadEnv() so that API keys from .env are available.

@@ -88,7 +88,10 @@ const PRINT_ALL_SPANS = process.env.OTEL_CONSOLE_ALL_SPANS === 'true';
 // OTEL_CONSOLE_SPANS=false silences the [OTEL_SPAN_JSON] lines entirely.
 // The in-process listeners below still fire and the Supabase sink still
 // records, so this costs no telemetry — it only unclutters a chat session.
-const PRINT_CONSOLE_SPANS = process.env.OTEL_CONSOLE_SPANS !== 'false';
+// Read at export time rather than module load, so an entry point can set
+// its own default in main() (syndicate_chat.ts defaults to silent) after
+// loadEnv() has run and before the first span ends.
+const printConsoleSpans = (): boolean => process.env.OTEL_CONSOLE_SPANS !== 'false';
 
 function spanScopeName(span: ReadableSpan): string {
   const s = span as any;
@@ -105,7 +108,7 @@ class JsonConsoleExporter implements SpanExporter {
           /* a listener bug must not break the export pipeline */
         }
       }
-      if (!PRINT_CONSOLE_SPANS) continue;
+      if (!printConsoleSpans()) continue;
       if (!PRINT_ALL_SPANS && spanScopeName(span) === ADK_SCOPE) continue;
       // Create a clean JSON representation of the span
       const jsonSpan = {
@@ -123,7 +126,7 @@ class JsonConsoleExporter implements SpanExporter {
         })),
         status: span.status,
       };
-      // Print to stdout with a specific prefix so test_local.py can easily extract it
+      // Print to stdout with a fixed prefix so a wrapper can extract spans from a transcript
       console.log(`[OTEL_SPAN_JSON] ${JSON.stringify(jsonSpan)}`);
     }
     resultCallback({ code: ExportResultCode.SUCCESS });
