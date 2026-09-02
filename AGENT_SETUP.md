@@ -81,7 +81,7 @@ After the agent reports back:
 Keyless, if you installed Ollama:
 
 ```bash
-npm run syndicate:tutor       # one open-weight agent: paste material, be taught
+npm run syndicate:tutor       # one open-weight agent: name a topic or paste material, be taught
 npm run syndicate:council     # advocate/skeptic council, all local
 ```
 
@@ -179,7 +179,7 @@ Deploying the server itself (Heroku, Fly, a VPS) needs `PUBLIC_URL` set
 — at which point the server refuses to start without the bearer secret,
 by design. Run `db/hardening.sql` before real user data arrives, and
 read the deployment notes in `lib/memory/README.md` end to end. The
-patient in module 2.05's specimen would expect no less of you.
+patient in module 2.02's specimen would expect no less of you.
 
 ## 5. When your agents outgrow the clone
 

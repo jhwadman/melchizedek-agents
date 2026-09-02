@@ -3,9 +3,9 @@
 # ============================================================
 #
 # WHY: A teaching syndicate built for lyceumagents.com curriculum
-# module 2.03 (Agent workflows & conversation styles). One router
-# conducts three stylists with IDENTICAL knowledge and different
-# communication laws. Ask the same question of all three and the
+# module 1.05 (Agent workflows & conversation styles). One router
+# conducts three stylists with IDENTICAL knowledge and a different
+# communication style. Ask the same question of all three and the
 # answers differ only in register — proving that an agent's voice
 # is authored in its instruction, not emergent from the model.
 #

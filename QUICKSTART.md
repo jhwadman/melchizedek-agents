@@ -180,8 +180,9 @@ const config = loadSyndicate('mine.yaml');    // reads <your-repo>/config/agents
 
 - Read a syndicate the way the course does: start with
   `config/agents/examples/tutor.yaml` and map its instruction blocks —
-  identity, doctrine, communication laws, boundaries — then see the
-  same anatomy grown to full size in `patient_advocate.yaml`.
+  identity, communication style, task, examples — then see the
+  anatomy grown to full size, with doctrines and boundaries, in
+  `patient_advocate.yaml`.
 - The interactive curriculum walks every pattern in this repo:
   [lyceumagents.com/curriculum](https://lyceumagents.com/curriculum/).
 - Author your own syndicate: everything in `config/agents/examples/` is
