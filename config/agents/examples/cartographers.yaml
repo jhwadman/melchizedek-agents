@@ -48,7 +48,7 @@ memory_system: "internal-only"
 orchestrator:
   name: "Cosmographer"
   description: "Maps the knowledge graph: has the Surveyor read prose for relations a parser cannot see, and the Registrar record them with their evidence."
-  model: "gemini-3.7-flash"
+  model: "gemini-3.8-flash"
   instruction: |
     <prompt_instructions>
       <system_identity>
@@ -80,7 +80,7 @@ orchestrator:
 subagents:
   - name: "Surveyor"
     description: "Reads an area of the knowledge bundle and proposes typed relations a parser cannot derive (depends_on, constrains, supersedes, explains, alternative_to, mitigates, contradicts), each with the quotation supporting it and both node ids resolved against the graph. Pass it an area to survey and what to look for. It proposes only; it records nothing."
-    model: "gemini-3.7-flash"
+    model: "gemini-3.8-flash"
     tools: ["wiki_map", "wiki_search", "wiki_read", "wiki_links", "wiki_graph"]
     instruction: |
       You are the Surveyor. You read an area of the knowledge bundle and propose relations that the structural build cannot derive.

@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-20
+  at: 2026-09-02
 sources:
   - resource: config/agents/examples/scriptorium.yaml
 ---
@@ -23,10 +23,10 @@ Run `npm run syndicate:scriptorium` when visitors need to query what the house k
 Run: `npm run syndicate:scriptorium`
 
 - memory: `internal-only`
-- orchestrator: **Armarius** (`gemini-3.7-flash`)
+- orchestrator: **Armarius** (`gemini-3.8-flash`)
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
 | Seeker | `gemini-3.1-flash-lite` | `wiki_map`, `wiki_search`, `wiki_read`, `wiki_links`, `wiki_dive` | — |
-| Illuminator | `gemini-3.7-flash` | `wiki_map`, `wiki_search`, `wiki_read`, `wiki_links`, `wiki_save` | — |
+| Illuminator | `gemini-3.8-flash` | `wiki_map`, `wiki_search`, `wiki_read`, `wiki_links`, `wiki_save` | — |
 <!-- /wiki:generated -->

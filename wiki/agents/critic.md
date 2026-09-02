@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-20
+  at: 2026-09-02
 sources:
   - resource: config/agents/examples/critic.yaml
 ---
@@ -23,10 +23,10 @@ This syndicate excels at autonomous answer refinement within a single user-facin
 Run: `npm run syndicate:critic`
 
 - memory: `session-only`
-- orchestrator: **ReviewOrchestrator** (`gemini-3.7-flash`)
+- orchestrator: **ReviewOrchestrator** (`gemini-3.8-flash`)
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
-| DrafterAgent | `gemini-3.7-flash` | — | — |
-| CriticAgent | `gemini-3.7-flash` | — | — |
+| DrafterAgent | `gemini-3.8-flash` | — | — |
+| CriticAgent | `gemini-3.8-flash` | — | — |
 <!-- /wiki:generated -->

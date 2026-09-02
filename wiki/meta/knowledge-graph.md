@@ -7,7 +7,7 @@ tags:
   - graph
 generated:
   by: process:wiki-build
-  at: 2026-08-23
+  at: 2026-09-02
 sources:
   - resource: lib/wiki/entities.ts
   - resource: lib/wiki/extract.ts
@@ -30,8 +30,8 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 |---|---|---|---|
 | `module` | `module:<name>` | 66 | one source module |
 | `agent` | `agent:<name>` | 62 | one orchestrator or subagent inside a syndicate |
-| `doc` | `/dir/doc.md` | 53 | a concept document in the bundle — identity is its bundle path |
-| `env` | `env:<name>` | 40 | an environment variable the code reads |
+| `doc` | `/dir/doc.md` | 54 | a concept document in the bundle — identity is its bundle path |
+| `env` | `env:<name>` | 42 | an environment variable the code reads |
 | `file` | `file:<name>` | 39 | a repo file that is not a source module (DDL, config, prose) |
 | `script` | `script:<name>` | 38 | an npm script entrypoint |
 | `tool` | `tool:<name>` | 27 | a tool an agent may declare by name |
@@ -53,7 +53,7 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 | `imports` | extracted | A imports B | 193 | a static import edge between source files |
 | `links_to` | extracted | A links to B | 115 | a resolved markdown link between documents |
 | `derives_from` | extracted | A derives from B | 81 | declared in the document’s `sources:` frontmatter |
-| `requires_env` | extracted | A requires B | 74 | this environment variable must be set for the node to work |
+| `requires_env` | extracted | A requires B | 77 | this environment variable must be set for the node to work |
 | `uses_tool` | extracted | A calls B | 74 | the agent declares this tool by name |
 | `contains` | extracted | A contains B | 62 | the first is composed of the second |
 | `uses_model` | extracted | A runs on B | 62 | the agent is configured with this model id |

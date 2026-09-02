@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-23
+  at: 2026-09-02
 sources:
   - resource: config/agents/examples/augustin.yaml
 ---
@@ -21,10 +21,10 @@ _TODO(fill): why this syndicate exists, what it does well, and when to run it �
 Run: `npm run syndicate:augustin`
 
 - memory: `session-only`
-- orchestrator: **Arbiter** (`gemini-3.7-flash`)
+- orchestrator: **Arbiter** (`gemini-3.8-flash`)
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
 | XResearcher | `grok-4.5` | `x_search`, `web_extract` | — |
-| WebResearcher | `gemini-3.7-flash` | `web_search`, `web_extract` | — |
+| WebResearcher | `gemini-3.8-flash` | `web_search`, `web_extract` | — |
 <!-- /wiki:generated -->

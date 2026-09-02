@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-20
+  at: 2026-09-02
 sources:
   - resource: config/agents/examples/patient_advocate.yaml
 ---
@@ -21,7 +21,7 @@ The Patient Advocate syndicate exists to assist patients and caregivers in navig
 Run: `npm run syndicate:advocate`
 
 - memory: `long-term`
-- orchestrator: **Asclepius** (`gemini-3.7-flash`) · tools: `preload_memory`, `load_memory`
+- orchestrator: **Asclepius** (`gemini-3.8-flash`) · tools: `preload_memory`, `load_memory`
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|

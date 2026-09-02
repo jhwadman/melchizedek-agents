@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-20
+  at: 2026-09-02
 sources:
   - resource: config/agents/examples/delegation.yaml
 ---
@@ -21,10 +21,10 @@ The Delegation Router Workflow exists to triage user requests and delegate them 
 Run: `npm run syndicate:delegation`
 
 - memory: `session-only`
-- orchestrator: **RouterAgent** (`gemini-3.7-flash`)
+- orchestrator: **RouterAgent** (`gemini-3.8-flash`)
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
-| CodeExpert | `gemini-3.7-flash` | — | — |
-| MathExpert | `gemini-3.7-flash` | — | — |
+| CodeExpert | `gemini-3.8-flash` | — | — |
+| MathExpert | `gemini-3.8-flash` | — | — |
 <!-- /wiki:generated -->

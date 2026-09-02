@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-20
+  at: 2026-09-02
 sources:
   - resource: config/agents/examples/cartographers.yaml
 ---
@@ -23,10 +23,10 @@ Run it after a decision lands, after a subsystem is documented, or when the grap
 Run: `npm run syndicate:cartographers`
 
 - memory: `internal-only`
-- orchestrator: **Cosmographer** (`gemini-3.7-flash`)
+- orchestrator: **Cosmographer** (`gemini-3.8-flash`)
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
-| Surveyor | `gemini-3.7-flash` | `wiki_map`, `wiki_search`, `wiki_read`, `wiki_links`, `wiki_graph` | — |
+| Surveyor | `gemini-3.8-flash` | `wiki_map`, `wiki_search`, `wiki_read`, `wiki_links`, `wiki_graph` | — |
 | Registrar | `gemini-3.1-flash-lite` | `wiki_graph`, `wiki_read`, `wiki_relate` | — |
 <!-- /wiki:generated -->
