@@ -18,7 +18,9 @@ sources:
 
 ## `503 ServiceUnavailable` on inference
 
-The model id doesn't exist on the AI Studio endpoint or the account tier lacks access. Use `gemini-3.7-flash` or `gemini-3.1-flash-lite`; identifiers are case-sensitive and must match the AI Studio model list exactly.
+The model id doesn't exist on the AI Studio endpoint or the account tier lacks access. Use `gemini-3.7-flash` or `gemini-3.1-flash-lite`; identifiers are case-sensitive and must match the AI Studio model list exactly. A 503 whose message says "high demand" on a VALID model id is different: Google's capacity spike, transient, retry later.
+
+A failed turn's reason now reaches the surface: `failTask` embeds the upstream provider message via `describeTurnError` (`scripts/a2a_server.ts` — JSON ApiError blobs unwrapped, 300-char cap) in the task's `status.message`, and the Discord client renders it. Before 2026-08-27 the user saw `Agent task TASK_STATE_FAILED: Unknown error` for every failure, whatever the cause.
 
 ## `400` — "tool call context circulation not enabled"
 

@@ -196,6 +196,25 @@ interface TurnResult {
   grounding?: { queries: string[]; sources: string[] };
 }
 
+/** One human-readable line naming WHY a turn failed, for the failed task's
+ *  status message — the text the Discord surface renders verbatim. Provider
+ *  errors sometimes arrive as a raw JSON blob (Gemini ApiError:
+ *  `{"error":{"code":503,"message":"...","status":"UNAVAILABLE"}}`), so the
+ *  inner message is dug out before falling back to the string itself. An
+ *  empty message keeps the old pointer at the server logs. */
+export function describeTurnError(error: { code: string; message: string }): string {
+  let msg = (error.message ?? '').trim();
+  if (msg.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(msg);
+      const inner = parsed?.error?.message ?? parsed?.message;
+      if (typeof inner === 'string' && inner.trim()) msg = inner.trim();
+    } catch { /* not JSON — use as-is */ }
+  }
+  if (!msg) return 'see server logs for details.';
+  return msg.length > 300 ? `${msg.slice(0, 297)}...` : msg;
+}
+
 
 // ── Native ADK AgentExecutor Bridge ───────────────────────────────────────
 class SyndicateExecutor implements AgentExecutor {
@@ -668,7 +687,7 @@ class SyndicateExecutor implements AgentExecutor {
         });
 
         if (turn.error) {
-          failTask(`Error: [${turn.error.code}] ${resolution.route} failed to answer. See server logs for details.`);
+          failTask(`Error: [${turn.error.code}] ${resolution.route} failed to answer — ${describeTurnError(turn.error)}`);
           return;
         }
 
@@ -699,7 +718,7 @@ class SyndicateExecutor implements AgentExecutor {
         });
 
         if (turn.error) {
-          failTask(`Error: [${turn.error.code}] The agent run failed. See server logs for details.`);
+          failTask(`Error: [${turn.error.code}] The agent run failed — ${describeTurnError(turn.error)}`);
           return;
         }
 

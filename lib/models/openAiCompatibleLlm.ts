@@ -193,6 +193,14 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
       ...(cfg.maxOutputTokens !== undefined
         ? { max_tokens: cfg.maxOutputTokens }
         : {}),
+      // Reasoning budget. Qwen3-family models think before answering, and on
+      // a constraint-dense prompt they can spend the whole budget doing it
+      // and return an empty turn. Ollama's OpenAI-compatible endpoint honors
+      // `reasoning_effort` and IGNORES the native `think` field, so this is
+      // the only lever on this path. Opt-in per agent; omitted = unchanged.
+      ...(cfg.reasoningEffort !== undefined
+        ? { reasoning_effort: cfg.reasoningEffort }
+        : {}),
       ...(openAiTools.length > 0 ? { tools: openAiTools } : {}),
       // Structured output: an ADK outputSchema becomes a strict json_schema
       // response_format where the endpoint supports it (xAI does; Ollama's
