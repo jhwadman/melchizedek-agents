@@ -178,15 +178,17 @@ async function main(): Promise<void> {
 		}
 	}
 
-	// Define syndicate variable bindings
-	const bindings = {
-		headline_count: 3,
-		current_date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-	};
-
-	// Merge CLI overrides on top (--bind/--bindings flags win)
-	const cliBindings = parseCliBindings(argv);
-	const mergedBindings = { ...bindings, ...cliBindings };
+	// ONLY what the caller actually asked for on the command line.
+	//
+	// WHY nothing is seeded here: loadSyndicate merges these OVER a syndicate's
+	// own `variables:` block, so a hardcoded default is not a fallback — it is
+	// an override applied to every syndicate. `headline_count: 3` used to ride
+	// along into unrelated agents (a Tutor turn announced it in the banner and
+	// recorded it in syndicate.bindings telemetry) while silently beating the
+	// 5 that syndicate.yaml declares for itself. Universal tokens belong to
+	// defaultBindings() in lib/loadSyndicate.ts, which the loader applies UNDER
+	// the YAML — that is where current_date lives, timezone-pinned.
+	const mergedBindings = parseCliBindings(argv);
 
 	// Load the syndicate definition
 	const config = loadSyndicate(syndicateFile, {
