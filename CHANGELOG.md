@@ -4,6 +4,28 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## 0.9.5 — 2026-09-02
+
+- **The default production Gemini is now `gemini-3.8-flash`.** Two
+  exported constants change VALUE (not shape): `MEMORY_EXTRACTION_MODEL`
+  and `WIKI_AGENT_MODEL` in `lib/config.ts`, plus the internal
+  `VISION_MODEL` behind `inspect_image`. Every starter-pack syndicate
+  that shipped on `gemini-3.7-flash` now ships on `gemini-3.8-flash`.
+  The cheap tier is untouched: `DEFAULT_GEMINI_MODEL` stays
+  `gemini-3.1-flash-lite`, and `ares` / `model_zoo` keep their flash-lite
+  pins. Nothing in the exports map or the two bins changes.
+
+  The id was verified against the live endpoint before pinning:
+  `models/gemini-3.8-flash` publishes exactly 3.7's envelope —
+  1,048,576 input, 65,536 output, `thinking: true`, identical
+  `supportedGenerationMethods` — so no `maxOutputTokens` in any shipped
+  YAML changes and none is an over-ask.
+
+  If you pin a model explicitly in your own YAML, nothing changes for
+  you. If you rely on the defaults and want the old behaviour, set
+  `WIKI_AGENT_MODEL=gemini-3.7-flash` (env) or pin `model:` in your
+  syndicate.
+
 ## 0.9.4 — 2026-09-02
 
 - **Thinking and replies stream live.** The OpenAI-compatible adapter

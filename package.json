@@ -1,6 +1,6 @@
 {
   "name": "melchizedek-agents",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "A multi-model, multi-agent orchestration framework on Google ADK \u2014 YAML-defined syndicates, Supabase session persistence, pgvector long-term memory. Companion repo to the lyceumagents.com curriculum.",
   "type": "module",
   "license": "MIT",
