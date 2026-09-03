@@ -4,6 +4,17 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## 0.9.6 — 2026-09-02
+
+- **`web_extract` joins the public tool registry.** The tool's source
+  (`lib/tools/webExtractTool.ts`) has shipped in the package since
+  2026-08-09, but the sanitized `lib/toolRegistry.ts` never mapped the
+  YAML name, so `augustin.yaml`'s two researchers logged an unknown-tool
+  warning and ruled from search snippets. Declaring `web_extract` in a
+  syndicate now resolves to the client-side page reader on every
+  provider, local Ollama included. Additive: no export, bin, or starter
+  file changes shape.
+
 ## 0.9.5 — 2026-09-02
 
 - **The default production Gemini is now `gemini-3.8-flash`.** Two

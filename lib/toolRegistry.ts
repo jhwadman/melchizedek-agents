@@ -18,6 +18,7 @@ import { generateImageTool } from './tools/generateImageTool.ts';
 import { inspectImageTool } from './tools/inspectImageTool.ts';
 import { toFunctionTool } from './tools/toolContract.ts';
 import { WEB_SEARCH } from './tools/webSearchTool.ts';
+import { webExtractTool } from './tools/webExtractTool.ts';
 import { WIKI_AGENT_TOOL_CONTRACTS } from './tools/wikiTools.ts';
 import { X_SEARCH } from './tools/xSearchTool.ts';
 
@@ -38,6 +39,10 @@ const TOOL_MAP: Record<string, unknown> = {
   // (Gemini grounding / Anthropic / OpenAI / xAI); omitted with a warning
   // for local models. Prefer this in new YAMLs.
   web_search: WEB_SEARCH,
+  // Deterministic complement to web_search: client-side URL → clean-text
+  // reading (keyless — works on every provider, including local Ollama).
+  // augustin.yaml and librarian-style research agents declare it.
+  web_extract: webExtractTool,
   x_search: X_SEARCH,
   // xAI-only: semantic search over hosted Collections (XAI_COLLECTION_IDS).
   collections_search: COLLECTIONS_SEARCH,
