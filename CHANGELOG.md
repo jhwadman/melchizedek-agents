@@ -4,6 +4,61 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## 0.11.0 — 2026-09-20
+
+- **`x_api_search`: the X channel without a Grok dependency.** A new
+  client-side tool (`lib/tools/xApiSearchTool.ts`, registered in
+  `TOOL_MAP`) searches X's last seven days through the X API v2 recent
+  search and transcribes every PHOTO attached to a post through a Gemini
+  vision pass, pasted beneath the post. It runs on any provider and needs
+  `X_BEARER_TOKEN` (a read-only app token) plus the Gemini key the engine
+  already uses; without the token it reports itself unavailable to the
+  agent instead of failing the turn. The starter pack's `augustin.yaml`
+  moves its XResearcher onto it (`gemini-3.8-flash` + `x_api_search` +
+  `web_extract`), so the fact-checking arbiter no longer requires
+  `XAI_API_KEY`. `x_search` stays registered for grok-* agents that want
+  xAI's semantic ranker. Dials, all environment: `X_API_IMAGE_MAX`
+  (photos read per page, default 8), `X_API_MAX_RESULTS` (page ceiling,
+  default 50), `X_API_VISION_MODEL` (default `gemini-3.8-flash`).
+
+## 0.10.0 — 2026-09-09
+
+- **Post-answer guards.** A syndicate YAML may now carry an optional
+  `guards:` list of guard NAMES, run after the answering turn and before
+  the reply is published. A guard receives the final text plus every
+  tool-result text of that turn and returns the text to ship along with
+  notes for the `[STATUS]` stream; it rewrites in place rather than
+  re-asking the model. Three shape changes to the published surface:
+
+  - `SyndicateYamlConfig` (`./loadSyndicate`) gains `guards?: string[]`.
+    Optional, so every existing config still typechecks.
+  - `./loadSyndicate` gains `collectGuards(config, loadNested?)`, which
+    returns the union of guard names declared by a syndicate **and by
+    every syndicate it nests through `yaml_reference:`**. Read guards
+    with this rather than off `config.guards`: a guard belongs to the
+    syndicate that declared it, not to the position it occupies in a
+    graph, and reading the top-level field alone silently dropped a
+    nested syndicate's guards.
+  - A new `lib/guards/index.ts` publishes the `Guard` / `GuardResult`
+    interfaces and `resolveGuards(names, onUnknown?)`. The registry ships
+    EMPTY — the guards this deployment runs are domain modules that stay
+    private, the same arrangement `lib/toolRegistry.ts` uses. Register
+    your own by adding it to that file's `GUARD_MAP`; an unregistered
+    name warns and is skipped rather than failing the run.
+
+  `config/agents/syndicateSchema.yaml` documents the field. No bin
+  changes; no existing export changes shape.
+
+- **`lib/tools/mcpServe.ts` (new, internal).** The express/SSE scaffold
+  behind `npm run mcp:wiki` — `serveContracts({ name, label, port,
+  contracts })` — extracted from three byte-identical copies that had
+  begun to drift on error signalling and on whether they read `.env`.
+  Not in the exports map and not a bin, but it now ships because
+  `scripts/wiki/mcp_server.ts` imports it. Behaviour change for MCP
+  clients: a failed tool call is returned with the spec's `isError`
+  flag set instead of as an ordinary successful result, so a client can
+  tell "the tool answered" from "the tool failed".
+
 ## 0.9.6 — 2026-09-02
 
 - **`web_extract` joins the public tool registry.** The tool's source

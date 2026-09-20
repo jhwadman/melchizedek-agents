@@ -2,6 +2,8 @@
 
 <!-- wiki:generated section="listing" source="directory contents" -->
 - [Ares Data Extractor](/agents/ares.md) — The Ares Data Extractor syndicate.
+- [Augustin Desk (deep)](/agents/augustin_desk_deep.md) — The Augustin Desk (deep) syndicate.
+- [Augustin Desk](/agents/augustin_desk.md) — The Augustin Desk syndicate.
 - [Augustin](/agents/augustin.md) — The Augustin syndicate.
 - [The Cartographers](/agents/cartographers.md) — Maps the knowledge graph: has the Surveyor read prose for relations a parser cannot see, and the Registrar record them with their evidence.
 - [Claude Chat](/agents/claude.md) — The Claude Chat syndicate.

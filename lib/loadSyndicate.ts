@@ -133,6 +133,16 @@ export interface SyndicateYamlConfig {
   /** Defines the persistence and semantic memory layer for the syndicate. */
   memory_system?: 'internal-only' | 'session-only' | 'long-term';
   /**
+   * Post-answer guards by NAME (lib/guards/index.ts), run by the A2A server on
+   * the answering turn's final text with that turn's tool results, before the
+   * reply is published. Absent = none. Unknown names are warned and skipped.
+   *
+   * Guards declared by a NESTED `yaml_reference:` syndicate count too — see
+   * `collectGuards`, which the server uses instead of reading this field
+   * directly.
+   */
+  guards?: string[];
+  /**
    * Domain rules appended to the shared fact-extraction prompt for THIS
    * syndicate only. The prompt is global (every long-term memory consumer
    * shares it), so anything domain-specific — "never store a market quote" —
@@ -316,6 +326,45 @@ export function parseCliBindings(argv: string[]): VariableMap {
  * });
  * ```
  */
+/**
+ * Every guard name declared anywhere in a syndicate, including by nested
+ * `yaml_reference:` syndicates.
+ *
+ * The A2A server used to read `config.guards` directly, which meant guards were
+ * honoured on exactly ONE composition: a top-level syndicate. Compose the same
+ * syndicate as a sub-agent — `yaml_reference:`, the repo's own idiom, already
+ * used by augustin_desk.yaml, financial_router.yaml and the portfolio-performance
+ * syndicate — and `compileSubagent` loads the nested config, `compileGraph` never
+ * looks at `guards`, and the server only ever consults the PARENT's list. The
+ * nested syndicate's `guards: [science]` was dropped with no warning, because
+ * `resolveGuards`' unknown-name path cannot fire on a list nobody read.
+ *
+ * A guard is a property of the syndicate that declared it, not of the position
+ * it happens to occupy in a graph, so the union is what should run.
+ */
+export function collectGuards(
+  config: SyndicateYamlConfig,
+  loadNested: (file: string) => SyndicateYamlConfig = loadSyndicate,
+  seen = new Set<string>(),
+): string[] {
+  const names = new Set<string>(config.guards ?? []);
+  for (const sub of config.subagents ?? []) {
+    const ref = sub.yaml_reference;
+    // Cycle guard: a syndicate that references itself, directly or through a
+    // chain, would otherwise recurse until the stack gives out.
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+    try {
+      for (const name of collectGuards(loadNested(ref), loadNested, seen)) names.add(name);
+    } catch {
+      // A nested file that will not load is the graph compiler's error to
+      // report, with its path and its reason. Collecting guard names must not
+      // be the thing that fails first and buries it.
+    }
+  }
+  return [...names];
+}
+
 export function loadSyndicate(
   filename: string,
   options: LoadSyndicateOptions = {},

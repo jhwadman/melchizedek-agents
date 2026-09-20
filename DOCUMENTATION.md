@@ -56,6 +56,8 @@ Minimal complete example:
 syndicate_name: "My Council"
 memory_system: "session-only"     # internal-only | session-only | long-term
 
+# guards: [my_guard]              # [optional] post-answer guards, by name
+
 variables:                        # bound into {{placeholders}} at load
   headline_count: 5               # current_date is injected automatically
 
@@ -90,6 +92,7 @@ Field reference:
 | `variables` | root | Key/values bound into `{{placeholders}}` anywhere in instructions. `current_date` is always injected; CLI `--bind key=value` overrides. |
 | `memory_extraction_rules` | root | Domain rules appended to the shared fact-extraction prompt for THIS syndicate only (requires `memory_system: "long-term"`). The extraction prompt is global — anything domain-specific belongs here, never edited into it. Unset, the prompt renders byte-identical to before the slot existed (§4). |
 | `dispatch` | root | Switches the syndicate from DELEGATE to PLAN-DISPATCH routing (§6). `default_route` (required) names the fail-static subagent; `route_key` / `reason_key` name the router's JSON properties (defaults `route` / `reason`). A2A-only. |
+| `guards` | root | Optional list of post-answer guard NAMES (`lib/guards/index.ts`). Each runs in the A2A server after the answering turn and before the reply publishes, receiving the final text plus every tool-result text of that turn, and rewrites in place rather than re-asking the model; its notes land in the `[STATUS]` stream. Guards declared by a syndicate reached through `yaml_reference:` count too — the server resolves the union via `collectGuards()`. Resolved by name, never by module path, so registering one is a deliberate edit to `lib/guards/index.ts`; **the published registry ships empty**, and an unregistered name is warned about and skipped. A2A-only. |
 | `name` / `model` / `instruction` | agent | The agent triple. Any Gemini id, `claude-*`, or `ollama/*` for open-weight local models (see §5). |
 | `description` | subagent | **The delegation API.** The orchestrator reads this when deciding to hand off — write it like a function signature ("Use this subagent to…, pass it…"). |
 | `tools` | agent | Names resolved by the tool registry (§3). Long-term memory agents add `preload_memory` / `load_memory`. |

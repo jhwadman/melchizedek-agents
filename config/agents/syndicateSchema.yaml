@@ -30,6 +30,11 @@ syndicate_name: "My Syndicate"
 # (America/New_York, e.g. "July 7, 2026") via loadSyndicate's default
 # bindings. Do NOT hardcode a current_date here — a stale value silently
 # poisons date-anchored prompts (e.g. Google Search recency anchors).
+# [optional] Post-answer guards by NAME (lib/guards/index.ts), run by the A2A
+# server on the answering turn's final text with that turn's tool results,
+# before the reply is published. Unknown names are warned and skipped.
+# guards: [science]
+
 variables:
   my_variable: "default_value"
 

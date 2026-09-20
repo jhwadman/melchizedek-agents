@@ -3,6 +3,7 @@ import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import express from 'express';
 import { collectGrounding, describeGrounding, newGroundingState, webSourcesLine } from '../lib/grounding.ts';
+import { resolveGuards } from '../lib/guards/index.ts';
 import rateLimit from 'express-rate-limit';
 import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import type { AgentCard } from '@a2a-js/sdk';
@@ -17,7 +18,7 @@ import type { AgentExecutor, ExecutionEventBus } from '@a2a-js/sdk/server';
 import { AsyncLocalStorage } from 'async_hooks';
 import { agentCardHandler, jsonRpcHandler, restHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { Runner, LlmAgent, InMemorySessionService, getFunctionCalls, getFunctionResponses, setLogLevel, LogLevel } from '@google/adk';
-import { loadSyndicate } from '../lib/loadSyndicate.ts';
+import { loadSyndicate, collectGuards } from '../lib/loadSyndicate.ts';
 import type { SyndicateYamlConfig, SubagentYamlConfig } from '../lib/loadSyndicate.ts';
 import { isDispatchSyndicate, matchRouteOverride, resolveRoute } from '../lib/dispatch.ts';
 import type { RouteResolution } from '../lib/dispatch.ts';
@@ -183,6 +184,8 @@ interface TurnResult {
   text: string;
   /** Last plain-text tool result seen — the DELEGATE-mode relay fallback. */
   lastToolResultText: string;
+  /** every tool result of the turn, whole, for lib/guards */
+  toolResultTexts: string[];
   /** Every tool/subagent name invoked, for degenerate-output detection. */
   invokedToolNames: Set<string>;
   /** Pre-rendered " | N tokens (M thinking)" log suffix, or ''. */
@@ -297,6 +300,9 @@ class SyndicateExecutor implements AgentExecutor {
 
     let combinedText = '';
     let lastToolResultText = '';
+    // Every tool result of this turn, for guards (lib/guards). Kept whole:
+    // a guard's ledger is built from what the tools actually returned.
+    const toolResultTexts: string[] = [];
     const invokedToolNames = new Set<string>();
 
     // The DELEGATE relay-fallback predicate, evaluated by the tracer in its
@@ -397,6 +403,7 @@ class SyndicateExecutor implements AgentExecutor {
             : typeof (respContent as any).result === 'string' ? (respContent as any).result : '';
           if (resultText.trim()) {
             lastToolResultText = resultText.trim();
+            toolResultTexts.push(resultText.trim());
           }
         }
       }
@@ -440,6 +447,7 @@ class SyndicateExecutor implements AgentExecutor {
     return {
       text: combinedText.trim(),
       lastToolResultText,
+      toolResultTexts,
       invokedToolNames,
       grounding: (grounding.queries.size || grounding.sources.size)
         ? { queries: [...grounding.queries], sources: [...grounding.sources] }
@@ -556,6 +564,8 @@ class SyndicateExecutor implements AgentExecutor {
       console.log(`[A2A] Session: ${resumed ? 'resumed' : 'new'} — context ${contextId.slice(0, 8)}`);
 
       let finalText = '';
+
+      let guardInputs: string[] = [];
       let tokenInfo = '';
       let routerTokenInfo = '';
 
@@ -692,6 +702,7 @@ class SyndicateExecutor implements AgentExecutor {
         }
 
         tokenInfo = turn.tokenInfo;
+        guardInputs = turn.toolResultTexts;
         finalText = turn.text;
         if (!finalText) {
           // Naming the route turns a blank reply into a lead. This is the
@@ -723,6 +734,7 @@ class SyndicateExecutor implements AgentExecutor {
         }
 
         tokenInfo = turn.tokenInfo;
+        guardInputs = turn.toolResultTexts;
 
         // Failed-relay fallback: an orchestrator (flash-lite especially) can
         // botch the hop that relays a specialist answer, in two observed ways —
@@ -750,6 +762,38 @@ class SyndicateExecutor implements AgentExecutor {
             : 'emitted no text';
           console.warn(`[A2A] ⚠ Orchestrator ${reason} — relaying last tool result verbatim (${turn.lastToolResultText.length.toLocaleString()} chars).`);
           finalText = turn.lastToolResultText;
+        }
+      }
+
+      // ══ GUARDS ═════════════════════════════════════════════════════════
+      // Named in the syndicate's `guards:` list (lib/guards/index.ts). They run
+      // on the answering turn's final text with every tool result that turn
+      // produced, and they REWRITE rather than retry: a note lands in the
+      // [STATUS] stream (parsed downstream like a tool line), and the text that
+      // ships is the guarded one. The classifier turn never reaches here.
+      // `collectGuards`, not `this.config.guards`: a syndicate composed as a
+      // nested `yaml_reference:` sub-agent declares its guards in its OWN file,
+      // and reading only the top-level list silently dropped them.
+      const guardNames = collectGuards(this.config);
+      if (finalText && guardNames.length) {
+        const guards = resolveGuards(guardNames, (n) => console.warn(`[A2A] ⚠ Unknown guard '${n}' — ignored`));
+        for (const guard of guards) {
+          try {
+            const out = await guard.run(finalText, guardInputs);
+            // Always logged, notes or not: a guard that fires is visible by its
+            // notes, and a guard that ran clean must be distinguishable from one
+            // that never ran. The 2026-08-15 lesson, applied here on day one.
+            console.log(`[A2A] ⛨ ${guard.name}: checked ${finalText.length.toLocaleString()} chars against ${guardInputs.length} tool result${guardInputs.length === 1 ? '' : 's'} — ${out.notes.length} note${out.notes.length === 1 ? '' : 's'}`);
+            for (const note of out.notes) {
+              console.log(`[A2A] ⛨ ${guard.name}: ${note}`);
+              publishWorking(eventBus, taskId, contextId, `Guard ${guard.name}: ${note}`);
+            }
+            finalText = out.text;
+          } catch (guardErr: unknown) {
+            const msg = guardErr instanceof Error ? guardErr.message : String(guardErr);
+            console.error(`[A2A] ⚠ Guard '${guard.name}' failed (answer shipped unguarded): ${msg}`);
+            publishWorking(eventBus, taskId, contextId, `Guard ${guard.name}: did not run (${msg})`);
+          }
         }
       }
 

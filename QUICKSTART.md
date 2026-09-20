@@ -56,7 +56,7 @@ npm run syndicate:delegation    # router → specialists
 npm run syndicate:critic        # drafter → critic confidence loop
 npm run syndicate:image         # spec-first image production + blind audit
 npm run syndicate:advocate      # long-term-memory patient advocate*
-npm run syndicate:augustin      # fact-checking arbiter (needs XAI_API_KEY too)
+npm run syndicate:augustin      # fact-checking arbiter (needs X_BEARER_TOKEN too)
 ```
 
 One-shot mode — pass the question as an argument and the process exits

@@ -36,6 +36,18 @@ Documents interleave three regions. `wiki:generated` markers hold machine-owned 
 - The [Cartographers](/agents/cartographers.md) work the [knowledge graph](/meta/knowledge-graph.md) — the second layer, where entities and typed relations sit over the same files.
 - `npm run wiki:init` scaffolds a fresh bundle elsewhere (`WIKI_ROOT`) — the tooling is bundle-agnostic.
 
+## The sibling bundles
+
+Bundle-agnostic is not a claim; three other repos are maintained by this engine and none of them installs any of it. Each has a hand-written `knowledge/` manual carrying judgment, and a build script HERE supplying the mechanical half — derived inventory, per-directory indexes, `log.md`, link lint, the entity graph — because the target repo must not gain a dependency for it.
+
+| Script | Bundle | Why the script lives here |
+|---|---|---|
+| `npm run wiki:lyceum` | `../lyceumagents/knowledge` | the site deploys from exactly three Astro integrations; a knowledge pipeline has no business in a Vercel build |
+| `npm run wiki:penguin` | `../nihilistic-penguin/knowledge` | the engine is TypeScript and penguin is Python |
+| `npm run wiki:cajal` | `../cajal/knowledge` | cajal's simulation engine is deliberately dependency-free, and its page is a two-devDep Astro build |
+
+Each takes `--check` for a lint-only, CI-style exit code, and each maps its own repo's truth onto the shared [pipeline](/meta/knowledge-graph.md) — what a "content entry" is on the site, a "process" is in penguin, and a "preset" or "tool contract" is in cajal. What those repos gain is plain markdown that stands on its own.
+
 ## The second layer
 
 Documents linked to documents is one graph; it answers what to read. Over the same files the build derives a second one — entities (agents, tools, models, providers, modules, tables, environment variables) joined by typed relations — so relational questions have an answer that is not grep. Structural relations are derived every run and never authored; judgment is asserted separately, with evidence, through `wiki_relate`. The vocabulary, the two stores and the gate are described in [the knowledge graph](/meta/knowledge-graph.md), the reasoning in [ADR 0005](/decisions/0005-entity-graph-layer.md).

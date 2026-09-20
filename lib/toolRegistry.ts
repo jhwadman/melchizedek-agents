@@ -21,6 +21,7 @@ import { WEB_SEARCH } from './tools/webSearchTool.ts';
 import { webExtractTool } from './tools/webExtractTool.ts';
 import { WIKI_AGENT_TOOL_CONTRACTS } from './tools/wikiTools.ts';
 import { X_SEARCH } from './tools/xSearchTool.ts';
+import { xApiSearchTool } from './tools/xApiSearchTool.ts';
 
 // Knowledge-bundle tools, derived from their contracts so the YAML names
 // can never drift from the definitions. The agentic composites
@@ -44,6 +45,9 @@ const TOOL_MAP: Record<string, unknown> = {
   // augustin.yaml and librarian-style research agents declare it.
   web_extract: webExtractTool,
   x_search: X_SEARCH,
+  // X API v2 recent search as a client-side contract, photos transcribed
+  // inline — runs on every provider; needs X_BEARER_TOKEN in the server env.
+  x_api_search: xApiSearchTool,
   // xAI-only: semantic search over hosted Collections (XAI_COLLECTION_IDS).
   collections_search: COLLECTIONS_SEARCH,
   // Gemini-only ADK grounding tool, kept for backward compatibility.
