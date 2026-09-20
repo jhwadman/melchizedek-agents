@@ -65,3 +65,7 @@ scripts/apply_hardening.sh
 !/observatory/runs/.gitkeep
 __pycache__/
 *.pyc
+
+# the deployment's PRIVATE Augustin: seeded from examples/augustin.yaml,
+# published to the agent registry with scripts/deploy_agent.ts, never in the slug
+/config/agents/augustin.yaml

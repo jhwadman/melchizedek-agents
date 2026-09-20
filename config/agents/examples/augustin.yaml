@@ -35,13 +35,13 @@
 # load-time date — and keep one contextId per channel of conversation
 # for session continuity.
 #
-# THIS FILE IS A PAIR: it lives at config/agents/augustin.yaml (the
-# deployment's live syndicate — bare id `augustin` has NO registry
-# row, so the A2A server serves THIS file; push + dyno restart is the
-# whole deploy) and at config/agents/examples/augustin.yaml (the
-# starter-pack teaching copy the curriculum studies, shipped in the
-# public export). The two are byte-identical; edit them together and
-# verify with `diff`.
+# THIS FILE IS THE PUBLIC STARTER-PACK COPY. It ships in the
+# melchizedek-agents export and the Lyceum curriculum studies it. The
+# deployment runs a PRIVATE copy — config/agents/augustin.yaml, gitignored
+# and published to the Supabase agent registry under the bare id
+# `augustin` (2026-09-20) — seeded from this file and free to diverge. A
+# change worth teaching lands here; the A2A server serves this file only
+# when no registry row exists.
 # ============================================================
 
 syndicate_name: "Augustin"
