@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-09-08
+  at: 2026-09-22
 sources:
   - resource: config/agents/augustin_desk_deep.yaml
 ---
@@ -23,6 +23,6 @@ _TODO(fill): why this syndicate exists, what it does well, and when to run it �
 
 | Subagent | Model | Tools | MCP |
 |---|---|---|---|
-| XScout | `grok-4.5` | `x_search`, `web_extract` | — |
+| XScout | `grok-4.7` | `x_search`, `web_extract` | — |
 | WebCheck | `gemini-3.8-flash` | `web_search`, `web_extract` | — |
 <!-- /wiki:generated -->

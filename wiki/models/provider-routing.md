@@ -7,7 +7,7 @@ tags:
   - routing
 generated:
   by: process:wiki-build
-  at: 2026-07-28
+  at: 2026-09-22
 sources:
   - resource: lib/models/providerMap.ts
   - resource: lib/models/registry.ts
@@ -27,7 +27,7 @@ All provider registration must occur before constructing agents. The `LLMRegistr
 | gemini | Google Gemini | `GOOGLE_GENAI_API_KEY` | `gemini-*` | `gemini-3.1-flash-lite` |
 | anthropic | Anthropic Claude | `ANTHROPIC_API_KEY` | `claude-*` | `claude-sonnet-4-6` |
 | openai | OpenAI GPT | `OPENAI_API_KEY` | `gpt-*`, `o<digit>*` | `gpt-5-mini` |
-| xai | xAI Grok | `XAI_API_KEY` | `grok-*` | `grok-4.5` |
+| xai | xAI Grok | `XAI_API_KEY` | `grok-*` | `grok-4.7` |
 | ollama | Ollama (local) | (keyless, local) | `ollama/<model>` | `ollama/qwen3:8b` |
 <!-- /wiki:generated -->
 
