@@ -475,11 +475,16 @@ test('x_search forwards env constraints; bare with none set', () => {
   }
 });
 
-test('reasoningParam: grok-4.5 pins effort medium; other ids keep their shapes', () => {
-  // grok-4.5 sends the xAI effort control (docs.x.ai › Reasoning › Effort
-  // levels; xAI's own default is high) — pinned to medium in lib/config.ts.
+test('reasoningParam: grok-4.5/4.7 pin effort medium; other ids keep their shapes', () => {
+  // grok-4.5 and grok-4.7 send the xAI effort control (docs.x.ai ›
+  // Reasoning › Effort levels; xAI's own default is high) — pinned to
+  // medium in lib/config.ts.
   assert.deepEqual(
     (new GrokLlm({ model: 'grok-4.5' }) as any).reasoningParam(),
+    { effort: 'medium' },
+  );
+  assert.deepEqual(
+    (new GrokLlm({ model: 'grok-4.7' }) as any).reasoningParam(),
     { effort: 'medium' },
   );
   // Older grok ids don't accept the param and must not send one.

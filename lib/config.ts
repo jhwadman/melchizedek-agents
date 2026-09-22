@@ -53,15 +53,15 @@ export const DEFAULT_GPT_MODEL = 'gpt-5-mini';
 /**
  * Default xAI model used when a grok-* model is requested but no specific
  * identifier is provided. Requires XAI_API_KEY (lib/models/grokLlm.ts).
- * grok-4.5 is a reasoning model (reasoning cannot be disabled); it returns
+ * grok-4.7 is a reasoning model (reasoning cannot be disabled); it returns
  * reasoning summaries, which the adapter surfaces as thinking.
  */
-export const DEFAULT_GROK_MODEL = 'grok-4.5';
+export const DEFAULT_GROK_MODEL = 'grok-4.7';
 
 /**
- * Reasoning effort sent with grok-4.5 requests: 'low' | 'medium' | 'high'
- * (xAI's own default is 'high'). Pinned to MEDIUM — deeper than low
- * without high's latency and token cost. Source: docs.x.ai › Model
+ * Reasoning effort sent with grok-4.5/4.7 requests: 'low' | 'medium' | 'high'
+ * (xAI's own default is 'high'; 4.7 adds 'xhigh'). Pinned to MEDIUM — deeper
+ * than low without high's latency and token cost. Source: docs.x.ai › Model
  * capabilities › Text › Reasoning › Effort levels. Older grok ids don't
  * accept the param and never receive it (lib/models/grokLlm.ts).
  */

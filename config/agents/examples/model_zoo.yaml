@@ -58,10 +58,10 @@ subagents:
         thinkingBudget: 2048
 
   - name: "grok"
-    description: "Grok 4.5 (reasoning effort: medium), by xAI."
-    # The adapter pins reasoning effort 'medium' for grok-4.5 requests
+    description: "Grok 4.7 (reasoning effort: medium), by xAI."
+    # The adapter pins reasoning effort 'medium' for grok-4.5/4.7 requests
     # (DEFAULT_GROK_REASONING_EFFORT, lib/config.ts).
-    model: "grok-4.5"
+    model: "grok-4.7"
     instruction: |
       You are a concise explainer. Answer in three short paragraphs at most,
       plain language first, one concrete example, no headings.
