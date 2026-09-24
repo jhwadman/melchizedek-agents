@@ -321,7 +321,7 @@ funded — with one verdict per syndicate and the variables that would
 unlock the most. Read-only; no key value is ever printed. Every
 starter-pack file opens with a `# tier:` header (`keyless`, one provider
 such as `gemini`, or `multi-provider`) the doctor checks against the
-models. `GOOGLE_GENAI_API_KEY` alone runs twelve of the sixteen examples.
+models. `GOOGLE_GENAI_API_KEY` alone runs thirteen of the seventeen examples.
 
 **One key instead of several — the gateway fallback.** Direct adapters
 are canonical: the native features above exist only on a provider's own
@@ -560,6 +560,23 @@ interface, register it behind a model-id prefix.
 **Point an agent at an MCP server**: set `mcp_server_url:` on a
 subagent. `scripts/demo_mcp_server.ts` is a complete server to copy —
 tool definitions, SSE wiring, and persistent state in ~250 lines.
+
+**Teach your coding agent the framework**: `skills/` holds six Agent
+Skills (the open SKILL.md standard — a directory per skill, `name` and
+`description` frontmatter) that give Claude Code, Codex, Cursor,
+OpenCode or Gemini CLI the catalog of syndicates and the procedures in
+this document: `melchizedek` (find and run, delegate a task),
+`melchizedek-author`, `melchizedek-serve`, `melchizedek-memory`,
+`melchizedek-models`, `melchizedek-scribe`. `npx melchizedek-skills
+install` copies them into `.claude/skills/` and `.agents/skills/` of the
+current project (`--for claude,codex,cursor,opencode,gemini,agents,all`,
+`--global`, `--dir <path>`, `--only <names>`, `--force`, `--dry-run`;
+`npm run skills:install` in a clone). The installer (`lib/skills.ts`)
+copies only from the package's own `skills/` directory, follows no
+symlinks, and never overwrites a differing file without `--force`. Each
+SKILL.md body was written by the Scribe syndicate
+(`config/agents/examples/scribe.yaml`) from a brief of facts and reviewed
+by a person; `skills/README.md` records the procedure.
 
 ## 8. Security notes
 

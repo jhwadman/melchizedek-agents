@@ -166,6 +166,18 @@ const config = loadSyndicate('mine.yaml');    // reads <your-repo>/config/agents
   `melchizedek-agents/tools/webExtractTool`, `melchizedek-agents/memory`,
   and friends — all typed. `@google/adk` installs alongside as a peer:
   your app owns the ADK version.
+- **Your coding agent can learn all of this.** The package ships a
+  six-skill suite (`skills/`, the open SKILL.md standard) covering the
+  catalog, authoring, serving, memory, models, and the Scribe:
+
+  ```bash
+  npx melchizedek-skills install          # → .claude/skills + .agents/skills here
+  npx melchizedek-skills install --for all --global
+  ```
+
+  Claude Code, Codex, Cursor, OpenCode and Gemini CLI read those
+  locations; `npx melchizedek-skills paths` lists them. Details in
+  `skills/README.md`.
 
 ## Common first-run errors
 

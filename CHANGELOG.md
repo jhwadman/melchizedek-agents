@@ -4,6 +4,25 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## 0.13.0 — 2026-09-24
+
+- **`melchizedek-skills`: the framework as a skills suite.** A fourth bin
+  (and `npm run skills:install`) copies `skills/` — six Agent Skills in the
+  open SKILL.md standard — into the directories coding agents read:
+  `.claude/skills/` and `.agents/skills/` by default (between them, Claude
+  Code, Codex, Cursor, OpenCode and Gemini CLI), or `--for
+  claude,codex,cursor,opencode,gemini,agents,all`, `--global`, `--dir`,
+  `--only`, `--force`, `--dry-run`; `list` and `paths` subcommands. The
+  suite: `melchizedek` (where the syndicates are, what each costs, run one,
+  delegate a task from a coding agent), `melchizedek-author`,
+  `melchizedek-serve`, `melchizedek-memory`, `melchizedek-models`,
+  `melchizedek-scribe`. `skills` joins `files`; engine: `lib/skills.ts`.
+- **Starter pack: `scribe.yaml`, The Scribe.** A Gemini syndicate that
+  writes one document from a technical brief and audits it against the
+  brief through a JSON-schema leaf (the Auditor) before returning it.
+  `npm run syndicate:scribe`. The skills suite above was written with it,
+  one brief per skill.
+
 ## 0.12.0 — 2026-09-23
 
 - **`melchizedek-doctor`: which keys do I need?** A third bin (and

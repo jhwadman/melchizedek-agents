@@ -109,6 +109,7 @@ worked specimen for a curriculum module:
 | `claude.yaml` — Claude Chat | minimal single-agent config; the multi-model adapter in one file | — |
 | `model_zoo.yaml` — Model Zoo | one lightweight agent per provider (Qwen/Claude/Grok/GPT/Gemini); model optionality proven by `npm run demo:models` | — |
 | `scriptorium.yaml` — The Scriptorium | agents over the shipped knowledge bundle: query with citations, author through a validated save gate | — |
+| `scribe.yaml` — The Scribe | a technical brief in, a finished document out: draft, audit against the brief through a JSON-schema leaf, revise; wrote the `skills/` suite | — |
 
 `syndicateSchema.yaml` is the annotated schema reference for authoring
 your own.
@@ -142,6 +143,14 @@ your own.
   bundle (`npm run wiki:init` scaffolds a fresh one); the tools are served
   to agents by name and to MCP clients via `npm run mcp:wiki` (see
   DOCUMENTATION §9 and `wiki/meta/wiki-system.md`).
+- **Skills for your coding agent** — `skills/` is a six-skill suite in the
+  open SKILL.md standard that teaches Claude Code, Codex, Cursor, OpenCode
+  or Gemini CLI where the syndicates are and how to run, author, serve,
+  remember and write with them. `npx melchizedek-skills install` copies it
+  into `.claude/skills/` and `.agents/skills/` (`--for`, `--global`,
+  `--dir`, `--dry-run`); `npx skills add jhwadman/melchizedek-agents` works
+  too. The prose was written by `scribe.yaml` from one brief per skill —
+  see [`skills/README.md`](./skills/README.md).
 
 ## License
 

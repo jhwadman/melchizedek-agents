@@ -25,6 +25,7 @@ Its parts, each documented in this bundle:
 - [Memory](/memory/architecture.md) — session transcripts distilled into supersedable facts with hybrid vector recall, on the [canonical schema](/memory/schema.md).
 - [MCP](/protocols/mcp.md) and [A2A](/protocols/a2a.md) — reaching tools outward and serving agents outward.
 - [Operations](/operations/) — [setup paths](/operations/setup.md), [failure modes](/operations/failure-modes.md), and the [public export pipeline](/operations/export-pipeline.md).
+- [The agent-skills suite](/operations/agent-skills.md) — six SKILL.md skills, shipped in the package, that teach a coding agent to find, run, author, serve and remember with syndicates; written by [the Scribe](/agents/scribe.md) from briefs.
 
 The repo is the private source of truth for a three-repo network — a sanitized public mirror and a teaching site derive from it; see [the Lyceum network](/overview/lyceum-network.md).
 
