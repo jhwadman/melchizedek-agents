@@ -1,3 +1,4 @@
+# tier: keyless  — runs with no API key (local Ollama); `npm run doctor` shows what each key unlocks.
 # ============================================================
 # Tutor — the open-weight single agent
 # ============================================================

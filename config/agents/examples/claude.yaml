@@ -1,3 +1,4 @@
+# tier: anthropic  — needs only ANTHROPIC_API_KEY; `npm run doctor` shows what each key unlocks.
 syndicate_name: "Claude Chat"
 
 # memory_system: "session-only" means conversation history is persisted in

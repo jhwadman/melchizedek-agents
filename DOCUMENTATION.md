@@ -302,6 +302,8 @@ accordingly — model optionality is a single YAML line per agent:
 | `claude-*` | Anthropic | `lib/models/claudeLlm.ts` | `ANTHROPIC_API_KEY` | ✅ server tool |
 | `gpt-*`, o-series | OpenAI | `lib/models/gptLlm.ts` (Responses API) | `OPENAI_API_KEY` | ✅ web_search tool |
 | `grok-*` | xAI | `lib/models/grokLlm.ts` (Responses API) | `XAI_API_KEY` | ✅ Agent Tools search |
+| `ollama/*` | Local Ollama | `lib/models/ollamaLlm.ts` | none | ⚠ omitted + warning |
+| *any cloud id whose direct key is absent* | the id's own provider, via a gateway | `lib/models/gatewayLlm.ts` (chat completions) | `MODEL_GATEWAY` + `MODEL_GATEWAY_API_KEY` | ⚠ omitted + reported |
 
 The xAI adapter carries the deepest capability surface: `grok-4.5`
 requests pin `reasoning.effort: "medium"` (`lib/config.ts`), SSE
@@ -310,7 +312,36 @@ partial delta events stream, one aggregated event persists with usage),
 structured outputs ride `outputSchema` → `text.format`, and two
 xAI-only tools — `x_search` and `collections_search` (§3) — turn on
 live X search and hosted-document RAG. All verified live on grok-4.5.
-| `ollama/*` | Local Ollama | `lib/models/ollamaLlm.ts` | none | ⚠ omitted + warning |
+
+**Which keys do I need?** `npm run doctor` (the `melchizedek-doctor` bin)
+reads every syndicate YAML, resolves each agent's model under your `.env`,
+and prints one table — agent, model, provider, which declared server-side
+tools that path runs natively (✓) or drops (✗), and whether the path is
+funded — with one verdict per syndicate and the variables that would
+unlock the most. Read-only; no key value is ever printed. Every
+starter-pack file opens with a `# tier:` header (`keyless`, one provider
+such as `gemini`, or `multi-provider`) the doctor checks against the
+models. `GOOGLE_GENAI_API_KEY` alone runs twelve of the sixteen examples.
+
+**One key instead of several — the gateway fallback.** Direct adapters
+are canonical: the native features above exist only on a provider's own
+endpoint. But with `MODEL_GATEWAY=vercel` (or `openrouter`) and
+`MODEL_GATEWAY_API_KEY` set, any cloud model id whose direct key is
+*absent* is served through that gateway's OpenAI-compatible endpoint
+(`lib/models/gateway.ts` owns the rule). A present provider key always
+wins for its own ids, Ollama never routes through a gateway, and adding a
+direct key later restores that provider's native search with no YAML
+change. Through the gateway every server-side sentinel (`web_search`,
+`google_search`, `x_search`, `collections_search`) is dropped — the doctor
+and the startup log say so per agent, and the span records
+`llm.transport = gateway:<id>` and `llm.capability.dropped` while
+`llm.provider` keeps the upstream attribution. Tool calling, structured
+output, `reasoning_effort` and streaming work unchanged. Optional dials:
+`MODEL_GATEWAY_BASE_URL` (a self-hosted proxy speaking the same dialect),
+`MODEL_GATEWAY_MODEL_MAP` (`from=to,…` wire-name overrides; the mapper
+already turns `claude-sonnet-4-6` into `anthropic/claude-sonnet-4.6`). The
+A2A `X-API-Key` never selects the gateway — the gateway key is server
+environment only.
 
 `lib/models/registry.ts` is the single routing seam:
 `registerAvailableProviders()` registers every adapter whose key is

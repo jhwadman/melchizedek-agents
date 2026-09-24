@@ -1,3 +1,4 @@
+# tier: multi-provider  — needs each provider key, or one MODEL_GATEWAY key as the fallback; `npm run doctor` shows what each key unlocks.
 # ============================================================
 # MODEL ZOO — one lightweight agent per provider.
 #

@@ -1,3 +1,4 @@
+# tier: gemini  — needs only GOOGLE_GENAI_API_KEY; `npm run doctor` shows what each key unlocks.
 # ============================================================
 # The Scriptorium — agents that keep the knowledge bundle
 # ============================================================

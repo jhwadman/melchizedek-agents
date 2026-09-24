@@ -1,3 +1,4 @@
+# tier: keyless  — runs with no API key (local Ollama); `npm run doctor` shows what each key unlocks.
 # ============================================================
 # Council — basic orchestration on open weights
 # ============================================================

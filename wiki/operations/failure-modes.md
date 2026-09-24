@@ -38,6 +38,10 @@ The [A2A server](/protocols/a2a.md) is BYOK — every request needs the caller's
 
 `A2A_SERVER_SECRET` is set server-side but absent from the request. Send `Authorization: Bearer <secret>`, or unset the variable for local development only.
 
+## `GATEWAY_HTTP_ERROR` / `GATEWAY_KEY_MISSING` / `GATEWAY_NOT_CONFIGURED`
+
+Only seen when `MODEL_GATEWAY` is set ([provider routing](/models/provider-routing.md)). `GATEWAY_KEY_MISSING`: the gateway is named but `MODEL_GATEWAY_API_KEY` is not set — the registry log says so at startup and the doctor marks every uncovered provider blocked. `GATEWAY_NOT_CONFIGURED`: the value is not `vercel` or `openrouter`. `GATEWAY_HTTP_ERROR` with a 400 or 404 is almost always the wire name — the gateway's id for the model differs from the mapper's guess; fix it once with `MODEL_GATEWAY_MODEL_MAP=<yaml id>=<gateway id>`. A gateway path never carries native search: an agent declaring `web_search` on it runs without search, and that is reported (`capability ·` line at compile time, `llm.capability.dropped` on the span), not a fault.
+
 ## Silent degradations worth knowing
 
 Two by design, from [tool contracts](/tools/tool-contracts.md) and [MCP](/protocols/mcp.md): an unknown tool name in YAML resolves to a **warning** and the agent runs without it; an unreachable MCP server yields an **empty tool list**, not a crash. A typo therefore produces a capability-less agent that passes tests — check startup warnings.

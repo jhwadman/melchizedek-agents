@@ -1,3 +1,4 @@
+# tier: gemini  — needs only GOOGLE_GENAI_API_KEY; `npm run doctor` shows what each key unlocks.
 syndicate_name: "Global Synthesis Council"
 memory_system: "session-only"
 

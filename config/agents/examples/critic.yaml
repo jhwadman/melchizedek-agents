@@ -1,3 +1,4 @@
+# tier: gemini  — needs only GOOGLE_GENAI_API_KEY; `npm run doctor` shows what each key unlocks.
 syndicate_name: "Critic Review Workflow"
 
 # WHY this structure: The ADK enforces that outputSchema cannot co-exist with

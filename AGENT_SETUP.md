@@ -70,11 +70,20 @@ After the agent reports back:
    of them — set only what you'll declare in YAML:
    `ANTHROPIC_API_KEY` for `claude-*` (https://console.anthropic.com),
    `OPENAI_API_KEY` for `gpt-*` (https://platform.openai.com/api-keys),
-   `XAI_API_KEY` for `grok-*` (https://console.x.ai). Verify the whole
-   multi-provider surface at any time with `npm run demo:models` — it
-   sends one prompt to every provider you've configured (plus the local
-   model) and prints per-request token/latency traces; unconfigured
-   providers are skipped.
+   `XAI_API_KEY` for `grok-*` (https://console.x.ai). Not sure which
+   you need? `npm run doctor` reads every syndicate and prints what is
+   ready, what is blocked, and which variable unlocks what — read-only,
+   no key value shown. Verify the whole multi-provider surface live with
+   `npm run demo:models` — it sends one prompt to every provider you've
+   configured (plus the local model) and prints per-request token/latency
+   traces; unconfigured providers are skipped.
+5. **Optional — one key instead of several**: `MODEL_GATEWAY=vercel` (or
+   `openrouter`) plus `MODEL_GATEWAY_API_KEY` serves any cloud model id
+   whose direct key is absent through that gateway. It is a fallback: a
+   direct key set beside it always wins for its own provider, and adding
+   one later restores that provider's native search. Through the gateway,
+   Gemini grounding, Anthropic/OpenAI `web_search` and xAI `x_search` are
+   lost — the doctor says so per agent.
 
 ## 3. First tests — meet the agents
 

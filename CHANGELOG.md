@@ -4,6 +4,41 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## 0.12.0 — 2026-09-23
+
+- **`melchizedek-doctor`: which keys do I need?** A third bin (and
+  `npm run doctor`) reads every syndicate YAML the loader can see, resolves
+  each agent's model to its provider under the current `.env`, and prints
+  one table — agent, model, provider, which declared server-side tools the
+  path keeps or drops, and whether the path is funded — with one verdict
+  per syndicate and the variables that would unlock the most. Read-only:
+  nothing is sent, nothing is written, no key value is printed. `--json`,
+  `--check`. Engine: `lib/doctor.ts`.
+- **The gateway fallback (`lib/models/gatewayLlm.ts`, `lib/models/gateway.ts`).**
+  `MODEL_GATEWAY=vercel|openrouter` + `MODEL_GATEWAY_API_KEY` serve any
+  cloud model id whose direct key is ABSENT through that gateway's
+  OpenAI-compatible endpoint. Direct adapters stay canonical: a present
+  provider key always wins, Ollama never routes through a gateway, and a
+  BYOK `X-API-Key` on the A2A server never selects it. Attribution stays
+  with the upstream provider (`llm.provider`); the transport is recorded
+  separately (`llm.transport = gateway:<id>`). Optional dials:
+  `MODEL_GATEWAY_BASE_URL` (self-hosted proxy), `MODEL_GATEWAY_MODEL_MAP`
+  (wire-name overrides). `registerAvailableProviders()` registers the
+  stand-in for uncovered providers; `providerStatuses()` gains
+  `transport` and `gateway`; `resolveModel()` applies the same rule.
+- **Capability report (`lib/models/capabilities.ts`).** `describeCapabilities`
+  states, per agent and on the RESOLVED path, which server-side tool
+  sentinels (`web_search`, `google_search`, `x_search`,
+  `collections_search`) run natively and which are dropped. The compiler
+  logs one `capability ·` line per affected agent; the chat-completions
+  base records `llm.transport` and `llm.capability.dropped` on the span.
+  New exports from the package root: `describeCapabilities`,
+  `capabilitySummary`, `planTransport`, `gatewayConfig`, `gatewayProblem`,
+  `gatewayUsable`, `GATEWAYS`, `GatewayLlm`.
+- **Starter pack: `# tier:` headers.** Every example opens with `keyless`,
+  a single provider (`gemini`, `anthropic`), or `multi-provider`; the
+  doctor checks the claim against the models.
+
 ## 0.11.0 — 2026-09-20
 
 - **`x_api_search`: the X channel without a Grok dependency.** A new

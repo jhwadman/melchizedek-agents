@@ -36,6 +36,7 @@ import { loadSyndicate } from './loadSyndicate.ts';
 import type { SubagentYamlConfig, SyndicateYamlConfig } from './loadSyndicate.ts';
 import { resolveTools as resolveNamedTools } from './toolRegistry.ts';
 import { createMcpTools } from './tools/mcpToolFactory.ts';
+import { capabilitySummary, describeCapabilities } from './models/capabilities.ts';
 
 export interface CompileOptions {
   /**
@@ -71,6 +72,25 @@ function withServerSideToolInvocations(
   };
 }
 
+/**
+ * Says, once per compiled agent, what its resolved path cannot honour — a
+ * dropped server-side tool, a gateway stand-in, or no route at all. Quiet
+ * for the normal case (funded direct path, nothing dropped). The check runs
+ * on the model STRING under the current env, which is the same decision
+ * resolveModel makes; a BYOK entrypoint that funds a provider per request
+ * reports through its own resolver instead.
+ */
+function logCapabilities(
+  opts: CompileOptions,
+  agentName: string,
+  model: string | undefined,
+  tools: readonly string[] | undefined,
+): void {
+  if (!opts.log || !model) return;
+  const line = capabilitySummary(agentName, describeCapabilities(model, tools ?? []));
+  if (line) opts.log(`capability · ${line}`);
+}
+
 async function resolveAgentTools(
   toolNames: string[] | undefined,
   mcpServerUrl: string | undefined,
@@ -104,6 +124,7 @@ export async function compileSubagent(
 
   const tools = await resolveAgentTools(subCfg.tools, subCfg.mcp_server_url, opts);
   const resolveModel = opts.resolveModel ?? ((m) => m);
+  logCapabilities(opts, subCfg.name, subCfg.model, subCfg.tools);
 
   return new LlmAgent({
     name: subCfg.name,
@@ -143,6 +164,12 @@ export async function compileGraph(
   // that exactly rather than widening the contract in passing.
   compiledTools.push(...(await resolveAgentTools(config.orchestrator.tools, undefined, opts)));
   const resolveModel = opts.resolveModel ?? ((m) => m);
+  logCapabilities(
+    opts,
+    overrideName || config.orchestrator.name,
+    config.orchestrator.model,
+    config.orchestrator.tools,
+  );
 
   return new LlmAgent({
     name: overrideName || config.orchestrator.name,

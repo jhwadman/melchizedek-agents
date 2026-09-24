@@ -191,6 +191,16 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
     return this.model;
   }
 
+  /**
+   * How the request reaches the provider: 'direct' (the provider's own
+   * endpoint) or 'gateway:<id>' (lib/models/gatewayLlm.ts). Recorded on the
+   * llm.request span as llm.transport so the ledger can tell a native call
+   * from a proxied one while llm.provider keeps the upstream attribution.
+   */
+  protected transport(): string {
+    return 'direct';
+  }
+
   /** Provider-specific request body fields (merged last). */
   /** Whether the endpoint accepts response_format json_schema (strict). */
   protected supportsJsonSchemaFormat(): boolean {
@@ -281,6 +291,8 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
       return;
     }
 
+    setLlmSpanAttribute('llm.transport', this.transport());
+
     const messages = this.buildMessages(llmRequest);
     const openAiTools = this.buildTools(llmRequest);
 
@@ -327,10 +339,14 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
         setLlmSpanAttribute('llm.web_search.native', true);
       } else {
         setLlmSpanAttribute('llm.web_search.omitted', true);
+        setLlmSpanAttribute('llm.capability.dropped', 'web_search');
         if (!this.webSearchWarned) {
           this.webSearchWarned = true;
+          const via = this.transport().startsWith('gateway')
+            ? ` through ${this.transport()} (a gateway cannot enable upstream native search)`
+            : '';
           console.warn(
-            `⚠ web_search requested but ${this.model} has no native web search — ` +
+            `⚠ web_search requested but ${this.model}${via} has no native web search — ` +
               'tool omitted (the agent runs without search).',
           );
         }

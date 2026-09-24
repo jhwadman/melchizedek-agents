@@ -14,8 +14,10 @@ fifteen. The full reference is [`DOCUMENTATION.md`](./DOCUMENTATION.md).
 - Optional: **Ollama** ([ollama.com](https://ollama.com)) for the
   open-weight local syndicates; provider keys only for the models you
   actually declare — **Anthropic** (`claude-*`), **OpenAI** (`gpt-*`),
-  **xAI** (`grok-*`); and a free **Supabase project** (only for
-  persistent sessions / memory).
+  **xAI** (`grok-*`) — or one `MODEL_GATEWAY` key as the fallback for
+  whatever direct key is missing (native search is lost on that path);
+  and a free **Supabase project** (only for persistent sessions / memory).
+  Not sure which you need? `npm run doctor` tells you, read-only.
 
 ## 0. The keyless path (open weights, fully local)
 
@@ -39,6 +41,7 @@ Model ids namespaced `ollama/…` (e.g. `ollama/qwen3:8b`) route through
 npm install
 cp .env.example .env
 # edit .env → set GOOGLE_GENAI_API_KEY
+npm run doctor   # which syndicates are ready, which key unlocks what — read-only
 ```
 
 ## 3. First run
@@ -170,7 +173,8 @@ const config = loadSyndicate('mine.yaml');    // reads <your-repo>/config/agents
 |---|---|
 | `Gemini API Key is not configured` | `.env` missing or key not set — step 2. |
 | `[400] Tool call context circulation is not enabled` | The agent's `model:` is too old for agent transfer. Use `gemini-3.8-flash` or newer (all shipped configs already do). |
-| `Model not found` for `claude-*` / `gpt-*` / `grok-*` | The matching provider key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `XAI_API_KEY`) is not set in `.env`, so the provider wasn't registered. |
+| `Model not found` for `claude-*` / `gpt-*` / `grok-*` | The matching provider key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `XAI_API_KEY`) is not set in `.env`, so the provider wasn't registered — `npm run doctor` names the variable. Or set `MODEL_GATEWAY` + `MODEL_GATEWAY_API_KEY` once for every cloud provider (native search is lost on that path). |
+| `GATEWAY_HTTP_ERROR … 404/400` | The gateway rejected the mapped model id. Fix the name once in `.env`: `MODEL_GATEWAY_MODEL_MAP=<your id>=<the gateway's id>`. `GATEWAY_KEY_MISSING` means `MODEL_GATEWAY` is set without `MODEL_GATEWAY_API_KEY`. |
 | `OLLAMA_UNREACHABLE` for `ollama/*` | Ollama isn't running — start the app or `ollama serve`; then check the model is pulled (`ollama list`). |
 | `Refusing to connect to private/loopback MCP host` | The SSRF guard is on (correctly). For the local demo set `ALLOW_PRIVATE_MCP=true` in `.env`. |
 | Sessions don't persist between runs | Supabase env vars missing (step 4) — the framework fell back to in-memory sessions and said so at boot. |

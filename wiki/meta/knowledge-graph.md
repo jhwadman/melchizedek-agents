@@ -7,7 +7,7 @@ tags:
   - graph
 generated:
   by: process:wiki-build
-  at: 2026-09-20
+  at: 2026-09-24
 sources:
   - resource: lib/wiki/entities.ts
   - resource: lib/wiki/extract.ts
@@ -28,12 +28,12 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 
 | Kind | Id form | Now | What it is |
 |---|---|---|---|
-| `module` | `module:<name>` | 79 | one source module |
+| `module` | `module:<name>` | 84 | one source module |
 | `agent` | `agent:<name>` | 73 | one orchestrator or subagent inside a syndicate |
-| `doc` | `/dir/doc.md` | 59 | a concept document in the bundle — identity is its bundle path |
-| `env` | `env:<name>` | 47 | an environment variable the code reads |
-| `file` | `file:<name>` | 42 | a repo file that is not a source module (DDL, config, prose) |
-| `script` | `script:<name>` | 40 | an npm script entrypoint |
+| `doc` | `/dir/doc.md` | 60 | a concept document in the bundle — identity is its bundle path |
+| `env` | `env:<name>` | 48 | an environment variable the code reads |
+| `file` | `file:<name>` | 43 | a repo file that is not a source module (DDL, config, prose) |
+| `script` | `script:<name>` | 41 | an npm script entrypoint |
 | `tool` | `tool:<name>` | 35 | a tool an agent may declare by name |
 | `syndicate` | `syndicate:<name>` | 26 | one agent-team definition (a YAML) |
 | `model` | `model:<name>` | 8 | a model id exactly as written in configuration |
@@ -50,15 +50,15 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 
 | Relation | Tier | Reads as | Now | Meaning |
 |---|---|---|---|---|
-| `imports` | extracted | A imports B | 230 | a static import edge between source files |
-| `links_to` | extracted | A links to B | 116 | a resolved markdown link between documents |
+| `imports` | extracted | A imports B | 246 | a static import edge between source files |
+| `links_to` | extracted | A links to B | 120 | a resolved markdown link between documents |
 | `uses_tool` | extracted | A calls B | 99 | the agent declares this tool by name |
-| `derives_from` | extracted | A derives from B | 86 | declared in the document’s `sources:` frontmatter |
-| `requires_env` | extracted | A requires B | 84 | this environment variable must be set for the node to work |
+| `derives_from` | extracted | A derives from B | 91 | declared in the document’s `sources:` frontmatter |
+| `requires_env` | extracted | A requires B | 86 | this environment variable must be set for the node to work |
 | `contains` | extracted | A contains B | 73 | the first is composed of the second |
 | `uses_model` | extracted | A runs on B | 73 | the agent is configured with this model id |
 | `defined_in` | extracted | A is defined in B | 63 | where the thing is declared in source |
-| `runs` | extracted | A runs B | 55 | an entrypoint — a script, a process, a dyno — executes this |
+| `runs` | extracted | A runs B | 56 | an entrypoint — a script, a process, a dyno — executes this |
 | `documents` | extracted | A documents B | 54 | the document derives from, and describes, this entity |
 | `reads_table` | extracted | A reads or writes B | 18 | the module names this table |
 | `routes_to` | extracted | A routes to B | 8 | the model id resolves to this provider adapter |

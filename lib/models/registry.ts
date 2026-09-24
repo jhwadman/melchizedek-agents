@@ -41,6 +41,13 @@ import { ClaudeLlm, registerClaudeLlm } from './claudeLlm.ts';
 import { GptLlm, registerGptLlm } from './gptLlm.ts';
 import { GrokLlm, registerGrokLlm } from './grokLlm.ts';
 import { OllamaLlm, registerOllamaLlm } from './ollamaLlm.ts';
+import { GatewayLlm, registerGatewayLlm } from './gatewayLlm.ts';
+import {
+  gatewayConfig,
+  gatewayProblem,
+  gatewayUsable,
+  planTransport,
+} from './gateway.ts';
 import {
   PROVIDERS,
   providerForModel,
@@ -50,6 +57,11 @@ import type { ProviderId } from './providerMap.ts';
 
 export { providerForModel, providerKeyPresent, PROVIDERS };
 export type { ProviderId };
+export { gatewayConfig, gatewayProblem, gatewayUsable, planTransport, GATEWAYS } from './gateway.ts';
+export type { GatewayId, GatewayInfo, TransportPlan } from './gateway.ts';
+export { describeCapabilities, capabilitySummary } from './capabilities.ts';
+export type { CapabilityReport } from './capabilities.ts';
+export { GatewayLlm };
 
 // ── TracedGemini ─────────────────────────────────────────────────────────────
 // ADK's built-in Gemini adapter, wrapped so Gemini calls emit the same
@@ -92,21 +104,40 @@ export interface ProviderStatus {
   provider: ProviderId;
   label: string;
   available: boolean;
+  /**
+   * How this provider's ids will be served: its own endpoint, or the
+   * configured gateway standing in because the direct key is absent
+   * (lib/models/gateway.ts). Absent when unavailable.
+   */
+  transport?: 'direct' | 'gateway';
+  /** Gateway id when transport is 'gateway'. */
+  gateway?: string;
   /** Why the provider is unavailable (e.g. which env var is missing). */
   reason?: string;
 }
 
 /** Availability report without side effects (used by demos and key gates). */
 export function providerStatuses(): ProviderStatus[] {
+  const gw = gatewayUsable() ? gatewayConfig() : null;
   return (Object.keys(PROVIDERS) as ProviderId[]).map((provider) => {
-    const available = providerKeyPresent(provider);
+    const label = PROVIDERS[provider].label;
+    if (providerKeyPresent(provider)) {
+      return { provider, label, available: true, transport: 'direct' as const };
+    }
+    if (gw && provider !== 'ollama') {
+      return {
+        provider,
+        label,
+        available: true,
+        transport: 'gateway' as const,
+        gateway: gw.gateway.id,
+      };
+    }
     return {
       provider,
-      label: PROVIDERS[provider].label,
-      available,
-      ...(available
-        ? {}
-        : { reason: `${PROVIDERS[provider].keyEnv} not set` }),
+      label,
+      available: false,
+      reason: `${PROVIDERS[provider].keyEnv} not set`,
     };
   });
 }
@@ -119,14 +150,31 @@ const REGISTRARS: Record<ProviderId, () => void> = {
   ollama: registerOllamaLlm,
 };
 
+/**
+ * The direct adapter's OWN supportedModels per provider. A gateway stand-in
+ * must register under these exact regex instances so it REPLACES the
+ * direct entry (the LLMRegistry dict is keyed by regex object) instead of
+ * sitting behind it unmatched. Gemini's are ADK's built-in patterns, which
+ * are registered at import time — replacing them is how TracedGemini works
+ * too.
+ */
+const PATTERNS: Record<Exclude<ProviderId, 'ollama'>, Array<string | RegExp>> = {
+  gemini: Gemini.supportedModels,
+  anthropic: ClaudeLlm.supportedModels,
+  openai: GptLlm.supportedModels,
+  xai: GrokLlm.supportedModels,
+};
+
 let providersRegistered = false;
 
 /**
  * Registers every adapter whose credentials exist into the ADK LLMRegistry
  * (Ollama unconditionally — local needs no key; Gemini always, since the
  * registry needs a fallback class, and a missing Gemini key surfaces as a
- * clear API error at call time). Returns the per-provider statuses so
- * entrypoints can log which models are routable.
+ * clear API error at call time). When MODEL_GATEWAY is configured, a
+ * provider whose direct key is ABSENT is served by the gateway stand-in
+ * instead (lib/models/gateway.ts — the fallback rule). Returns the
+ * per-provider statuses so entrypoints can log which models are routable.
  */
 export function registerAvailableProviders(
   log?: (msg: string) => void,
@@ -135,18 +183,24 @@ export function registerAvailableProviders(
   if (!providersRegistered) {
     providersRegistered = true;
     for (const status of statuses) {
-      if (status.available || status.provider === 'gemini') {
+      if (status.transport === 'gateway' && status.provider !== 'ollama') {
+        registerGatewayLlm(PATTERNS[status.provider]);
+      } else if (status.available || status.provider === 'gemini') {
         REGISTRARS[status.provider]();
       }
     }
   }
   if (log) {
+    const problem = gatewayProblem();
+    if (problem) log(`⚠ ${problem} — gateway ignored`);
     for (const s of statuses) {
-      log(
-        s.available
-          ? `✓ ${s.label} — active`
-          : `⚠ ${s.label} disabled (${s.reason}) — ${modelHint(s.provider)} models unavailable`,
-      );
+      if (!s.available) {
+        log(`⚠ ${s.label} disabled (${s.reason}) — ${modelHint(s.provider)} models unavailable`);
+      } else if (s.transport === 'gateway') {
+        log(`◇ ${s.label} — via gateway:${s.gateway} (${modelHint(s.provider)} served without native search)`);
+      } else {
+        log(`✓ ${s.label} — active`);
+      }
     }
   }
   return statuses;
@@ -212,6 +266,14 @@ export function resolveModel(
     ) === normalizeProvider(options.defaultProvider)
       ? options.apiKey
       : undefined;
+
+  // The fallback rule (lib/models/gateway.ts): the direct adapter whenever
+  // the provider's key — from env, or the caller's own BYOK key — is
+  // present; the gateway stand-in only when it is absent and a gateway is
+  // configured. The gateway key is server env only, never a request header.
+  if (planTransport(resolved, { callerKey: !!apiKey }).transport === 'gateway') {
+    return new GatewayLlm({ model: resolved });
+  }
 
   switch (providerForModel(resolved)) {
     case 'ollama':
