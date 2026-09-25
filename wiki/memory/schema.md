@@ -8,7 +8,7 @@ tags:
   - memory
 generated:
   by: process:wiki-build
-  at: 2026-08-23
+  at: 2026-09-25
 sources:
   - resource: db/memory_v2.sql
   - resource: db/telemetry.sql

@@ -15,6 +15,7 @@
 - [Lyceum Librarian](/agents/librarian.md) — The Lyceum Librarian syndicate.
 - [Model Zoo](/agents/model_zoo.md) — The Model Zoo syndicate.
 - [Patient Advocate](/agents/patient_advocate.md) — The Patient Advocate syndicate.
+- [Research](/agents/research.md) — The Research syndicate.
 - [The Scribe](/agents/scribe.md) — Writes one reader-facing document from a brief, audits it through the Auditor, and returns the document alone.
 - [The Scriptorium](/agents/scriptorium.md) — Keeper of the knowledge bundle: answers what the house knows via the Seeker, records what it learns via the Illuminator.
 - [Style Council](/agents/style_council.md) — The Style Council syndicate.

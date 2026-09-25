@@ -24,7 +24,14 @@ import {
 import { OllamaLlm } from '../lib/models/ollamaLlm.ts';
 import { GrokLlm } from '../lib/models/grokLlm.ts';
 import { ClaudeLlm, buildAnthropicTools } from '../lib/models/claudeLlm.ts';
-import { GptLlm, buildResponsesInput, buildResponsesTools, streamEventDelta } from '../lib/models/gptLlm.ts';
+import {
+  GptLlm,
+  buildResponsesInput,
+  buildResponsesTools,
+  extractServerToolCalls,
+  serverToolUsage,
+  streamEventDelta,
+} from '../lib/models/gptLlm.ts';
 import { splitThinkBlocks, mapUsage, ThinkStreamSplitter } from '../lib/models/openAiCompatibleLlm.ts';
 import { WebSearchTool, WEB_SEARCH, wantsWebSearch } from '../lib/tools/webSearchTool.ts';
 import { COLLECTIONS_SEARCH } from '../lib/tools/collectionsSearchTool.ts';
@@ -574,4 +581,77 @@ test('WebSearchTool: Gemini model gets grounding; others get the sentinel', asyn
   assert.equal((claudeRequest.config as any)?.tools, undefined); // no Gemini grounding
   assert.equal(wantsWebSearch(claudeRequest), true); // adapters read this
   assert.equal(tool._getDeclaration(), undefined); // never a client-side function tool
+});
+
+// Shapes copied from a live xAI grok-4.7 Responses call (2026-09-25),
+// sources trimmed.
+const XAI_OUTPUT = [
+  { type: 'reasoning', id: 'r1', status: 'completed', summary: [], encrypted_content: 'x' },
+  {
+    id: 'ws_1', type: 'web_search_call', status: 'completed',
+    action: { type: 'search', query: 'NVDA stock yesterday performance', sources: [{ type: 'url', url: 'https://www.stocktitan.net/sec-filings/NVDA/' }] },
+  },
+  { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: "I'll pull the tape.", annotations: [] }] },
+  {
+    call_id: 'xs_call-3', input: '{"query":"NVDA since:2026-09-24 until:2026-09-26","limit":"5","mode":"Latest"}',
+    name: 'x_keyword_search', type: 'custom_tool_call', id: 'ctc_3', status: 'completed',
+  },
+  { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '- NVDA closed down 0.4%.', annotations: [] }] },
+];
+const XAI_USAGE = {
+  input_tokens: 56765, output_tokens: 1247, output_tokens_details: { reasoning_tokens: 943 }, total_tokens: 58012,
+  num_server_side_tools_used: 2, cost_in_usd_ticks: 1697320000,
+  server_side_tool_usage_details: { web_search_calls: 1, x_search_calls: 1, x_posts_fetched: 14, x_users_fetched: 0, code_interpreter_calls: 0 },
+};
+
+test('extractServerToolCalls reads xAI web_search_call and custom_tool_call items', () => {
+  assert.deepEqual(extractServerToolCalls(XAI_OUTPUT), [
+    {
+      name: 'web_search',
+      args: { type: 'search', query: 'NVDA stock yesterday performance' },
+      status: 'completed',
+      sources: ['https://www.stocktitan.net/sec-filings/NVDA/'],
+    },
+    {
+      name: 'x_keyword_search',
+      args: { query: 'NVDA since:2026-09-24 until:2026-09-26', limit: '5', mode: 'Latest' },
+      status: 'completed',
+    },
+  ]);
+  // Client function calls are ADK's to run, not server-side records.
+  assert.deepEqual(extractServerToolCalls([{ type: 'function_call', name: 'f', arguments: '{}', call_id: 'c' }]), []);
+  assert.deepEqual(extractServerToolCalls(undefined), []);
+  // Malformed custom input is kept raw, never thrown.
+  assert.deepEqual(
+    extractServerToolCalls([{ type: 'custom_tool_call', name: 'x_semantic_search', input: 'not json' }])[0].args,
+    { raw: 'not json' },
+  );
+});
+
+test('serverToolUsage keeps the total and the non-zero xAI counters; {} for OpenAI usage', () => {
+  assert.deepEqual(serverToolUsage(XAI_USAGE), { total: 2, web_search_calls: 1, x_search_calls: 1, x_posts_fetched: 14 });
+  assert.deepEqual(serverToolUsage({ input_tokens: 10, output_tokens: 2 }), {});
+  assert.deepEqual(serverToolUsage(undefined), {});
+});
+
+test('a searched Grok response: message items split by a paragraph, search calls on customMetadata', () => {
+  const llm = new GrokLlm({ model: 'grok-4.7' });
+  const out = [...(llm as any).mapFinalResponse({ output: XAI_OUTPUT, usage: XAI_USAGE })] as LlmResponse[];
+  const final = out[out.length - 1] as any;
+  const text = final.content.parts.map((p: any) => p.text ?? '').join('');
+  // Narration no longer runs into the answer's first line.
+  assert.equal(text, "I'll pull the tape.\n\n- NVDA closed down 0.4%.");
+  assert.ok(!final.content.parts.some((p: any) => p.functionCall)); // ADK must never run these
+  assert.equal(final.customMetadata['responses.server_tool_calls'].length, 2);
+  assert.deepEqual(final.customMetadata['responses.server_tool_usage'], {
+    total: 2, web_search_calls: 1, x_search_calls: 1, x_posts_fetched: 14,
+  });
+
+  // A plain answer carries no customMetadata at all.
+  const plain = [...(llm as any).mapFinalResponse({
+    output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }],
+    usage: { input_tokens: 1, output_tokens: 1 },
+  })] as any[];
+  assert.equal(plain[plain.length - 1].customMetadata, undefined);
+  assert.equal(plain[plain.length - 1].content.parts[0].text, 'hi');
 });

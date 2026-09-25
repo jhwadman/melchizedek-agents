@@ -321,7 +321,7 @@ funded — with one verdict per syndicate and the variables that would
 unlock the most. Read-only; no key value is ever printed. Every
 starter-pack file opens with a `# tier:` header (`keyless`, one provider
 such as `gemini`, or `multi-provider`) the doctor checks against the
-models. `GOOGLE_GENAI_API_KEY` alone runs thirteen of the seventeen examples.
+models. `GOOGLE_GENAI_API_KEY` alone runs fourteen of the eighteen examples.
 
 **One key instead of several — the gateway fallback.** Direct adapters
 are canonical: the native features above exist only on a provider's own

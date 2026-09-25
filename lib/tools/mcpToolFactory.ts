@@ -39,9 +39,34 @@ function assertSafeMcpUrl(raw: string): URL {
   return url;
 }
 
+// Credentials for MCP servers that require one. MCP_BEARER_TOKENS is a JSON
+// object of hostname → token. A token goes only to the exact host it names and
+// only over https, so a registry-stored mcp_server_url pointing anywhere else
+// never receives it. A malformed value degrades to an unauthenticated connect,
+// which such a server refuses — the same empty tool list as an unreachable one.
+export function mcpAuthHeaders(url: URL, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const raw = env.MCP_BEARER_TOKENS;
+  if (!raw || url.protocol !== 'https:') return {};
+  let tokens: unknown;
+  try {
+    tokens = JSON.parse(raw);
+  } catch {
+    console.warn('[MCP] MCP_BEARER_TOKENS is not a JSON object; connecting without credentials');
+    return {};
+  }
+  if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens)) return {};
+  const host = url.hostname.toLowerCase();
+  if (!Object.hasOwn(tokens, host)) return {};
+  const token = (tokens as Record<string, unknown>)[host];
+  return typeof token === 'string' && token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function createMcpTools(mcpServerUrl: string): Promise<FunctionTool[]> {
   try {
-    const transport = new SSEClientTransport(assertSafeMcpUrl(mcpServerUrl));
+    const url = assertSafeMcpUrl(mcpServerUrl);
+    const transport = new SSEClientTransport(url, {
+      requestInit: { headers: mcpAuthHeaders(url) }
+    });
     const client = new Client({
       name: 'melchizedek-a2a-client',
       version: '1.0.0'

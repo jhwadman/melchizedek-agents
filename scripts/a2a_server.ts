@@ -29,6 +29,7 @@ import { compileGraph as compileGraphShared, compileSubagent as compileSubagentS
 import type { CompileOptions } from '../lib/compile.ts';
 import { hasSupabaseCredentials, createSupabaseServices } from '../lib/persistence/supabaseProvider.ts';
 import { ProjectedSessionService, renderTranscriptDigest } from '../lib/session/transcript.ts';
+import { buildXPacket, normalizeTickers } from '../lib/tools/xPacket.ts';
 import type { BaseSessionService, BaseMemoryService } from '@google/adk';
 import type { SupabaseVectorMemoryService } from '../lib/memory/supabaseMemoryService.ts';
 
@@ -1091,6 +1092,30 @@ export async function startServer(syndicateName: string = 'syndicate.yaml') {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[A2A] Memory erasure failed: ${msg}`);
       res.status(500).json({ error: 'Memory deletion failed. See server logs.' });
+    }
+  });
+
+  // POST /v1/x-packet — a deterministic cashtag chatter packet (lib/tools/
+  // xPacket.ts) for an operator pipeline to hand its own desk as input: X
+  // counts per symbol, top posts only where the count is unusual. It spends
+  // the operator's X_BEARER_TOKEN, so it is served only behind the bearer
+  // secret — never on an open server.
+  app.post('/v1/x-packet', async (req, res) => {
+    if (!serverSecret) {
+      res.status(403).json({ error: 'x-packet requires A2A_SERVER_SECRET on this server.' });
+      return;
+    }
+    const { ok, refused } = normalizeTickers(req.body?.tickers);
+    if (ok.length === 0) {
+      res.status(400).json({ error: 'Body must be {"tickers": ["SYM", ...]} with cashtag-shaped symbols.', refused });
+      return;
+    }
+    try {
+      res.json({ ...(await buildXPacket(ok)), ...(refused.length ? { refused } : {}) });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[A2A] x-packet failed: ${msg}`);
+      res.status(503).json({ error: msg });
     }
   });
 

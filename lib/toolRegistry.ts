@@ -20,6 +20,7 @@ import { toFunctionTool } from './tools/toolContract.ts';
 import { WEB_SEARCH } from './tools/webSearchTool.ts';
 import { webExtractTool } from './tools/webExtractTool.ts';
 import { WIKI_AGENT_TOOL_CONTRACTS } from './tools/wikiTools.ts';
+import { SCIENCE_TOOL_CONTRACTS } from './tools/scienceTools.ts';
 import { X_SEARCH } from './tools/xSearchTool.ts';
 import { xApiSearchTool } from './tools/xApiSearchTool.ts';
 
@@ -34,8 +35,16 @@ const WIKI_TOOLS = Object.fromEntries(
   ]),
 );
 
+// Science tools (lib/tools/scienceTools.ts): read-only literature and
+// registry lookups, derived from their contracts the same way, so the YAML
+// name IS the contract name. research.yaml declares them.
+const SCIENCE_TOOLS = Object.fromEntries(
+  SCIENCE_TOOL_CONTRACTS.map((contract) => [contract.name, toFunctionTool(contract)]),
+);
+
 const TOOL_MAP: Record<string, unknown> = {
   ...WIKI_TOOLS,
+  ...SCIENCE_TOOLS,
   // Provider-agnostic web search: routes to the model's NATIVE search
   // (Gemini grounding / Anthropic / OpenAI / xAI); omitted with a warning
   // for local models. Prefer this in new YAMLs.

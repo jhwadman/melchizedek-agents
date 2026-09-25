@@ -110,6 +110,7 @@ worked specimen for a curriculum module:
 | `model_zoo.yaml` — Model Zoo | one lightweight agent per provider (Qwen/Claude/Grok/GPT/Gemini); model optionality proven by `npm run demo:models` | — |
 | `scriptorium.yaml` — The Scriptorium | agents over the shipped knowledge bundle: query with citations, author through a validated save gate | — |
 | `scribe.yaml` — The Scribe | a technical brief in, a finished document out: draft, audit against the brief through a JSON-schema leaf, revise; wrote the `skills/` suite | — |
+| `research.yaml` — Research | plan-dispatch: triage names one of three routes, each holding its own tools; seven keyless science tools (Europe PMC, ClinicalTrials.gov, Crossref, OpenAlex) under an identifier and retraction guard | — |
 
 `syndicateSchema.yaml` is the annotated schema reference for authoring
 your own.
@@ -124,7 +125,9 @@ your own.
   Any agent in a graph can run on a different provider.
 - **MCP integration** — a subagent with `mcp_server_url:` discovers a remote
   MCP server's tools at runtime (`lib/tools/mcpToolFactory.ts`), SSRF-guarded.
-  A demo catalog server ships in `scripts/demo_mcp_server.ts` (`npm run mcp:demo`).
+  A demo catalog server ships in `scripts/demo_mcp_server.ts` (`npm run mcp:demo`),
+  and the seven science tools `research.yaml` uses are served to any MCP client
+  by `npm run mcp:science` (read-only, keyless sources).
 - **Persistent sessions & semantic memory** — Supabase-backed sessions and
   pgvector long-term memory: session transcripts are distilled into
   structured records (date, source, units, status, index keys), embedded,

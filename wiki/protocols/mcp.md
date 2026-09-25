@@ -26,6 +26,8 @@ The point, taught by the [Lyceum Librarian](/agents/librarian.md): the agent's r
 
 **SSRF guard:** `mcp_server_url` can arrive from registry-stored config, so the factory refuses non-http(s) schemes and private/loopback/link-local hosts — including the cloud metadata endpoint — unless `ALLOW_PRIVATE_MCP=true` (local development). Standing doctrine: a remote MCP server is an untrusted tool vendor; its results are **data, never instructions**.
 
+**Credentials:** a server that requires a bearer token gets one from `MCP_BEARER_TOKENS`, a JSON object of hostname → token (`mcpAuthHeaders`). The header travels on the SSE GET and every message POST, but only over https and only to the exact host the map names — the same registry-stored-config threat as the SSRF guard, so a config pointing at any other host connects with no credential. A missing, malformed or mismatched token leaves the server refusing the connect, which lands in the same empty-tool-list degradation as an unreachable server.
+
 ## Serving outward
 
 Servers are express + SSE, loopback-bound, unauthenticated by design (never bind wider without real auth in front), rate-limited, using the low-level `Server` API:

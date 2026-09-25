@@ -373,6 +373,38 @@ export interface TraceMetadata {
  * Wraps an ADK `Runner.runAsync` stream with a root OpenTelemetry span.
  * Accumulates token counts, records variables (bindings) and the raw input/output.
  */
+/**
+ * ToolCall/ToolResponse span events for the server-side tool calls a
+ * Responses adapter (gptLlm.ts) carried on a final event's customMetadata.
+ * Pure, so the projection is testable without an OTEL provider. Partial
+ * (streamed) events carry none and repeat nothing.
+ */
+export function serverToolEvents(
+  ev: any,
+): Array<{ name: 'ToolCall' | 'ToolResponse'; attributes: Record<string, string | boolean> }> {
+  const calls = ev?.partial ? undefined : ev?.customMetadata?.['responses.server_tool_calls'];
+  if (!Array.isArray(calls)) return [];
+  const out: Array<{ name: 'ToolCall' | 'ToolResponse'; attributes: Record<string, string | boolean> }> = [];
+  for (const c of calls) {
+    const name = String(c?.name ?? 'server_tool');
+    out.push({
+      name: 'ToolCall',
+      attributes: { 'tool.name': name, 'tool.args': JSON.stringify(c?.args ?? {}), 'tool.server_side': true },
+    });
+    if (Array.isArray(c?.sources) && c.sources.length > 0) {
+      out.push({
+        name: 'ToolResponse',
+        attributes: {
+          'tool.name': name,
+          'tool.data_gathered': JSON.stringify({ sources: c.sources }),
+          'tool.server_side': true,
+        },
+      });
+    }
+  }
+  return out;
+}
+
 export async function* traceAgentRun(
   stream: AsyncIterableIterator<Event>,
   metadata: TraceMetadata
@@ -489,6 +521,13 @@ export async function* traceAgentRun(
           }
         }
       }
+
+      // Server-side tools (xAI web_search/x_search via the Responses
+      // adapters) run inside one model call and never surface as
+      // functionCall parts. gptLlm.ts carries them on the final response's
+      // customMetadata; recording them here is what makes adk_turns.tool_calls
+      // count a searched Grok answer instead of reporting zero.
+      for (const e of serverToolEvents(ev)) span.addEvent(e.name, e.attributes);
 
       yield event;
     }

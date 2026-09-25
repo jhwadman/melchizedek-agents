@@ -38,15 +38,16 @@ Documents interleave three regions. `wiki:generated` markers hold machine-owned 
 
 ## The sibling bundles
 
-Bundle-agnostic is not a claim; three other repos are maintained by this engine and none of them installs any of it. Each has a hand-written `knowledge/` manual carrying judgment, and a build script HERE supplying the mechanical half — derived inventory, per-directory indexes, `log.md`, link lint, the entity graph — because the target repo must not gain a dependency for it.
+Bundle-agnostic is not a claim; four other repos are maintained by this engine and none of them installs any of it. Each has a hand-written `knowledge/` manual carrying judgment, and a build script HERE supplying the mechanical half — derived inventory, per-directory indexes, `log.md`, link lint, the entity graph — because the target repo must not gain a dependency for it.
 
 | Script | Bundle | Why the script lives here |
 |---|---|---|
 | `npm run wiki:lyceum` | `../lyceumagents/knowledge` | the site deploys from exactly three Astro integrations; a knowledge pipeline has no business in a Vercel build |
 | `npm run wiki:penguin` | `../nihilistic-penguin/knowledge` | the engine is TypeScript and penguin is Python |
 | `npm run wiki:cajal` | `../cajal/knowledge` | cajal's simulation engine is deliberately dependency-free, and its page is a two-devDep Astro build |
+| `npm run wiki:melch` | `../melch/knowledge` | melch.ai deploys to Vercel from its own tree, and the build reads the public mirror to report drift, which the site's own build must never do |
 
-Each takes `--check` for a lint-only, CI-style exit code, and each maps its own repo's truth onto the shared [pipeline](/meta/knowledge-graph.md) — what a "content entry" is on the site, a "process" is in penguin, and a "preset" or "tool contract" is in cajal. What those repos gain is plain markdown that stands on its own.
+Each takes `--check` for a lint-only, CI-style exit code, and each maps its own repo's truth onto the shared [pipeline](/meta/knowledge-graph.md) — what a "content entry" is on the site, a "process" is in penguin, a "preset" or "tool contract" is in cajal, and a "route", "starter-pack copy" or "captured run" is on melch.ai. What those repos gain is plain markdown that stands on its own.
 
 ## The second layer
 

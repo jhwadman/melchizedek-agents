@@ -27,10 +27,15 @@
  *
  *   Response `output` items map back:
  *     'reasoning' summary    → { text, thought: true } partial (display-only)
- *     'message' output_text  → text part
+ *     'message' output_text  → text part (2nd+ message item opens a new paragraph)
  *     'function_call'        → functionCall part
+ *     '*_call' / 'custom_tool_call' (server-side: web_search, x_search…)
+ *                            → customMetadata['responses.server_tool_calls'],
+ *                              never a functionCall (ADK must not run them)
  *   usage.input_tokens / output_tokens / output_tokens_details.reasoning_tokens
  *   → LlmResponse.usageMetadata, so token telemetry works like every provider.
+ *   xAI's server-side tool counters → customMetadata['responses.server_tool_usage']
+ *   and llm.server_tools.* span attributes.
  *
  * STREAMING (ADK stream=true, i.e. RunConfig streamingMode: SSE):
  *   The request is sent with { stream: true }; SSE deltas
@@ -231,6 +236,70 @@ export function streamEventDelta(
     return { thought: true, text: ev.delta };
   }
   return null;
+}
+
+// ── Server-side tool calls (exported for offline tests) ──────────────────────
+
+/** One tool call the vendor ran on its own side inside a single Responses
+ *  call. It never comes back to ADK as a functionCall, so without this
+ *  record a searched answer and a recalled one look identical in a trace. */
+export interface ServerToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  status?: string;
+  /** URLs the vendor reports the call returned (web search only). */
+  sources?: string[];
+}
+
+/**
+ * The server-side tool calls in a Responses `output` array. Two shapes,
+ * both verified against a live xAI response (2026-09-25):
+ *   web_search_call   → { status, action: { type:'search', query, sources:[{url}] } }
+ *   custom_tool_call  → { name:'x_keyword_search'|'x_semantic_search', input:'<json>', status }
+ * Any other `*_call` item (code_interpreter_call, file_search_call…) is
+ * recorded by its type with its `action` as args. `custom_tool_call` is
+ * server-side here because this adapter never declares a client custom tool.
+ */
+export function extractServerToolCalls(output: unknown): ServerToolCall[] {
+  const calls: ServerToolCall[] = [];
+  for (const item of Array.isArray(output) ? output : []) {
+    const type = item?.type;
+    if (typeof type !== 'string' || type === 'function_call') continue;
+    if (type === 'custom_tool_call') {
+      let args: Record<string, unknown>;
+      try {
+        args = JSON.parse(item.input ?? '{}');
+      } catch {
+        args = { raw: item.input };
+      }
+      calls.push({ name: String(item.name ?? 'custom_tool'), args, status: item.status });
+    } else if (type.endsWith('_call')) {
+      const { sources, ...args } = item.action ?? {};
+      const urls = Array.isArray(sources)
+        ? sources.map((s: any) => s?.url).filter((u: unknown) => typeof u === 'string')
+        : [];
+      calls.push({
+        name: type.slice(0, -'_call'.length),
+        args,
+        status: item.status,
+        ...(urls.length > 0 ? { sources: urls } : {}),
+      });
+    }
+  }
+  return calls;
+}
+
+/** xAI's server-side tool counters off `usage` (num_server_side_tools_used +
+ *  server_side_tool_usage_details), non-zero entries only; {} for OpenAI. */
+export function serverToolUsage(usage: any): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof usage?.num_server_side_tools_used === 'number') {
+    out.total = usage.num_server_side_tools_used;
+  }
+  for (const [k, v] of Object.entries(usage?.server_side_tool_usage_details ?? {})) {
+    if (typeof v === 'number' && v > 0) out[k] = v;
+  }
+  return out;
 }
 
 // ── GptLlm ───────────────────────────────────────────────────────────────────
@@ -446,10 +515,20 @@ export class GptLlm extends BaseLlm {
     }
 
     const parts: any[] = [];
+    // A model that searches server-side emits one message item per turn
+    // between searches. Consumers concatenate text parts bare, so each item
+    // after the first starts on a new paragraph — otherwise narration runs
+    // straight into the answer's first line ("…names.- Nasdaq futures").
+    let messageItems = 0;
     for (const item of response.output ?? []) {
       if (item.type === 'message') {
+        const sep = messageItems++ > 0 ? '\n\n' : '';
+        let first = true;
         for (const c of item.content ?? []) {
-          if (c.type === 'output_text' && c.text) parts.push({ text: c.text });
+          if (c.type === 'output_text' && c.text) {
+            parts.push({ text: first ? sep + c.text : c.text });
+            first = false;
+          }
         }
       } else if (item.type === 'function_call') {
         let args: unknown = {};
@@ -465,9 +544,31 @@ export class GptLlm extends BaseLlm {
     }
 
     const usage = response.usage;
+    const serverCalls = extractServerToolCalls(response.output);
+    const serverUsage = serverToolUsage(usage);
+    for (const [k, v] of Object.entries(serverUsage)) {
+      setLlmSpanAttribute(`llm.server_tools.${k}`, v);
+    }
+    if (typeof usage?.cost_in_usd_ticks === 'number') {
+      setLlmSpanAttribute('llm.cost.vendor_usd_ticks', usage.cost_in_usd_ticks);
+    }
     yield {
       content: { role: 'model', parts },
       turnComplete: true,
+      // The root turn span (tracer.ts) turns these into ToolCall events, so
+      // adk_turns.tool_calls counts the searches the vendor ran for us.
+      ...(serverCalls.length > 0 || Object.keys(serverUsage).length > 0
+        ? {
+            customMetadata: {
+              ...(serverCalls.length > 0
+                ? { 'responses.server_tool_calls': serverCalls }
+                : {}),
+              ...(Object.keys(serverUsage).length > 0
+                ? { 'responses.server_tool_usage': serverUsage }
+                : {}),
+            },
+          }
+        : {}),
       ...(usage
         ? {
             usageMetadata: {

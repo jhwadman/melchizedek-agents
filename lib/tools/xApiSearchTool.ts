@@ -207,7 +207,7 @@ export function sanitizeQuery(raw: string | null | undefined): string {
 
 /** The fields every page asks for — they ride the charge already made for
  *  the post (media objects are not posts, and posts are what X bills). */
-const FIELDS = {
+export const FIELDS = {
   'tweet.fields': 'created_at,public_metrics,author_id,entities,lang,note_tweet,referenced_tweets,attachments',
   expansions: 'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id',
   'user.fields': 'username,name,verified',

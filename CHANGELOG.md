@@ -6,6 +6,21 @@ bins, and the starter pack), not the repo's full history.
 
 ## 0.13.0 — 2026-09-24
 
+- **Starter pack: `research.yaml`, Research.** Questions about clinical and
+  biomedical evidence, answered from trial registries and the peer-reviewed
+  literature. Plan-dispatch: a triage model names one of three routes
+  (`define`, `lookup`, `landscape`), and each route holds its own tools, so
+  every tool call is on the answering turn's stream. `guards: [science]`
+  marks any DOI, PMID or NCT number no tool returned, checks retractions, and
+  catches a trial acronym attached to the wrong identifier.
+- **Seven science tools, keyless.** `search_literature`, `search_preprints`,
+  `search_trials`, `resolve_identifier`, `cited_by`, `survey_field`,
+  `check_retraction` (`lib/tools/scienceTools.ts`), reading Europe PMC,
+  ClinicalTrials.gov, Crossref and OpenAlex. Registered by name in the tool
+  registry, and served to MCP clients by `npm run mcp:science`
+  (`scripts/science_mcp_server.ts`, :8934). Set `SCIENCE_API_CONTACT` to an
+  address you read to join the sources' polite request pools.
+- **The `science` guard** is now registered in `lib/guards/index.ts`.
 - **`melchizedek-skills`: the framework as a skills suite.** A fourth bin
   (and `npm run skills:install`) copies `skills/` — six Agent Skills in the
   open SKILL.md standard — into the directories coding agents read:

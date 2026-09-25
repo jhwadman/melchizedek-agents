@@ -68,6 +68,7 @@
     "demo:direct": "node --disable-warning=DEP0040 --experimental-strip-types scripts/direct_call.ts",
     "mcp:demo": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_mcp_server.ts",
     "mcp:wiki": "node --disable-warning=DEP0040 --experimental-strip-types scripts/wiki/mcp_server.ts",
+    "mcp:science": "node --disable-warning=DEP0040 --experimental-strip-types scripts/science_mcp_server.ts",
     "wiki:init": "node --disable-warning=DEP0040 --experimental-strip-types scripts/wiki/init.ts",
     "wiki:check": "node --disable-warning=DEP0040 --experimental-strip-types scripts/wiki/check.ts",
     "start:a2a": "node --disable-warning=DEP0040 --experimental-strip-types scripts/a2a_server.ts",
