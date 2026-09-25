@@ -36,9 +36,16 @@ Zero keys, fully local — install [Ollama](https://ollama.com), then:
 ```bash
 npm install
 ollama pull qwen3:8b
-npm run syndicate:tutor    # a single open-weight agent, on your machine
-npm run syndicate:council  # a three-agent council, still no keys
+npm run syndicate:assistant  # converse, summarize, keep a task list, queue jobs
+npm run assistant:worker     # (second terminal) runs the jobs the Assistant queues
+npm run syndicate:tutor      # a single open-weight agent that teaches
+npm run syndicate:council    # a three-agent council, still no keys
 ```
+
+The Assistant (`config/agents/examples/assistant.yaml`) is the one to copy
+when you start your own agent: a conversational orchestrator, a Summarizer
+that reads pasted text or URLs, a task list that outlives the conversation,
+and background jobs a separate worker process runs and reports back on.
 
 Or consume the engine from **your own repo** — your syndicates live with
 your code, the framework is a dependency:
@@ -94,6 +101,7 @@ worked specimen for a curriculum module:
 
 | Syndicate | Pattern | Course module |
 |---|---|---|
+| `assistant.yaml` — Assistant | the launching pad: converse, summarize, a task list, background jobs a worker drains; keyless | — |
 | `tutor.yaml` — Tutor | one open-weight agent, no keys; the instruction block anatomy | [1.02 · running your own model](https://lyceumagents.com/curriculum/your-own-model/) |
 | `council.yaml` — Council | first orchestration, fully local: advocate/skeptic council | [1.05 · workflows & voice](https://lyceumagents.com/curriculum/workflows-and-voice/) |
 | `critic.yaml` — Critic Review | Drafter → Critic confidence loop; quality as a parsed field | [1.04 · testing & refinement](https://lyceumagents.com/curriculum/testing-and-refinement/) |

@@ -21,6 +21,7 @@ import { WEB_SEARCH } from './tools/webSearchTool.ts';
 import { webExtractTool } from './tools/webExtractTool.ts';
 import { WIKI_AGENT_TOOL_CONTRACTS } from './tools/wikiTools.ts';
 import { SCIENCE_TOOL_CONTRACTS } from './tools/scienceTools.ts';
+import { TASK_TOOL_CONTRACTS } from './tools/taskTools.ts';
 import { X_SEARCH } from './tools/xSearchTool.ts';
 import { xApiSearchTool } from './tools/xApiSearchTool.ts';
 
@@ -42,9 +43,17 @@ const SCIENCE_TOOLS = Object.fromEntries(
   SCIENCE_TOOL_CONTRACTS.map((contract) => [contract.name, toFunctionTool(contract)]),
 );
 
+// Task list + background-job queue (lib/tools/taskTools.ts): a single-user
+// local store. The tools only write the queue; scripts/assistant_worker.ts
+// runs the jobs. assistant.yaml declares them.
+const TASK_TOOLS = Object.fromEntries(
+  TASK_TOOL_CONTRACTS.map((contract) => [contract.name, toFunctionTool(contract)]),
+);
+
 const TOOL_MAP: Record<string, unknown> = {
   ...WIKI_TOOLS,
   ...SCIENCE_TOOLS,
+  ...TASK_TOOLS,
   // Provider-agnostic web search: routes to the model's NATIVE search
   // (Gemini grounding / Anthropic / OpenAI / xAI); omitted with a warning
   // for local models. Prefer this in new YAMLs.

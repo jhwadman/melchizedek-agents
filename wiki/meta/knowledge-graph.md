@@ -28,14 +28,14 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 
 | Kind | Id form | Now | What it is |
 |---|---|---|---|
-| `module` | `module:<name>` | 88 | one source module |
-| `agent` | `agent:<name>` | 79 | one orchestrator or subagent inside a syndicate |
-| `doc` | `/dir/doc.md` | 66 | a concept document in the bundle — identity is its bundle path |
-| `env` | `env:<name>` | 50 | an environment variable the code reads |
-| `file` | `file:<name>` | 46 | a repo file that is not a source module (DDL, config, prose) |
-| `script` | `script:<name>` | 44 | an npm script entrypoint |
-| `tool` | `tool:<name>` | 35 | a tool an agent may declare by name |
-| `syndicate` | `syndicate:<name>` | 28 | one agent-team definition (a YAML) |
+| `module` | `module:<name>` | 90 | one source module |
+| `agent` | `agent:<name>` | 82 | one orchestrator or subagent inside a syndicate |
+| `doc` | `/dir/doc.md` | 69 | a concept document in the bundle — identity is its bundle path |
+| `env` | `env:<name>` | 51 | an environment variable the code reads |
+| `file` | `file:<name>` | 47 | a repo file that is not a source module (DDL, config, prose) |
+| `script` | `script:<name>` | 46 | an npm script entrypoint |
+| `tool` | `tool:<name>` | 40 | a tool an agent may declare by name |
+| `syndicate` | `syndicate:<name>` | 29 | one agent-team definition (a YAML) |
 | `model` | `model:<name>` | 8 | a model id exactly as written in configuration |
 | `table` | `table:<name>` | 8 | a database table |
 | `provider` | `provider:<name>` | 5 | a provider adapter the model registry routes to |
@@ -50,16 +50,16 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 
 | Relation | Tier | Reads as | Now | Meaning |
 |---|---|---|---|---|
-| `imports` | extracted | A imports B | 258 | a static import edge between source files |
-| `links_to` | extracted | A links to B | 146 | a resolved markdown link between documents |
-| `uses_tool` | extracted | A calls B | 111 | the agent declares this tool by name |
-| `derives_from` | extracted | A derives from B | 106 | declared in the document’s `sources:` frontmatter |
-| `requires_env` | extracted | A requires B | 88 | this environment variable must be set for the node to work |
-| `contains` | extracted | A contains B | 79 | the first is composed of the second |
-| `uses_model` | extracted | A runs on B | 79 | the agent is configured with this model id |
-| `defined_in` | extracted | A is defined in B | 65 | where the thing is declared in source |
-| `runs` | extracted | A runs B | 60 | an entrypoint — a script, a process, a dyno — executes this |
-| `documents` | extracted | A documents B | 56 | the document derives from, and describes, this entity |
+| `imports` | extracted | A imports B | 266 | a static import edge between source files |
+| `links_to` | extracted | A links to B | 153 | a resolved markdown link between documents |
+| `uses_tool` | extracted | A calls B | 118 | the agent declares this tool by name |
+| `derives_from` | extracted | A derives from B | 112 | declared in the document’s `sources:` frontmatter |
+| `requires_env` | extracted | A requires B | 89 | this environment variable must be set for the node to work |
+| `contains` | extracted | A contains B | 82 | the first is composed of the second |
+| `uses_model` | extracted | A runs on B | 82 | the agent is configured with this model id |
+| `defined_in` | extracted | A is defined in B | 71 | where the thing is declared in source |
+| `runs` | extracted | A runs B | 63 | an entrypoint — a script, a process, a dyno — executes this |
+| `documents` | extracted | A documents B | 62 | the document derives from, and describes, this entity |
 | `reads_table` | extracted | A reads or writes B | 18 | the module names this table |
 | `routes_to` | extracted | A routes to B | 8 | the model id resolves to this provider adapter |
 | `connects_mcp` | extracted | A dials B | 4 | the agent discovers tools from this MCP server at runtime |

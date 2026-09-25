@@ -23,6 +23,7 @@ To modify an example, copy it into `config/agents/` in your project and edit it.
 
 ## What each starter-pack syndicate does
 
+- `assistant.yaml`: Assistant; the generic starting point: converses, summarizes pasted text or URLs, keeps a task list, and queues background jobs that `npx melchizedek-worker` runs (clone: `npm run assistant:worker`); keyless (Ollama with qwen3:8b pulled).
 - `tutor.yaml`: Tutor; one agent that teaches a topic or pasted material by questioning; keyless (Ollama with qwen3:8b pulled).
 - `council.yaml`: Council; an advocate and a skeptic argue a question and a chair rules; keyless.
 - `critic.yaml`: Critic Review Workflow; a Drafter answers, a Critic scores it as JSON with a confidence field, and the loop repeats until confidence reaches 85 or higher (three rounds at most); gemini.
@@ -131,6 +132,7 @@ When a user's task matches a syndicate, execute the syndicate in one shot with `
 - Write a document from facts: `scribe.yaml`.
 - Research a question on the web: `syndicate.yaml`.
 - Teach a topic: `tutor.yaml`.
+- Summarize a page or queue longer work: `assistant.yaml`.
 - Query a repository's knowledge bundle: `scriptorium.yaml`.
 
 Run `npx melchizedek-doctor` first to verify that the environment provides the required API keys.

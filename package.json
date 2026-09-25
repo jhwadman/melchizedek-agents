@@ -1,6 +1,6 @@
 {
   "name": "melchizedek-agents",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "A multi-model, multi-agent orchestration framework on Google ADK — YAML-defined syndicates, Supabase session persistence, pgvector long-term memory. Companion repo to the lyceumagents.com curriculum.",
   "type": "module",
   "license": "MIT",
@@ -29,7 +29,8 @@
     "melchizedek-serve": "./dist/scripts/a2a_server.js",
     "melchizedek-chat": "./dist/scripts/syndicate_chat.js",
     "melchizedek-doctor": "./dist/scripts/doctor.js",
-    "melchizedek-skills": "./dist/scripts/skills_install.js"
+    "melchizedek-skills": "./dist/scripts/skills_install.js",
+    "melchizedek-worker": "./dist/scripts/assistant_worker.js"
   },
   "files": [
     "dist",
@@ -64,6 +65,8 @@
     "syndicate:cartographers": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate cartographers",
     "syndicate:augustin": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate augustin",
     "syndicate:scribe": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate scribe",
+    "syndicate:assistant": "node --disable-warning=DEP0040 --experimental-strip-types scripts/syndicate_chat.ts --syndicate assistant",
+    "assistant:worker": "node --disable-warning=DEP0040 --experimental-strip-types scripts/assistant_worker.ts",
     "demo:models": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_model_optionality.ts",
     "demo:direct": "node --disable-warning=DEP0040 --experimental-strip-types scripts/direct_call.ts",
     "mcp:demo": "node --disable-warning=DEP0040 --experimental-strip-types scripts/demo_mcp_server.ts",

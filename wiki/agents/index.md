@@ -2,6 +2,7 @@
 
 <!-- wiki:generated section="listing" source="directory contents" -->
 - [Ares Data Extractor](/agents/ares.md) — The Ares Data Extractor syndicate.
+- [Assistant](/agents/assistant.md) — The Assistant syndicate.
 - [Augustin Desk (deep)](/agents/augustin_desk_deep.md) — The Augustin Desk (deep) syndicate.
 - [Augustin Desk](/agents/augustin_desk.md) — The Augustin Desk syndicate.
 - [Augustin](/agents/augustin.md) — The Augustin syndicate.

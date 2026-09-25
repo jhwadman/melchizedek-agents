@@ -66,7 +66,7 @@ test('an empty env: every example is blocked or ready-local, and the Gemini key 
       assert.equal(s.error, undefined, `${s.file}: ${s.error}`);
     }
     const local = examples.filter((s) => s.verdict.state === 'ready-local').map((s) => s.file);
-    assert.deepEqual(local.sort(), ['examples/council.yaml', 'examples/tutor.yaml']);
+    assert.deepEqual(local.sort(), ['examples/assistant.yaml', 'examples/council.yaml', 'examples/tutor.yaml']);
     assert.equal(result.unlocks[0]?.env, 'GOOGLE_GENAI_API_KEY');
     assert.ok(result.unlocks[0].syndicates.length >= 12);
     assert.equal(result.gateway, null);

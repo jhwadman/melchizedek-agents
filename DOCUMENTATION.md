@@ -122,6 +122,8 @@ instance:
 | `load_memory` | ADK built-in | Explicit tool call to search the fact store (deliberate recall). |
 | `generate_image` | FunctionTool | Calls the Gemini image model directly, saves the result under `outputs/`, returns the path. A FunctionTool because binary `inlineData` cannot survive the AgentTool text boundary. |
 | `inspect_image` | FunctionTool | **Blind visual inventory** of a file under `outputs/`: subjects with exact counts, composition, light, palette, medium cues, artifacts — zero quality judgments. Its signature accepts *only* a file path, so an orchestrator cannot leak expectations into the observation (see `image_production.yaml`). |
+| `task_add` / `task_list` / `task_get` / `task_update` | FunctionTool | A to-do list in a local JSON store (`MELCHIZEDEK_TASKS_FILE`, default `outputs/tasks.json`). Single-user: the store has no caller identity, so never serve these tools on a shared A2A endpoint. |
+| `task_queue` | FunctionTool | Queues a background job (a self-contained instruction). The tool only writes the queue; `npm run assistant:worker` (`melchizedek-worker`) claims each job, runs it through one agent compiled from YAML (default: the Assistant's Worker), and writes the result back for `task_get`. `--once` drains and exits, for cron. |
 
 **MCP tools** are the exception to the registry: a subagent with
 `mcp_server_url:` in its YAML gets its tools from a remote MCP server at
@@ -321,7 +323,7 @@ funded — with one verdict per syndicate and the variables that would
 unlock the most. Read-only; no key value is ever printed. Every
 starter-pack file opens with a `# tier:` header (`keyless`, one provider
 such as `gemini`, or `multi-provider`) the doctor checks against the
-models. `GOOGLE_GENAI_API_KEY` alone runs fourteen of the eighteen examples.
+models. `GOOGLE_GENAI_API_KEY` alone runs fourteen of the nineteen examples.
 
 **One key instead of several — the gateway fallback.** Direct adapters
 are canonical: the native features above exist only on a provider's own
@@ -391,7 +393,8 @@ route through `lib/models/ollamaLlm.ts` to a local Ollama daemon over
 its OpenAI-compatible API (`OLLAMA_BASE_URL`, default
 `http://localhost:11434/v1`). No key is required, and a syndicate whose
 *every* agent is `ollama/*` runs with no `.env` at all —
-`config/agents/examples/tutor.yaml` (single agent) and `council.yaml` (council)
+`config/agents/examples/tutor.yaml` (single agent), `council.yaml` (council)
+and `assistant.yaml` (conversation, summaries, a task list, background jobs)
 are the worked examples. The adapter translates ADK content to
 OpenAI-style messages, including tool calls (so delegation works),
 image parts as data URIs (so `ollama/qwen3-vl:8b` can see), and JSON

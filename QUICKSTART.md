@@ -21,15 +21,28 @@ fifteen. The full reference is [`DOCUMENTATION.md`](./DOCUMENTATION.md).
 
 ## 0. The keyless path (open weights, fully local)
 
-Two syndicates run with no API key, no account, and no data leaving your
+Three syndicates run with no API key, no account, and no data leaving your
 machine — every agent in them is an open-weight model served by Ollama:
 
 ```bash
 npm install
-ollama pull qwen3:8b        # after installing Ollama
-npm run syndicate:tutor     # one agent: the Tutor
-npm run syndicate:council   # three agents: the Council
+ollama pull qwen3:8b          # after installing Ollama
+npm run syndicate:assistant   # the Assistant: converse, summarize, tasks, background jobs
+npm run syndicate:tutor       # one agent: the Tutor
+npm run syndicate:council     # three agents: the Council
 ```
+
+The Assistant queues longer work with `task_queue`; a second process runs it:
+
+```bash
+npm run assistant:worker              # polls the queue every 30 s
+npm run assistant:worker -- --once    # drains it and exits (cron-friendly)
+```
+
+Tasks and jobs live in `outputs/tasks.json` (`MELCHIZEDEK_TASKS_FILE` moves
+it). Ollama serves models at a 4,096-token context by default, which a web
+page read by the Summarizer overflows: start it with
+`OLLAMA_CONTEXT_LENGTH=16384 ollama serve` before summarizing URLs.
 
 Model ids namespaced `ollama/…` (e.g. `ollama/qwen3:8b`) route through
 `lib/models/ollamaLlm.ts` to Ollama's OpenAI-compatible endpoint at

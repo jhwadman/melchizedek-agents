@@ -4,6 +4,26 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## 0.14.0 — 2026-09-25
+
+- **Starter pack: `assistant.yaml`, the Assistant.** The generic starting
+  point for your own agent, keyless (`ollama/qwen3:8b`): the orchestrator
+  converses, a Summarizer reads pasted text or up to five URLs
+  (`web_extract`), a task list outlives the conversation, and longer work is
+  queued as background jobs. `npm run syndicate:assistant`.
+- **Five task tools.** `task_add`, `task_queue`, `task_list`, `task_get`,
+  `task_update` (`lib/tools/taskTools.ts`), registered by name in the tool
+  registry. One local JSON store for to-dos and jobs:
+  `MELCHIZEDEK_TASKS_FILE`, default `outputs/tasks.json`. Single-user by
+  design; do not serve them on a shared A2A endpoint.
+- **`melchizedek-worker`: the background worker.** A fifth bin (and
+  `npm run assistant:worker`) claims queued jobs one at a time, runs each
+  through one agent compiled from YAML (default `--syndicate assistant
+  --agent Worker`; any syndicate and agent), and writes the result back for
+  `task_get`. `--once` drains the queue and exits (cron); otherwise it polls
+  (`--interval`, default 30 s). The tools only write the queue; they never
+  run a job.
+
 ## 0.13.0 — 2026-09-24
 
 - **Starter pack: `research.yaml`, Research.** Questions about clinical and

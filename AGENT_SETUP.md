@@ -49,10 +49,10 @@ conversation's history forever. The stop-conditions keep the agent from
 After the agent reports back:
 
 1. **Optional — zero keys, fully local**: install Ollama
-   (https://ollama.com) and run `ollama pull qwen3:8b`. The two
-   open-weight syndicates (`npm run syndicate:tutor`, `npm run
-   syndicate:council`) then run with an empty `.env` — every agent is a
-   local model, nothing leaves your machine. This is the open-weight course
+   (https://ollama.com) and run `ollama pull qwen3:8b`. The three
+   open-weight syndicates (`npm run syndicate:assistant`, `npm run
+   syndicate:tutor`, `npm run syndicate:council`) then run with an empty
+   `.env` — every agent is a local model, nothing leaves your machine. This is the open-weight course
    path; the cloud syndicates below still want a key.
 2. **Get a Gemini API key** (free): https://aistudio.google.com →
    create key → open `.env` in your editor and set
@@ -90,6 +90,8 @@ After the agent reports back:
 Keyless, if you installed Ollama:
 
 ```bash
+npm run syndicate:assistant   # converse, summarize, keep a task list, queue background jobs
+npm run assistant:worker      # (second terminal) runs the jobs the Assistant queues
 npm run syndicate:tutor       # one open-weight agent: name a topic or paste material, be taught
 npm run syndicate:council     # advocate/skeptic council, all local
 ```
