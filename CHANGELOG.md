@@ -4,7 +4,7 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
-## Unreleased
+## 0.15.0 — 2026-09-27
 
 - **Production templates: `config/agents/templates/`.** Ten job-shaped
   syndicates built to be adapted and shipped, beside the starter pack that
