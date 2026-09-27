@@ -4,6 +4,30 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the two
 bins, and the starter pack), not the repo's full history.
 
+## Unreleased
+
+- **Production templates: `config/agents/templates/`.** Ten job-shaped
+  syndicates built to be adapted and shipped, beside the starter pack that
+  teaches: `conversational` (a keyless conversational agent),
+  `support_triage` (plan-dispatch with a `handoff` fallback),
+  `research_brief` (three layers, nesting `research_desk`), `review_panel`
+  (ship, fix or hold a change), `draft_review` (a policy-checked loop), one
+  per memory tier (`intake_extractor`, `case_desk`, `account_memory`), and
+  `systems_operator` (your systems over MCP; read, plan, confirm, write).
+  The package now ships the directory; `templates/README.md` maps it, and
+  `npm run syndicate:conversational` runs the first.
+- **The loader looks in `templates/` too.** A bare name resolves at the
+  agents root, then `examples/`, then `templates/`, so an A2A route
+  (`/support_triage/…`) and a nested `yaml_reference` find a template
+  without a path.
+- **`web_extract` names where a redirect landed.** A URL that redirects (a
+  search engine's grounding link, for one) now carries a `Resolved:` line
+  with the final address, so a note can cite the publisher, not the
+  redirect. Output for a URL that did not redirect is unchanged.
+- **The compile tier of `npm test` walks subdirectories.** It loaded only
+  the root before, which in this package meant the schema file alone; it
+  now compiles every shipped syndicate.
+
 ## 0.14.0 — 2026-09-25
 
 - **Starter pack: `assistant.yaml`, the Assistant.** The generic starting

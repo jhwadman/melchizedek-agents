@@ -308,13 +308,17 @@ export function parseCliBindings(argv: string[]): VariableMap {
 
 // ── Primary Entrypoint ────────────────────────────────────
 
+/** Subdirectories of the agents root searched, in order, for a bare name. */
+const SHIPPED_DIRS = ['examples', 'templates'] as const;
+
 /**
  * Load and fully resolve a syndicate YAML definition.
  *
  * @param filename  YAML filename inside `config/agents/`. Production
  *   syndicates live at the root; the shipped starter-pack examples live in
- *   `config/agents/examples/`. A bare filename is resolved against the root
- *   first, then `examples/`, so callers (and nested `yaml_reference`s) never
+ *   `config/agents/examples/` and the production templates in
+ *   `config/agents/templates/`. A bare filename is resolved against the root
+ *   first, then `examples/`, then `templates/`, so callers (and nested `yaml_reference`s) never
  *   need to know which side of the split a file is on.
  * @param options   Bindings and optional overrides
  *
@@ -384,13 +388,17 @@ export function loadSyndicate(
   if (filePath !== agentsDir && !filePath.startsWith(agentsDir + path.sep)) {
     throw new Error(`Invalid syndicate path: '${filename}' resolves outside the agents directory`);
   }
-  // Starter-pack fallback: a name not found at the root is looked up in
-  // examples/ (still inside the jail), so moving a YAML between the two
-  // never breaks a bare-id A2A route or an npm script.
+  // Shipped-file fallback: a name not found at the root is looked up in
+  // examples/ (the starter pack), then templates/ (the production
+  // templates), still inside the jail, so moving a YAML between them never
+  // breaks a bare-id A2A route, an npm script, or a nested yaml_reference.
   if (!fs.existsSync(filePath)) {
-    const inExamples = path.resolve(agentsDir, 'examples', filename);
-    if (inExamples.startsWith(agentsDir + path.sep) && fs.existsSync(inExamples)) {
-      filePath = inExamples;
+    for (const dir of SHIPPED_DIRS) {
+      const candidate = path.resolve(agentsDir, dir, filename);
+      if (candidate.startsWith(agentsDir + path.sep) && fs.existsSync(candidate)) {
+        filePath = candidate;
+        break;
+      }
     }
   }
   const fileContent = fs.readFileSync(filePath, 'utf-8');

@@ -1,0 +1,95 @@
+# tier: gemini  — needs GOOGLE_GENAI_API_KEY, plus SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for long-term memory (db/ has the schema).
+# ============================================================
+# Template · Memory: long-term · Account Memory — remember every client, per client
+# ============================================================
+#
+# JOB: an assistant for the person who owns client relationships (an
+# account manager, a consultant, a customer-success lead). It remembers
+# what each client asked for, decided, prefers and was promised, across
+# every conversation, and drafts the follow-up that proves it.
+#
+# MEMORY: LONG-TERM. The full pipeline in lib/memory/README.md:
+#   preload_memory   injects the records relevant to each message before
+#                    the model reads it; nothing to call.
+#   load_memory      explicit recall by meaning, date or index key when the
+#                    preload did not surface what is needed.
+#   distillation     after each completed task (A2A) or at exit (CLI), the
+#                    transcript becomes one-line records:
+#                    [TAG | date | source | status | keys] text
+#                    Corrections supersede the rows they correct; unresolved
+#                    contradictions are both kept and flagged.
+#   memory_extraction_rules (below) tell the shared extractor what matters
+#                    in THIS domain. Everything else is dropped.
+#
+# SILOS AND ERASURE: records are keyed per caller and, beneath it, per end
+# user (the X-User-Id header on A2A). Use one X-User-Id per account manager,
+# never one per client: the client is an index key inside that person's
+# silo. `DELETE /memory` erases everything in the calling silo.
+#
+# WITHOUT SUPABASE the syndicate still runs; memory is disabled with a
+# warning, and it behaves as a session-tier assistant.
+#
+# SHAPE: DELEGATE. The Lead converses and recalls; Writer drafts outbound
+# messages from recalled facts only.
+#
+# MAKE IT YOURS: `memory_extraction_rules` is where a domain lives. A
+# recruiter stores candidates' constraints, a clinic stores nothing without
+# consent, a supplier stores lead times each customer was quoted.
+# ============================================================
+syndicate_name: Account Memory
+memory_system: long-term
+max_steps: 12
+memory_extraction_rules: |
+  ALWAYS store, one record each, with the client's organisation as a key:
+  - what the client asked for, decided, approved or rejected, with the date;
+  - commitments made by EITHER side, with any date or amount exactly as stated;
+  - stated preferences: channel, timing, format, who to copy, what to avoid;
+  - people: name, role, and who decides what;
+  - renewal, contract and budget dates the user mentions.
+  NEVER store:
+  - prices, stock levels, product specifications or anything the systems of record hold and can be read again;
+  - payment details, passwords, government identifiers, health information;
+  - the assistant's own suggestions unless the user adopted them.
+orchestrator:
+  name: AccountLead
+  model: gemini-3.8-flash
+  tools:
+    - preload_memory
+    - load_memory
+  instruction: |
+    The current date is {{current_date}}.
+
+    You are the memory of one person who manages client accounts. They talk to you before and after calls, paste notes, and ask what they owe whom.
+
+    RECALL
+    - Records relevant to the message are preloaded. When a question needs something they did not surface (an older commitment, a person's role), call `load_memory` with the client's name plus the specific thing: "Halvorsen renewal date", "Okafor Logistics who approves budget".
+    - Every remembered fact you use carries its provenance: "(per your note of 2026-08-14)". If a record is marked historical or superseded, say what replaced it.
+    - When memory is silent, say "I have nothing on that" and ask. Never fill a gap with a plausible fact: an invented commitment to a client is worse than a forgotten one.
+    - Where two records conflict, show both with their dates and ask which stands.
+
+    WHAT TO DO
+    - Notes after a call: restate, in one short list, what you will remember (decisions, commitments, dates, people), so the user can correct it now. Corrections they make are stored as corrections.
+    - "Prep me for <client>": open commitments first (ours, then theirs), then recent decisions, then preferences worth knowing, then people. Only remembered facts.
+    - A follow-up message: call Writer with the recipient, the purpose, and the exact remembered facts it should rest on, each with its date.
+
+    Plain sentences, short lists. No headings.
+  generateContentConfig:
+    maxOutputTokens: 3072
+    thinkingConfig:
+      thinkingLevel: LOW
+      includeThoughts: false
+subagents:
+  - name: Writer
+    description: "Drafts a client follow-up message from the facts it is given. Pass the recipient, the purpose, and each fact with its date."
+    model: gemini-3.1-flash-lite
+    instruction: |
+      You draft one client message from the facts you are given. Those facts are your only source: no date, amount, name or promise that is not among them.
+
+      Shape: a greeting using the recipient's name, the purpose in the first sentence, the facts that support it, one clear next step with a date only if a fact gives one, a sign-off without a name (the sender adds theirs).
+
+      Under 150 words. Plain, warm, specific. No "just checking in", no "hope this finds you well".
+    generateContentConfig:
+      maxOutputTokens: 1024
+      thinkingConfig:
+        thinkingLevel: MINIMAL
+        includeThoughts: false

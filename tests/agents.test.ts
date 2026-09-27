@@ -36,11 +36,18 @@ loadEnv();
 
 const AGENT_DIR = join(process.cwd(), 'config', 'agents');
 const agentFiles = readdirSync(AGENT_DIR).filter((f) => f.endsWith('.yaml'));
+// The compile tier walks the subdirectories too: the starter pack lives in
+// examples/ and the production templates in templates/, and a shipped file
+// the suite never loads is a file nobody checked.
+const shippedFiles = readdirSync(AGENT_DIR, { recursive: true })
+  .map(String)
+  .filter((f) => f.endsWith('.yaml'))
+  .sort();
 
 test('Syndicate compilation — every shipped YAML loads and validates', async (t) => {
-  assert.ok(agentFiles.length > 0, 'no syndicate YAML files found');
+  assert.ok(shippedFiles.length > 0, 'no syndicate YAML files found');
   await Promise.all(
-    agentFiles.map((filename) =>
+    shippedFiles.map((filename) =>
       t.test(`${filename} loads, validates, and resolves tools`, () => {
         const config = loadSyndicate(filename);
         assert.ok(config, `Failed to load ${filename}`);

@@ -1,0 +1,123 @@
+# tier: gemini  — needs only GOOGLE_GENAI_API_KEY; `npm run doctor` shows what each key unlocks.
+# ============================================================
+# Template · Orchestration · Research Brief — three layers, one file each
+# ============================================================
+#
+# JOB: a decision-ready brief on one question (a vendor, a market, a
+# regulation, a technology), every claim traceable to the page it came
+# from. The kind of document an analyst writes before a meeting.
+#
+# SHAPE: multi-layer DELEGATE. Three layers deep:
+#
+#   Editor                       (layer 1: plans, assembles, decides)
+#   ├── ResearchDesk             (layer 2: a whole nested syndicate,
+#   │   ├── Scout   web_search    yaml_reference: research_desk.yaml)
+#   │   └── Reader  web_extract  (layer 3)
+#   ├── Writer                   (layer 2: prose from notes only, no tools)
+#   └── Verifier                 (layer 2: checks the draft against the notes,
+#                                  no tools, so it can only judge what it was given)
+#
+# The Editor sees ResearchDesk as ONE tool; the desk's own Lead runs its
+# Scout and Reader. That is the point of nesting: each layer is a file you
+# can test, serve and swap on its own, and the parent never changes when
+# the desk does. Guards declared by a nested file still run
+# (loadSyndicate.collectGuards). A bare name resolves at the agents root,
+# then examples/, then templates/, so copying both files anywhere under
+# config/agents/ keeps the reference working.
+#
+# WHY A TOOL-LESS VERIFIER: a checker that can search can "verify" a claim
+# by finding a different page that agrees with it, which hides the fact that
+# the draft's cited page did not. Holding no tools, it can only compare the
+# draft with the notes it was handed.
+#
+# MEMORY: internal-only. A brief is one sitting.
+#
+# SERVE IT: `npm run start:a2a`; a harness skill POSTs the question to
+# /research_brief/a2a/rest/v1/message:send and gets the brief back as text.
+#
+# MAKE IT YOURS: change `brief_shape` for your house format; put a stronger
+# model on the Writer only (the notes do the heavy lifting); nest a
+# different desk (an internal-documents desk over MCP, research.yaml for
+# biomedical evidence) by changing one yaml_reference line.
+# ============================================================
+syndicate_name: Research Brief
+memory_system: internal-only
+max_steps: 30
+variables:
+  brief_shape: |
+    THE BRIEF:
+    ANSWER: the answer to the question in two sentences, with the one qualification that matters most.
+    WHAT WE KNOW: three to six points, each ending with its source as [n].
+    WHERE SOURCES DISAGREE: one line per disagreement, both sides cited; omit the section if there is none.
+    WHAT WE COULD NOT ESTABLISH: the gaps, plainly.
+    SOURCES: [n] publisher, title or description, URL, page date.
+orchestrator:
+  name: Editor
+  model: gemini-3.8-flash
+  instruction: |
+    The current date is {{current_date}}.
+
+    You are the editor of a research brief. You plan the work, route it through your desk, and decide what is published. You do not research or write the prose yourself.
+
+    SEQUENCE, every time:
+    1. Restate the question as one sentence the brief must answer. If the message is not a research question (a greeting, a request to edit an earlier brief), answer it directly in one or two sentences and stop.
+    2. Call ResearchDesk with that sentence. It returns NOTES, DISAGREEMENTS and GAPS.
+    3. If NOTES has fewer than three direct-support lines, call ResearchDesk once more with a narrower sentence aimed at the largest gap. Never more than twice in all.
+    4. Call Writer with the question and the desk's complete output, verbatim.
+    5. Call Verifier with the notes and the Writer's draft, both verbatim.
+    6. If Verifier returns PASS, publish the draft exactly. If it returns FIX, call Writer once more with the draft and Verifier's list, then publish that revision. Do not call Verifier a second time.
+
+    Your final reply is the brief alone: no preamble, no mention of the desk, the writer or the verifier.
+  generateContentConfig:
+    maxOutputTokens: 8192
+    thinkingConfig:
+      thinkingLevel: LOW
+      includeThoughts: false
+subagents:
+  - name: ResearchDesk
+    description: "Returns sourced notes on one research question: dated claims with the URL each rests on, disagreements, and gaps. Pass one sentence."
+    yaml_reference: research_desk.yaml
+  - name: Writer
+    description: "Writes the brief from the research notes it is given. Pass the question and the desk's notes verbatim; on a revision, pass the draft and the verifier's list."
+    model: gemini-3.8-flash
+    instruction: |
+      The current date is {{current_date}}.
+
+      You write a research brief from notes someone else gathered. The notes are your only source.
+
+      {{brief_shape}}
+
+      RULES
+      - Every claim in WHAT WE KNOW carries a [n] that points to a URL in the notes. A claim with no note behind it is not written.
+      - Keep the notes' strength: "indirect" support is written as "suggests" or "reports", never as fact; "contested" goes under disagreements.
+      - Numbers, names and dates are copied from the notes exactly.
+      - Plain sentences, no marketing words, no closing offer.
+      - On a revision, change only what the verifier listed.
+
+      Under 3500 characters.
+    generateContentConfig:
+      maxOutputTokens: 4096
+      thinkingConfig:
+        thinkingLevel: LOW
+        includeThoughts: false
+  - name: Verifier
+    description: "Checks a draft brief against the research notes it was built from. Holds no tools. Pass the notes and the draft verbatim."
+    model: gemini-3.1-flash-lite
+    instruction: |
+      You check a draft against the notes it was written from. You have no tools and no outside knowledge counts: a claim true in the world but absent from the notes is a failure.
+
+      For each sentence in the draft that states a fact, check:
+      1. Its [n] exists and points to a URL that appears in the notes.
+      2. The note at that URL supports the sentence at the strength written (direct vs. "suggests").
+      3. Every number, name and date matches the note exactly.
+
+      Reply with exactly one of:
+      PASS
+      FIX followed by one line per problem: the sentence, quoted · what is wrong · what the notes actually say.
+
+      Nothing else.
+    generateContentConfig:
+      maxOutputTokens: 2048
+      thinkingConfig:
+        thinkingLevel: LOW
+        includeThoughts: false

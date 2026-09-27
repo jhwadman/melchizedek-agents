@@ -1,0 +1,103 @@
+# tier: gemini  — needs only GOOGLE_GENAI_API_KEY; `npm run doctor` shows what each key unlocks.
+# ============================================================
+# Template · Orchestration · Draft Review — write, check against policy, revise
+# ============================================================
+#
+# JOB: outbound writing that must follow rules: a customer reply, a
+# release announcement, a policy notice, a product description. A Drafter
+# writes, a Reviewer checks the draft against YOUR policy line by line,
+# and the loop ends when the Reviewer approves or the round cap is hit.
+#
+# SHAPE: bounded loop (DELEGATE). The Editor runs Drafter → Reviewer →
+# Drafter … at most `max_rounds` review rounds (default 2). Two properties make the
+# loop safe to run unattended:
+#   1. The Reviewer's first line is a fixed token (APPROVED or REVISE), so
+#      the stop condition is read from text, not inferred from tone.
+#   2. The cap is stated in the Editor's prompt AND enforced by `max_steps`,
+#      so a model that ignores the instruction still stops.
+# When the cap is hit without approval, the reply says so and lists what is
+# still open. It never publishes an unapproved draft as if it were final.
+#
+# MEMORY: internal-only. Each piece of writing is one sitting.
+#
+# MAKE IT YOURS: `policy` is the whole product here: paste your style guide,
+# legal lines, banned claims and required disclosures. Keep each rule
+# checkable ("never promise a delivery date" beats "be careful with
+# promises"). Give the Reviewer a different provider from the Drafter so
+# they do not share blind spots.
+#
+# COMPARE: examples/critic.yaml teaches the same loop with a numeric
+# confidence score. This template replaces the score with a checklist,
+# because a policy is pass or fail per rule.
+# ============================================================
+syndicate_name: Draft Review
+memory_system: internal-only
+max_steps: 14
+variables:
+  max_rounds: "2"
+  policy: |
+    POLICY
+    1. Accuracy: state only facts present in the brief. No invented numbers, dates, features, prices or names.
+    2. Commitments: no promise of a date, a refund, an outcome or a future feature unless the brief states it.
+    3. Tone: plain and direct; no superlatives ("best", "revolutionary", "seamless"); no exclamation marks.
+    4. Clarity: the first sentence says what the reader needs to know or do.
+    5. Length: within the length the brief asks for; under 180 words if it asks for none.
+    6. Required: if the brief names a required line (a disclosure, a link, a sign-off), it appears verbatim.
+orchestrator:
+  name: Editor
+  model: gemini-3.1-flash-lite
+  instruction: |
+    You run a drafting loop. You never write or review the text yourself.
+
+    LOOP
+    1. Call Drafter with the brief exactly as received.
+    2. Call Reviewer with the brief and the current draft, both verbatim.
+    3. If the Reviewer's reply begins APPROVED, stop and publish the draft.
+    4. If it begins REVISE and fewer than {{max_rounds}} reviews have run, call Drafter with the brief, the current draft and the Reviewer's list, then return to step 2.
+    5. If {{max_rounds}} reviews have run without APPROVED, stop.
+
+    REPLY
+    - Approved: the final draft alone, exactly as the Drafter wrote it.
+    - Not approved after {{max_rounds}} reviews: the line "NOT APPROVED: open issues below", the latest draft, a line containing only "---", then the Reviewer's open items.
+  generateContentConfig:
+    maxOutputTokens: 4096
+    thinkingConfig:
+      thinkingLevel: MINIMAL
+      includeThoughts: false
+subagents:
+  - name: Drafter
+    description: "Writes or revises a piece of outbound text from a brief. Pass the brief; on a revision, also pass the current draft and the reviewer's list."
+    model: gemini-3.8-flash
+    instruction: |
+      You write outbound text from a brief. The brief is your only source of facts.
+
+      {{policy}}
+
+      On a first draft, write to the brief. On a revision, fix every item on the reviewer's list and change nothing else.
+
+      Return the text alone: no title unless the brief asks for one, no notes to the editor.
+    generateContentConfig:
+      maxOutputTokens: 2048
+      thinkingConfig:
+        thinkingLevel: LOW
+        includeThoughts: false
+  - name: Reviewer
+    description: "Checks a draft against the brief and the policy, rule by rule. Pass the brief and the draft verbatim. Replies APPROVED or REVISE with a list."
+    model: gemini-3.1-flash-lite
+    instruction: |
+      You check a draft against a brief and a policy. You do not rewrite it.
+
+      {{policy}}
+
+      Check every rule against every sentence. A fact is supported only if the brief states it.
+
+      Reply with exactly one of:
+      APPROVED
+      REVISE, then one line per problem: rule number · the sentence, quoted · what must change.
+
+      Approve a draft that passes every rule even if you would have written it differently. Style preference is not a finding.
+    generateContentConfig:
+      maxOutputTokens: 1024
+      thinkingConfig:
+        thinkingLevel: LOW
+        includeThoughts: false

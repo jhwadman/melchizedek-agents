@@ -152,6 +152,29 @@ test('execute rejects bad schemes and blocked hosts without fetching', async () 
   assert.match(out, /refusing to fetch 169\.254\.169\.254/);
 });
 
+test('a redirected read names the page it landed on, so a note can cite the publisher', async () => {
+  clearWebExtractCache();
+  const realFetch = globalThis.fetch;
+  const page = '<html><head><title>A2A 1.0</title></head><body><article><p>' + 'The protocol reached 1.0. '.repeat(20) + '</p></article></body></html>';
+  globalThis.fetch = (async (input: URL | string) => {
+    const href = String(input);
+    if (href.startsWith('https://search.example/redirect/')) {
+      return new Response(null, { status: 302, headers: { location: 'https://publisher.example/a2a-1-0' } });
+    }
+    return new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
+  }) as typeof fetch;
+  try {
+    const moved = await executeContract(webExtractContract, { urls: ['https://search.example/redirect/abc'] });
+    assert.match(moved, /^=== https:\/\/search\.example\/redirect\/abc ===\nResolved: https:\/\/publisher\.example\/a2a-1-0\nTitle: A2A 1\.0\n\n/);
+    const direct = await executeContract(webExtractContract, { urls: ['https://publisher.example/a2a-1-0'] });
+    assert.match(direct, /^=== https:\/\/publisher\.example\/a2a-1-0 ===\nTitle: A2A 1\.0\n\n/);
+    assert.doesNotMatch(direct, /Resolved:/);
+  } finally {
+    globalThis.fetch = realFetch;
+    clearWebExtractCache();
+  }
+});
+
 // ── Block-page detection ────────────────────────────────────────────────────
 
 test('blockedPageReason catches bot checks and challenge pages', () => {

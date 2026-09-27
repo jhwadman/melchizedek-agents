@@ -104,7 +104,8 @@ export const CONSOLE_URLS: Record<ProviderId, string> = {
 
 /**
  * Every syndicate file the loader can see: the root (this deployment's
- * live syndicates) and examples/ (the starter pack). The schema document
+ * live syndicates), examples/ (the starter pack) and templates/ (the
+ * production templates). The schema document
  * and evals/ are skipped — one is not a syndicate, the others exist to be
  * measured, not served (config/agents/README.md).
  */
@@ -120,6 +121,7 @@ export function listSyndicateFiles(agentsDir: string): string[] {
   };
   yamlIn(agentsDir, '');
   yamlIn(path.join(agentsDir, 'examples'), 'examples/');
+  yamlIn(path.join(agentsDir, 'templates'), 'templates/');
   return out;
 }
 

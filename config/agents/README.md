@@ -21,7 +21,18 @@ critic loops, hierarchies, MCP tools, local open-weight models, the wiki
 gardeners). They are teaching material, not product — copy them, gut them,
 delete the whole directory; the engine runs fine without them.
 
+## `templates/` — the production templates
+
+Ten job-shaped files built to be adapted and shipped: a conversational
+agent, support triage, a three-layer research brief, a review panel, a
+policy-checked drafting loop, and one template for each memory tier
+(short-term intake, a session case desk, long-term account memory), plus
+the research desk and a systems operator that reaches your own systems
+over MCP. `templates/README.md` maps them; each header says what to change
+first. The offline suite holds them to a contract the examples are not
+held to.
+
 The loader (`lib/loadSyndicate.ts`) resolves a bare filename against the
-root first, then `examples/`, so `npm run syndicate:tutor` and friends keep
+root first, then `examples/`, then `templates/`, so `npm run syndicate:tutor` and friends keep
 working, and promoting an example to production is just moving it one
 level up.

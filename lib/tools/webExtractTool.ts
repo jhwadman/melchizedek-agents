@@ -148,6 +148,12 @@ function stripBlocks(html: string, tags: string[]): string {
 export interface ExtractedPage {
   title: string | null;
   text: string;
+  /**
+   * Where the fetch landed, when redirects moved it off the requested URL.
+   * A search engine hands out redirect links (Gemini grounding, for one), and
+   * a note that cites the redirect instead of the publisher cannot be checked.
+   */
+  finalUrl?: string;
 }
 
 export function extractHtml(html: string): ExtractedPage {
@@ -433,8 +439,9 @@ async function fetchPage(url: URL): Promise<ExtractedPage | string> {
       return `Error: unsupported content-type "${contentType}".`;
     }
     const body = await readBodyCapped(res);
-    if (!isHtml) return { title: null, text: body.trim() };
-    const page = extractHtml(body);
+    const moved = current.toString() !== url.toString() ? { finalUrl: current.toString() } : {};
+    if (!isHtml) return { title: null, text: body.trim(), ...moved };
+    const page = { ...extractHtml(body), ...moved };
     // Block pages are errors, not content — and deliberately NOT cached,
     // so a later run against a recovered site fetches fresh.
     const blocked = blockedPageReason(page.text, body.length);
@@ -453,7 +460,8 @@ export const webExtractContract = defineTool({
     '(markdown-ish, no summarization) — use it after web_search, or with any known URL, ' +
     'to read an article beyond its headline or snippet. Long pages return a head+tail ' +
     'window with an omission marker; to keep reading, call again with a SINGLE url and ' +
-    'the `offset` from the marker. Up to 5 URLs per call. HTML and plain text only (no PDFs).',
+    'the `offset` from the marker. Up to 5 URLs per call. HTML and plain text only (no PDFs). ' +
+    'When a URL redirected, a "Resolved:" line gives the page it landed on: cite that URL, not the redirect.',
   schema: z.object({
     urls: z
       .array(z.string())
@@ -488,7 +496,9 @@ export const webExtractContract = defineTool({
           cachePage(url, page);
         }
         if (!page.text) return `=== ${url} ===\nError: page yielded no readable text.`;
-        const header = page.title ? `=== ${url} ===\nTitle: ${page.title}\n\n` : `=== ${url} ===\n\n`;
+        const resolved = page.finalUrl ? `Resolved: ${page.finalUrl}\n` : '';
+        const title = page.title ? `Title: ${page.title}\n` : '';
+        const header = `=== ${url} ===\n${resolved}${title}\n`;
         return header + windowContent(page.text, url, limit, offset);
       }),
     );
