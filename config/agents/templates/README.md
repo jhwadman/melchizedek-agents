@@ -45,7 +45,9 @@ for a person's explicit yes.
 
 ## Using one
 
-Run it: `npm run chat:syndicate -- --syndicate <name>`.
+Run it: `npm run chat:syndicate -- --syndicate <name>`. The CLI compiles
+every file in delegate mode, so a `dispatch:` block, a nested
+`yaml_reference` and `guards:` take effect only when the file is served.
 Serve it: `npm run start:a2a`, then `/<name>/a2a/rest/v1/message:send`.
 
 A bare name resolves at `config/agents/`, then `examples/`, then

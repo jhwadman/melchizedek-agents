@@ -5,7 +5,8 @@
  *   ADK's built-in GOOGLE_SEARCH tool is Gemini grounding — it THROWS for any
  *   non-Gemini model. But every cloud provider this framework routes to has
  *   its own native web search: Gemini grounding, Anthropic's web_search
- *   server tool, OpenAI's Responses web_search tool, xAI's live search.
+ *   server tool, OpenAI's Responses web_search tool, xAI's web_search server
+ *   tool.
  *   Declaring `web_search` in an agent's YAML tools list routes to whichever
  *   of those the agent's model supports — the YAML stays model-agnostic.
  *
@@ -39,7 +40,7 @@ export class WebSearchTool extends BaseTool {
       name: WEB_SEARCH_TOOL_NAME,
       description:
         "Web search via the agent model's native search capability " +
-        '(Gemini grounding / Anthropic web_search / OpenAI web_search / xAI live search).',
+        '(Gemini grounding / Anthropic web_search / OpenAI web_search / xAI web_search).',
     });
   }
 

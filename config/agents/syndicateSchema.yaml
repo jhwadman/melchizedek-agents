@@ -73,8 +73,8 @@ memory_extraction_rules: |
 # ⚠ A2A-only — scripts/syndicate_chat.ts compiles every syndicate in
 #   DELEGATE mode (same limitation as yaml_reference).
 #
-# Contract and fail-static rules: lib/dispatch.ts. Worked example:
-# financial_router.yaml.
+# Contract and fail-static rules: lib/dispatch.ts. Worked examples:
+# examples/research.yaml, templates/support_triage.yaml.
 dispatch:
   # [required] Subagent used whenever routing yields no usable answer —
   # malformed JSON, an unknown name, or a classifier that failed outright.

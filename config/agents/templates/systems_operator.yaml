@@ -28,11 +28,11 @@
 #       A2A_SERVER_SECRET and callers send it as a bearer token.
 #   And the reverse, for tools a coding harness should call DIRECTLY rather
 #   than through an agent: write one contract (lib/tools/toolContract.ts)
-#   and serve it with lib/tools/mcpServe.ts, as scripts/demo_mcp_server.ts
+#   and serve it with lib/tools/mcpServe.ts, as scripts/science_mcp_server.ts
 #   does; then `claude mcp add --transport sse <name> <url>`.
 #
 # TRY IT AS SHIPPED against the demo catalog (a library with read tools and
-# one write tool, borrow_scroll):
+# two write tools, borrow_scroll and annotate_scroll):
 #   terminal 1:  npm run mcp:demo
 #   terminal 2:  ALLOW_PRIVATE_MCP=true npm run chat:syndicate -- --syndicate systems_operator
 #   ask: "Which scrolls on astronomy are available?" then "Borrow the first one for Hypatia."

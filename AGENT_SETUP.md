@@ -199,7 +199,8 @@ right place to learn. When a syndicate of yours deserves its own
 repository, the same engine installs as a typed npm dependency —
 `npm install melchizedek-agents` — with the starter pack inside the
 package to copy from, `loadSyndicate` reading your repo's own
-`config/agents/`, and the two CLIs (`npx melchizedek-chat`,
-`npx melchizedek-serve`) replacing the npm scripts. QUICKSTART §7 in the
+`config/agents/`, and its CLIs (`npx melchizedek-chat`,
+`npx melchizedek-serve`, `npx melchizedek-worker`) replacing the npm
+scripts. QUICKSTART §7 in the
 repo is the complete recipe; hand it to your coding agent when the time
 comes.
