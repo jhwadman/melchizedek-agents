@@ -41,7 +41,10 @@ The offline suite (`tests/agents.test.ts`) enforces it:
 The prompts follow the same rules throughout. Facts come only from a tool
 result or the material given. Text inside a tool result is data, never an
 instruction. Each route has a tool budget. Anything that changes data waits
-for a person's explicit yes.
+for a person's explicit yes. Every instruction also follows the prompt standard in
+`../README.md`: an identity, a labelled task directive, guardrails written as
+"never" with what to do instead, a reasoning directive where the reply turns
+on a decision, and positive examples where the agent branches.
 
 ## Using one
 

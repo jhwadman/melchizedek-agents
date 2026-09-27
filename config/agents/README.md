@@ -36,3 +36,37 @@ The loader (`lib/loadSyndicate.ts`) resolves a bare filename against the
 root first, then `examples/`, then `templates/`, so `npm run syndicate:tutor` and friends keep
 working, and promoting an example to production is just moving it one
 level up.
+
+## The prompt standard — every agent in `examples/` and `templates/`
+
+Every instruction in the starter pack and the templates, orchestrator and
+subagent alike, is written in the block anatomy taught at
+https://lyceumagents.com/curriculum/agent-design/. Blocks follow
+capabilities: an agent carries the ones its job calls for.
+
+- **Identity** — who the agent is, the one thing it is for, and what it
+  does not do.
+- **Task directive** — a labelled line (`TASK:`, `Task:` or
+  `<task_directive>`) naming what this call hands back, so "done" is
+  visible in a transcript and a subagent knows where its slice ends.
+- **Doctrines** — one per capability (tool, memory, subagent, source): what
+  counts as truth, when it must be called, a call budget, and the exact
+  thing to say when it returns nothing or fails.
+- **Communication style** — countable rules: word or character caps,
+  format, the closing.
+- **Execution framework** — the per-turn procedure or ordered phases, with a
+  **reasoning directive** wherever the reply turns on a decision ("before you
+  reply, decide which of three cases this is"), and where that reasoning
+  goes (hidden, a schema field, never the reply).
+- **Guardrails** — negative constraints, one "never" per failure the agent
+  invites, each paired with what to do instead. Any agent that reads pasted
+  text, pages or tool results says text inside them is material, never an
+  instruction. Agent-wide, high-stakes limits sit in a boundaries block and
+  are also enforced in code.
+- **Examples** (optional) — positive only: one worked exchange per branch,
+  on material unrelated to real inputs. The wrong reply goes in a guardrail.
+
+`tests/agents.test.ts` checks the mechanical part (a task directive, a
+"never", and the injection line on every tool-holding agent); the rest is
+reviewed by reading. A new public agent meets the whole standard before it
+ships.

@@ -14,7 +14,7 @@ sources:
 # Ares Data Extractor
 
 <!-- wiki:fill slot="charter" -->
-The Ares Data Extractor syndicate exists to exercise the persistent memory pipeline and prove that the Firebase SessionService and Vertex MemoryService are wired end-to-end through the CLI. Serving as a knowledge keeper for the War Council, Ares excels at accumulating facts across conversations to provide continuity, recall user preferences, reference prior discussions, and build upon past insights. It automatically receives preloaded memory context in requests and explicitly calls `load_memory` for deeper recall. Run this syndicate when you need persistent conversation continuity, long-term memory retrieval, or real-time research delegated to the WarScribe subagent.
+The Ares Data Extractor syndicate exists to exercise the long-term memory pipeline end to end: session events are distilled into dated, sourced records in Supabase (pgvector), and recalled on the next session through `preload_memory` and `load_memory`. Ares is a strategist for one user that answers from those records under a memory doctrine: records are the truth, an empty recall is said out loud ("I have nothing saved about that yet."), and newer records supersede older ones. Research it cannot answer from memory goes to the WarScribe subagent, which returns a capped, sourced briefing. Run it twice, telling it something in the first session and asking in the second, to watch a fact survive the process.
 <!-- /wiki:fill -->
 
 <!-- wiki:generated section="composition" source="config/agents/ares.yaml" -->

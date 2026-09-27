@@ -14,7 +14,7 @@ sources:
 # Global Synthesis Council
 
 <!-- wiki:fill slot="charter" -->
-The Global Synthesis Council exists to synthesize current events and explain the overall direction the world is going in. Led by the Melchizedek orchestrator, the syndicate excels at fetching daily news, summarizing top headlines, and reasoning over collected facts to produce profound, multi-paragraph syntheses. It delegates web research to the NewsResearcher subagent, which retrieves real-world information using search tools. Run this syndicate when you need to gather recent news on specific topics, analyze ongoing world events, or evaluate overarching global trends across current headlines. For other specialized workflows, view the main [Agents](/agents/index.md) directory.
+The Global Synthesis Council is the earliest specimen in the starter pack: a Melchizedek orchestrator that must consult its NewsResearcher subagent before it writes. NewsResearcher searches for the current day's news (anchored to `{{current_date}}`), returns a counted headline list, and says `NO NEWS FOUND` rather than filling a gap. The orchestrator then writes a dated synthesis of three to four paragraphs, at most 350 words, built only from what the researcher returned. Run it to see the plainest orchestrator-and-subagent delegation, and read it as the shape the later examples elaborate. For other workflows, see the [Agents](/agents/index.md) directory.
 <!-- /wiki:fill -->
 
 <!-- wiki:generated section="composition" source="config/agents/syndicate.yaml" -->

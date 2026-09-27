@@ -1,7 +1,7 @@
 ---
 type: syndicate
 title: Research Desk
-description: "Returns sourced research notes on one question: dated claims, each with the URL it rests on and how directly the page supports it."
+description: "Returns sourced research notes on one question: at most 20 dated claims, each with its quote, publisher, URL and how directly the page supports it, plus disagreements and gaps."
 tags:
   - syndicate
 generated:
