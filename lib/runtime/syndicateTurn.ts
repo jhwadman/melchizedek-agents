@@ -160,8 +160,18 @@ export interface SyndicateTurnResult {
   resumedSession: boolean;
   /** Model calls the turn made, across every agent. */
   llmCalls: number;
+  /** What the turn spent, across every agent: what budgets and metrics count. */
+  usage: TurnUsage;
   /** Set when a control (cancel, deadline, step limit) stopped the turn. */
   stopReason?: TurnStopReason;
+}
+
+/** A turn's spend: model calls and the tokens the providers reported. */
+export interface TurnUsage {
+  llmCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  thinkingTokens: number;
 }
 
 const THOUGHTS_PREVIEW_CHARS = 600;
@@ -367,9 +377,16 @@ async function runTurnInner(
     guardNotes: [],
     resumedSession: false,
     llmCalls: 0,
+    usage: { llmCalls: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0 },
   };
   const finish = (): SyndicateTurnResult => {
     result.llmCalls = control.llmCalls;
+    result.usage = {
+      llmCalls: control.llmCalls,
+      inputTokens: control.inputTokens,
+      outputTokens: control.outputTokens,
+      thinkingTokens: control.thinkingTokens,
+    };
     if (control.stopReason) {
       result.stopReason = control.stopReason;
       result.status = control.stopReason === 'canceled' ? 'canceled' : 'failed';

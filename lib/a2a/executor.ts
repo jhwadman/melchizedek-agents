@@ -23,7 +23,9 @@ import { loadSyndicate } from '../loadSyndicate.ts';
 import type { SyndicateYamlConfig } from '../loadSyndicate.ts';
 import { configDigest } from '../observability/lineage.ts';
 import { ingestTurnMemory, runSyndicateTurn } from '../runtime/syndicateTurn.ts';
-import type { MessagePart, SyndicateTurnResult } from '../runtime/syndicateTurn.ts';
+import type { MessagePart, SyndicateTurnResult, TurnUsage } from '../runtime/syndicateTurn.ts';
+import type { TaskRecord } from '../observability/metrics.ts';
+import type { Policy } from './policy.ts';
 
 /** Per-request caller context, set by the server's identity middleware. */
 export interface A2AContext {
@@ -161,9 +163,17 @@ export interface ExecutorOptions {
   taskTimeoutMs?: number;
   /** Shared across every executor on the server. */
   limiter: TaskLimiter;
+  /** The agent id this executor serves ('' for the default syndicate). */
+  agentId?: string;
+  /** Admission and spend accounting (budgets), when configured. */
+  policy?: Policy;
+  /** One record per task, however it ended: the task log and metrics. */
+  onTaskEnd?: (record: TaskRecord) => void;
   log: (message: string) => void;
   warn: (message: string) => void;
 }
+
+const NO_USAGE: TurnUsage = { llmCalls: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0 };
 
 /** Concurrency cap and in-flight registry shared by all executors. */
 export class TaskLimiter {
@@ -308,6 +318,43 @@ export class SyndicateExecutor implements AgentExecutor {
     const taskId = requestContext.taskId;
     const short = taskId.slice(0, 8);
     let slot: AbortController | undefined;
+    const started = Date.now();
+    const agentId = this.opts.agentId ?? '';
+    // Reports the task once: to the task log and metrics, and its spend to
+    // the policy. Never throws into the task.
+    let reported = false;
+    const report = async (
+      ctx: A2AContext | undefined,
+      status: TaskRecord['status'],
+      reason: string | undefined,
+      usage: TurnUsage = NO_USAGE,
+    ): Promise<void> => {
+      if (reported) return;
+      reported = true;
+      const scopeKey = ctx?.scopeKey ?? '';
+      if (ctx && this.opts.policy?.record && status !== 'rejected') {
+        try {
+          await this.opts.policy.record({ caller: ctx.caller, scopeKey, agentId }, usage);
+        } catch (err: unknown) {
+          warn(`Usage not recorded for task ${short}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      try {
+        this.opts.onTaskEnd?.({
+          agentId,
+          syndicate: config.syndicate_name,
+          caller: ctx?.caller,
+          scopeHash: scopeKey ? createHash('sha256').update(scopeKey).digest('hex').slice(0, 12) : '',
+          status,
+          reason,
+          durationMs: Date.now() - started,
+          usage,
+        });
+      } catch {
+        /* a broken log sink must not fail the task */
+      }
+    };
+    let ctxForReport: A2AContext | undefined;
 
     try {
       // The first event must be the task itself (A2A 1.0 enforces it).
@@ -324,15 +371,36 @@ export class SyndicateExecutor implements AgentExecutor {
 
       const ctx = requestContextStorage.getStore();
       if (!ctx) throw new Error('No authentication context available.');
+      ctxForReport = ctx;
 
       const { parts, refused } = a2aPartsToMessage(message?.parts ?? message?.content ?? []);
       if (refused) {
         publishFinal(eventBus, taskId, contextId, 'rejected', refused);
+        await report(ctx, 'rejected', 'input');
         return;
       }
       if (parts.length === 0) {
         publishFinal(eventBus, taskId, contextId, 'rejected', 'The message has no text.');
+        await report(ctx, 'rejected', 'input');
         return;
+      }
+
+      // Policy (budgets) before a slot is taken: a refused caller never
+      // holds capacity. A policy that throws refuses — fail closed.
+      if (this.opts.policy?.admit) {
+        let decision;
+        try {
+          decision = await this.opts.policy.admit({ caller: ctx.caller, scopeKey: ctx.scopeKey, agentId });
+        } catch (err: unknown) {
+          warn(`Policy check failed for task ${short}: ${err instanceof Error ? err.message : String(err)}`);
+          decision = { ok: false as const, reason: 'The server could not check its usage limits; retry shortly.' };
+        }
+        if (!decision.ok) {
+          warn(`Task ${short} rejected by policy — ${decision.reason}`);
+          publishFinal(eventBus, taskId, contextId, 'rejected', decision.reason);
+          await report(ctx, 'rejected', 'policy');
+          return;
+        }
       }
 
       slot = this.opts.limiter.acquire(taskId);
@@ -342,6 +410,7 @@ export class SyndicateExecutor implements AgentExecutor {
           : `The server is at its limit of ${this.opts.limiter.max} concurrent tasks; retry shortly.`;
         warn(`Task ${short} rejected — ${why}`);
         publishFinal(eventBus, taskId, contextId, 'rejected', why);
+        await report(ctx, 'rejected', 'capacity');
         return;
       }
 
@@ -375,19 +444,24 @@ export class SyndicateExecutor implements AgentExecutor {
       });
       log(`Session: ${result.resumedSession ? 'resumed' : 'new'} — context ${contextId.slice(0, 8)}`);
 
+      const u = result.usage;
+      const spent = `${u.llmCalls} model call(s), ${(u.inputTokens + u.outputTokens + u.thinkingTokens).toLocaleString('en-US')} tokens`;
       if (result.status === 'canceled') {
-        log(`✗ Task ${short} canceled after ${result.llmCalls} model call(s)`);
+        log(`✗ Task ${short} canceled after ${spent}`);
         publishFinal(eventBus, taskId, contextId, 'canceled', 'The task was canceled.');
+        await report(ctx, 'canceled', result.stopReason, u);
         return;
       }
       if (result.status === 'failed') {
-        warn(`✗ Task ${short} failed [${result.error?.code}] after ${result.llmCalls} model call(s)`);
+        warn(`✗ Task ${short} failed [${result.error?.code}] after ${spent}`);
         publishFinal(eventBus, taskId, contextId, 'failed', describeFailedTurn(result));
+        await report(ctx, 'failed', result.error?.code, u);
         return;
       }
 
-      log(`✓ Task ${short} complete — ${result.text.length.toLocaleString()} chars, ${result.llmCalls} model call(s)`);
+      log(`✓ Task ${short} complete — ${result.text.length.toLocaleString()} chars, ${spent}`);
       publishFinal(eventBus, taskId, contextId, 'completed', result.text || undefined);
+      await report(ctx, 'completed', undefined, u);
 
       // Long-term memory: there is no "session end" on a server, so ingest
       // after every completed task. Runs AFTER the final publish, so it never
@@ -415,6 +489,7 @@ export class SyndicateExecutor implements AgentExecutor {
         'failed',
         'Internal Error: the request could not be completed. See server logs for details.',
       );
+      await report(ctxForReport, 'failed', 'INTERNAL');
     } finally {
       if (slot) this.opts.limiter.release(taskId);
       eventBus.finished();

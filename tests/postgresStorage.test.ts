@@ -44,7 +44,7 @@ function urlFor(db: string): string {
 }
 
 function migrations(): string[] {
-  return ['db/migrations/0001_base.sql', 'db/migrations/0002_erase_scope.sql', 'db/migrations/0003_postgres_storage.sql', 'db/telemetry.sql'];
+  return ['db/migrations/0001_base.sql', 'db/migrations/0002_erase_scope.sql', 'db/migrations/0003_postgres_storage.sql', 'db/migrations/0004_usage.sql', 'db/telemetry.sql'];
 }
 
 // A 768-d embedding: identical for the same statement (a record's header is
@@ -267,4 +267,14 @@ test('erase: one namespace, everywhere, and nested — exactly the scope, sub-ag
   assert.deepEqual(await ids('SELECT id FROM adk_sessions'), ['ns1:u2:c1', 'ns2:u1:c9']);
 
   await assert.rejects(storage.erase('  '), /scope key is required/);
+});
+
+test('the usage store adds atomically under concurrency and reads back per day and subject', { skip }, async () => {
+  const { postgresUsageStore } = await import('../lib/a2a/policy.ts');
+  const store = postgresUsageStore(pool);
+  const d = { tasks: 1, llmCalls: 2, inputTokens: 30, outputTokens: 4, thinkingTokens: 1 };
+  await Promise.all(Array.from({ length: 20 }, () => store.add('2026-10-01', 'caller:penguin', d)));
+  assert.deepEqual(await store.get('2026-10-01', 'caller:penguin'), { tasks: 20, llmCalls: 40, inputTokens: 600, outputTokens: 80, thinkingTokens: 20 });
+  assert.equal((await store.get('2026-10-02', 'caller:penguin')).tasks, 0);
+  assert.equal((await store.get('2026-10-01', 'caller:ymir')).tasks, 0);
 });

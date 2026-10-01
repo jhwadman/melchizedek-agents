@@ -51,7 +51,7 @@ DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['adk_telemetry', 'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels',
-                            'adk_session_events', 'adk_a2a_tasks'] LOOP
+                            'adk_session_events', 'adk_a2a_tasks', 'melchizedek_usage'] LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
       EXECUTE format('REVOKE ALL ON %I FROM anon, authenticated', t);
@@ -112,7 +112,7 @@ BEGIN
     WHERE n.nspname = 'public'
       AND p.proname IN ('match_memory_facts', 'match_turns', 'melchizedek_prune_telemetry',
                         'melchizedek_prune_sessions', 'melchizedek_rls_status',
-                        'melchizedek_erase_scope')
+                        'melchizedek_erase_scope', 'melchizedek_usage_add', 'melchizedek_prune_usage')
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn);
     IF has_service_role THEN
@@ -137,7 +137,8 @@ AS $$
   WHERE n.nspname = 'public'
     AND c.relname IN ('adk_memory_facts', 'adk_sessions', 'adk_telemetry',
                       'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels',
-                      'adk_agent_registry', 'adk_session_events', 'adk_a2a_tasks');
+                      'adk_agent_registry', 'adk_session_events', 'adk_a2a_tasks',
+                      'melchizedek_usage');
 $$;
 
 REVOKE ALL ON FUNCTION melchizedek_rls_status() FROM PUBLIC, anon, authenticated;

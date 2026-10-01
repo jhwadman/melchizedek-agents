@@ -26,8 +26,8 @@
 
 import express from 'express';
 import type { Express, Request, Response, NextFunction, RequestHandler } from 'express';
-import rateLimit from 'express-rate-limit';
-import { timingSafeEqual } from 'node:crypto';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import type { AgentCard } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
@@ -57,6 +57,9 @@ import {
 import type { A2AContext, SurfaceContext } from './executor.ts';
 import { HEADER_VALUE_PATTERN, SCOPE_KEY_PATTERN } from './identity.ts';
 import type { IdentityScheme } from './identity.ts';
+import type { Policy } from './policy.ts';
+import { createMetrics } from '../observability/metrics.ts';
+import type { TaskRecord } from '../observability/metrics.ts';
 const SURFACE_HEADERS = [
   ['x-surface', 'name'],
   ['x-surface-guild', 'guild'],
@@ -114,6 +117,16 @@ export interface A2AAppOptions {
   /** What the agent card declares for `resolveRequest` (the built-in
    *  authenticators supply it). A 'header' scheme requires `serverSecret`. */
   identityScheme?: IdentityScheme;
+  /**
+   * Policy plug point (ADR 0017, ADR 0026): admit or refuse each task before
+   * it runs, and record what it spent. Built-in: `budgets()` in
+   * lib/a2a/policy.ts. A refused task ends `rejected` with the reason.
+   */
+  policy?: Policy;
+  /** Bearer token for GET /metrics (Prometheus). Unset = no metrics route. */
+  metricsToken?: string;
+  /** One record per task, however it ended (structured logs, your own metrics). */
+  onTaskEnd?: (record: TaskRecord) => void;
   /**
    * Credentials plug point (ADR 0017/0023): the API key for a provider, for
    * this request — from a secret manager, per tenant, anywhere. Undefined
@@ -399,6 +412,11 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
   };
 
   const limiter = new TaskLimiter(options.maxConcurrentTasks ?? 0);
+  const metrics = options.metricsToken ? createMetrics() : undefined;
+  const onTaskEnd = (record: TaskRecord) => {
+    metrics?.observeTask(record);
+    options.onTaskEnd?.(record);
+  };
   // The YAML model id always wins (its prefix names the provider). What
   // differs is whose credential pays: an adopter's resolver, the
   // credentials plug point, the caller's key (byok), or the server's env.
@@ -427,6 +445,9 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
       compileFor,
       taskTimeoutMs: options.taskTimeoutMs,
       limiter,
+      agentId,
+      policy: options.policy,
+      onTaskEnd,
       log,
       warn,
     });
@@ -469,6 +490,19 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
   app.get('/healthz', (_req, res) => {
     res.json({ status: 'ok' });
   });
+  // Prometheus scrape, behind its own token: a scraper is not a caller.
+  if (options.metricsToken) {
+    const expected = createHash('sha256').update(options.metricsToken).digest();
+    app.get('/metrics', (req, res) => {
+      const header = req.headers.authorization ?? '';
+      const given = createHash('sha256').update(header.startsWith('Bearer ') ? header.slice(7) : '').digest();
+      if (!timingSafeEqual(given, expected)) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      res.type('text/plain; version=0.0.4').send(metrics!.render(limiter.inFlight));
+    });
+  }
   app.get('/readyz', (_req, res) => {
     if (limiter.isDraining) {
       res.status(503).json({ status: 'draining' });
@@ -642,7 +676,16 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
       warn('A caller sent X-API-Key, which server key mode ignores. Set A2A_KEY_MODE=byok (keyMode: \'byok\') if callers fund their own inference — and to keep reaching sessions and memory stored under key-hash silos.');
     }
     requestContextStorage.run(
-      { apiKey: '', provider, siteUserId, scopeKey: siteUserId ?? 'default', surface, operator: !!options.serverSecret },
+      {
+        apiKey: '',
+        provider,
+        siteUserId,
+        scopeKey: siteUserId ?? 'default',
+        surface,
+        // Everyone holding the secret is one caller; without a secret (loopback) the caller is local.
+        caller: options.serverSecret ? 'shared-secret' : 'local',
+        operator: !!options.serverSecret,
+      },
       () => next(),
     );
   });
@@ -658,6 +701,17 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
       standardHeaders: true,
       legacyHeaders: false,
       skip: (req) => req.method === 'GET',
+      // With an authenticator, the limit is per identity: an operator's
+      // backend by its caller name, an end user by their scope, so callers
+      // behind one NAT or proxy do not share a bucket. The shared secret
+      // alone identifies nobody, so it stays per IP.
+      keyGenerator: (req) => {
+        const ctx = requestContextStorage.getStore();
+        if (options.resolveRequest && ctx?.caller) {
+          return ctx.operator ? `caller:${ctx.caller}` : `scope:${ctx.scopeKey}`;
+        }
+        return ipKeyGenerator(req.ip ?? '');
+      },
       message: { error: 'Too many requests, please try again later.' },
     }),
   );

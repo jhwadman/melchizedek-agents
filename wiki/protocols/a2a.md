@@ -49,7 +49,13 @@ A bare `/<agentId>/` is `<agentId>.yaml` in the deployment's agents directory. T
 
 ## Limits and lifecycle
 
-Each task has a deadline (`A2A_TASK_TIMEOUT_MS`, default 15 minutes) and a turn-wide model-call cap (the YAML's `max_steps`); `tasks/cancel` aborts the provider call in flight. The rate limit (`A2A_RATE_LIMIT_MAX` per `A2A_RATE_LIMIT_WINDOW_MS` per IP), the failed-login limit, the concurrency cap, trust-proxy and body limit are environment settings. Tasks, the config cache and the limiter counters are per process. The server prints no conversation content unless `OTEL_CONSOLE_SPANS=true`.
+Each task has a deadline (`A2A_TASK_TIMEOUT_MS`, default 15 minutes) and a turn-wide model-call cap (the YAML's `max_steps`); `tasks/cancel` aborts the provider call in flight. The rate limit (`A2A_RATE_LIMIT_MAX` per `A2A_RATE_LIMIT_WINDOW_MS`: per caller or per end-user scope when an authenticator is configured, per IP under the shared secret), the failed-login limit, the concurrency cap, trust-proxy and body limit are environment settings. Tasks, the config cache and the limiter counters are per process. The server prints no conversation content unless `OTEL_CONSOLE_SPANS=true`.
+
+Governance ([ADR 0026](/decisions/0026-governance-policy-and-visibility.md)) runs on the `policy` plug point:
+
+- **Budgets.** `A2A_BUDGETS` sets daily limits per UTC day, per caller and per scope, on tasks, model calls and tokens; for example `{"perCaller":{"tokens":5000000},"callers":{"ymir":{"tasks":100}},"perScope":{"tasks":50}}`. A task over budget ends `rejected` with the reason before it takes a slot. A store that cannot be read refuses. The counts live in `melchizedek_usage` (migration 0004, scopes stored only as a hash) when Postgres or Supabase is configured, else in process memory.
+- **One record per task**, however it ended: agent, caller, a hash of the scope, status, reason, duration, model calls and tokens. `A2A_LOG_FORMAT=json` prints it as a JSON line among the server's other JSON lines.
+- **Metrics.** `GET /metrics` (Prometheus text) serves tasks, model calls, tokens by kind, a task-duration histogram and tasks in flight, behind its own `A2A_METRICS_TOKEN`. Labels are agent, outcome and caller name, never a scope.
 
 ## The bindings trap
 

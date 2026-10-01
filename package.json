@@ -27,6 +27,7 @@
     "./a2a": "./dist/lib/a2a/app.js",
     "./a2a/remote": "./dist/lib/a2a/remoteAgent.js",
     "./a2a/identity": "./dist/lib/a2a/identity.js",
+    "./a2a/policy": "./dist/lib/a2a/policy.js",
     "./guards": "./dist/lib/guards/index.js",
     "./storage/postgres": "./dist/lib/storage/postgres/index.js",
     "./grounding": "./dist/lib/grounding.js",

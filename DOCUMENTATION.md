@@ -359,6 +359,7 @@ options. `demo/a2a_demo.mjs` is a complete client.
 |---|---|---|
 | `GET /healthz` | none | liveness — always 200 while the process runs |
 | `GET /readyz` | none | readiness — 503 while draining for shutdown |
+| `GET /metrics` | `A2A_METRICS_TOKEN` | Prometheus text: tasks by agent, outcome and caller; model calls; tokens by kind; task duration; tasks in flight. Absent unless the token is set |
 | `GET /.well-known/agent-card.json` | bearer | the default syndicate's card |
 | `POST /a2a/jsonrpc`, `/a2a/rest` | bearer | the default syndicate |
 | `GET /<agentId>/.well-known/agent-card.json` | bearer | another syndicate's card; its URLs point at `/<agentId>/a2a/...` |
@@ -398,6 +399,27 @@ scope key every session and memory is stored under:
 In code, spread an authenticator into the factory:
 `createA2AApp({ ...callerTokens(parseCallers(spec)), keyMode: 'byok', … })`,
 or pass your own `resolveRequest`.
+
+#### Budgets, the task record, and the ledger
+
+- **Budgets** (`A2A_BUDGETS`, option `policy: budgets(config)`): daily limits
+  per UTC day on tasks, model calls and tokens, per caller (`perCaller`, with
+  overrides by name in `callers`) and per scope (`perScope`, one end user).
+  Example: `{"perCaller":{"tokens":5000000},"callers":{"ymir":{"tasks":100}},"perScope":{"tasks":50}}`.
+  A task over budget ends `rejected` with the reason, before it takes a slot.
+  The counts live in the `melchizedek_usage` table (`db/migrations/0004_usage.sql`)
+  when Postgres or Supabase is configured, else in process memory. A store
+  that cannot be read refuses the task.
+- **One record per task** (option `onTaskEnd`): agent, caller, a hash of the
+  scope, status, reason, duration, model calls and tokens.
+  `A2A_LOG_FORMAT=json` prints every server line as JSON, this record included.
+- **Rate limit**: with an authenticator it counts per caller (an operator's
+  backend) or per scope (an end user); under the shared secret, per IP.
+- **The telemetry ledger is redacted before it is written**:
+  `TELEMETRY_REDACT=secret` (default) removes key-shaped credentials; add
+  `email`, `phone`, `card` (Luhn-checked) or `ssn`, or plug in your own with
+  `setTelemetryRedactor(fn)`. Sessions and memory are not redacted; use
+  `DELETE /memory` there.
 
 #### Who pays
 

@@ -1,7 +1,7 @@
 import { trace, context } from '@opentelemetry/api';
 import { createRequire } from 'node:module';
 import { TELEMETRY_SCHEMA_VERSION, engineVersion } from './lineage.ts';
-import { chargeLlmCall } from '../runtime/turnControl.ts';
+import { chargeLlmCall, chargeTokens } from '../runtime/turnControl.ts';
 
 import sdkNode from '@opentelemetry/sdk-trace-node';
 const { NodeTracerProvider } = sdkNode;
@@ -714,6 +714,8 @@ export async function* traceLlmGeneration(
     errorResponse = { errorCode, errorMessage };
     throw error;
   } finally {
+    // The turn's usage (budgets, metrics, the task log) counts every call.
+    chargeTokens(inputTokens, outputTokens, thinkingTokens);
     if (thinkingPreview) {
       span.addEvent('llm.thinking', { 'thinking.preview': thinkingPreview });
     }

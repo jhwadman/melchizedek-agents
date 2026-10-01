@@ -44,6 +44,7 @@ const { ExportResultCode } = core;
 
 import { hasSupabaseCredentials } from '../persistence/supabaseProvider.ts';
 import { TELEMETRY_SCHEMA_VERSION } from './lineage.ts';
+import { redactRow, telemetryRedactor } from './redact.ts';
 
 // ── Row shapes ───────────────────────────────────────────────────────────────
 
@@ -523,9 +524,13 @@ export class SupabaseSpanExporter implements SpanExporter {
     }
 
     this.pruneBuffers();
-    if (telemetryRows.length) this.insert('adk_telemetry', telemetryRows);
-    if (turnRows.length) this.insert('adk_turns', turnRows);
-    if (payloadRows.length) this.insert('adk_payloads', payloadRows);
+    // Credentials and (by choice) personal identifiers never reach the
+    // ledger or its dead-letter file (lib/observability/redact.ts).
+    const redactor = telemetryRedactor();
+    const clean = <T>(rows: T[]): T[] => (redactor ? rows.map((r) => redactRow(r, redactor)) : rows);
+    if (telemetryRows.length) this.insert('adk_telemetry', clean(telemetryRows));
+    if (turnRows.length) this.insert('adk_turns', clean(turnRows));
+    if (payloadRows.length) this.insert('adk_payloads', clean(payloadRows));
     resultCallback({ code: ExportResultCode.SUCCESS });
   }
 

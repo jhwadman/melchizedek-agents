@@ -33,6 +33,10 @@ export interface TurnControl {
   readonly signal: AbortSignal;
   /** Model calls made so far in this turn, across every agent. */
   llmCalls: number;
+  /** Tokens reported by the providers so far in this turn, across every agent. */
+  inputTokens: number;
+  outputTokens: number;
+  thinkingTokens: number;
   /** Ceiling on model calls for the whole turn; undefined = no ceiling. */
   readonly maxLlmCalls?: number;
   /** Set once, by whichever control stopped the turn first. */
@@ -61,6 +65,9 @@ export function createTurnControl(opts: TurnControlOptions = {}): TurnControl & 
   const control: TurnControl & { dispose(): void } = {
     signal: controller.signal,
     llmCalls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    thinkingTokens: 0,
     maxLlmCalls: opts.maxLlmCalls && opts.maxLlmCalls > 0 ? opts.maxLlmCalls : undefined,
     stopReason: undefined,
     stop(reason) {
@@ -128,6 +135,18 @@ export function chargeLlmCall(): { ok: true } | { ok: false; code: string; messa
   }
   control.llmCalls += 1;
   return { ok: true };
+}
+
+/**
+ * Add one model call's reported tokens to the current turn (the tracer calls
+ * this as each call finishes). Outside a turn it does nothing.
+ */
+export function chargeTokens(input: number, output: number, thinking: number): void {
+  const control = storage.getStore();
+  if (!control) return;
+  control.inputTokens += Math.max(0, input || 0);
+  control.outputTokens += Math.max(0, output || 0);
+  control.thinkingTokens += Math.max(0, thinking || 0);
 }
 
 export function stopCode(reason: TurnStopReason): string {

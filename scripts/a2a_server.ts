@@ -45,6 +45,14 @@
  *   A2A_REGISTRY_AGENTS       comma list: bare ids that load from adk_agent_registry
  *                             (others are files; registry:<id> always is the registry)
  *   A2A_SHUTDOWN_GRACE_MS     how long SIGTERM waits for running tasks (25000)
+ *   A2A_BUDGETS               daily budgets per UTC day (ADR 0026), JSON:
+ *                             {"perCaller":{"tasks":500,"llmCalls":5000,"tokens":5000000},
+ *                              "callers":{"ymir":{"tasks":100}},"perScope":{"tasks":50}}.
+ *                             Counted in Postgres or Supabase when configured
+ *                             (db/migrations/0004), else in process memory
+ *   A2A_METRICS_TOKEN         bearer for GET /metrics (Prometheus); unset = no route
+ *   A2A_LOG_FORMAT            text (default) | json: one JSON object per line,
+ *                             including a `task` record per finished task
  *   DATABASE_URL              Postgres for every durable store (sessions, memory,
  *                             A2A tasks, erase) — multi-instance safe (ADR 0021).
  *                             Without it: Supabase when its credentials are set,
@@ -67,6 +75,9 @@ import {
   trustedHeader,
 } from '../lib/a2a/identity.ts';
 import type { Authenticator } from '../lib/a2a/identity.ts';
+import { budgets, memoryUsageStore, parseBudgets, postgresUsageStore, supabaseUsageStore } from '../lib/a2a/policy.ts';
+import type { Policy } from '../lib/a2a/policy.ts';
+import { hasSupabaseCredentials } from '../lib/persistence/supabaseProvider.ts';
 import { postgresStorage } from '../lib/storage/postgres/index.ts';
 import { isPlaceholderValue, loadEnv } from '../lib/loadEnv.ts';
 import { flushTracing } from '../lib/observability/tracer.ts';
@@ -96,8 +107,20 @@ function envTrustProxy(): number | boolean | string {
   return raw;
 }
 
+/** A2A_LOG_FORMAT=json: every server line is one JSON object (ts, level, msg, …). */
+const jsonLogs = () => (process.env.A2A_LOG_FORMAT ?? '').trim().toLowerCase() === 'json';
+
+function emit(level: 'info' | 'warn' | 'error', message: string, fields?: Record<string, unknown>): void {
+  if (jsonLogs()) {
+    const line = JSON.stringify({ ts: new Date().toISOString(), level, msg: message.replace(/^\[A2A\]\s*(⚠|✗|✓)?\s*/, ''), ...fields });
+    (level === 'info' ? console.log : console.error)(line);
+    return;
+  }
+  (level === 'info' ? console.log : level === 'warn' ? console.warn : console.error)(message);
+}
+
 function fatal(message: string): never {
-  console.error(`[A2A] ✗ FATAL: ${message}`);
+  emit('error', `[A2A] ✗ FATAL: ${message}`);
   process.exit(1);
 }
 
@@ -118,7 +141,7 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
     fatal('A2A_SERVER_SECRET is still the .env.example placeholder. Generate one: openssl rand -hex 32');
   }
   if (secret && secret.length < MIN_SECRET_LENGTH) {
-    console.warn(`[A2A] ⚠ A2A_SERVER_SECRET is shorter than ${MIN_SECRET_LENGTH} characters; use a long random value.`);
+    emit('warn', `[A2A] ⚠ A2A_SERVER_SECRET is shorter than ${MIN_SECRET_LENGTH} characters; use a long random value.`);
   }
   const list = (name: string) =>
     process.env[name] ? process.env[name]!.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
@@ -175,7 +198,7 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
     }
     // Without a secret the server answers only on this machine.
     host = host ?? '127.0.0.1';
-    console.warn(`[A2A] ⚠ A2A_SERVER_SECRET is not set: authentication is off and the server binds ${host} only.`);
+    emit('warn', `[A2A] ⚠ A2A_SERVER_SECRET is not set: authentication is off and the server binds ${host} only.`);
   }
 
   const servedAgents = list('A2A_SERVED_AGENTS');
@@ -190,6 +213,36 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
         memory: { apiKey: process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY || '' },
       })
     : undefined;
+
+  // ── Policy: daily budgets (ADR 0026) ──────────────────────────────────────
+  let policy: Policy | undefined;
+  let budgetLabel = '';
+  const budgetsJson = process.env.A2A_BUDGETS?.trim();
+  if (budgetsJson) {
+    try {
+      const config = parseBudgets(budgetsJson);
+      let store;
+      if (pgStorage) {
+        store = postgresUsageStore(pgStorage.pool);
+        budgetLabel = 'postgres';
+      } else if (hasSupabaseCredentials()) {
+        const { createClient } = await import('@supabase/supabase-js');
+        store = supabaseUsageStore(createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!));
+        budgetLabel = 'supabase';
+      } else {
+        store = memoryUsageStore();
+        budgetLabel = 'process memory: per instance, reset on restart';
+      }
+      policy = budgets(config, { store });
+      budgetLabel = `${Object.keys(config).join(', ')} (counted in ${budgetLabel})`;
+    } catch (err: unknown) {
+      fatal(err instanceof Error ? err.message : String(err));
+    }
+  }
+  const metricsToken = process.env.A2A_METRICS_TOKEN?.trim() || undefined;
+  if (metricsToken && (isPlaceholderValue(metricsToken) || metricsToken.length < 24)) {
+    fatal('A2A_METRICS_TOKEN must be a long random value (openssl rand -hex 32).');
+  }
 
   let built;
   try {
@@ -210,6 +263,11 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
       registryAgents,
       keyMode,
       ...(pgStorage ? { storage: pgStorage } : {}),
+      ...(policy ? { policy } : {}),
+      metricsToken,
+      log: (m: string) => emit('info', `[A2A] ${m}`),
+      warn: (m: string) => emit('warn', `[A2A] ⚠ ${m}`),
+      ...(jsonLogs() ? { onTaskEnd: (r) => emit('info', `task ${r.status}`, { event: 'task', ...r }) } : {}),
     });
   } catch (err: unknown) {
     if ((err as any)?.code === 'ENOENT') throw err;
@@ -229,19 +287,21 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
   server.headersTimeout = server.keepAliveTimeout + 1_000;
 
   const base = publicUrl ?? `http://${host && host !== '0.0.0.0' ? host : 'localhost'}:${port}`;
-  console.log(`[A2A] ✓ Serving '${config.syndicate_name}' on ${host ?? '0.0.0.0'}:${port}`);
-  console.log(`[A2A]   card     ${base}/.well-known/agent-card.json`);
-  console.log(`[A2A]   jsonrpc  ${base}/a2a/jsonrpc   rest ${base}/a2a/rest`);
-  console.log(`[A2A]   auth     ${authMode}`);
-  console.log(`[A2A]   storage  ${pgStorage ? 'postgres (multi-instance safe)' : sessionBackend === 'durable' ? 'supabase (tasks are per process: one replica)' : 'in-memory (lost on restart; one replica)'}`);
-  console.log(`[A2A]   agents   ${servedAgents ? servedAgents.join(', ') : 'the default, plus any file in the agents directory at /:agentId/ (A2A_SERVED_AGENTS restricts)'}`);
-  if (registryAgents) console.log(`[A2A]   registry ${registryAgents.join(', ')} (bare ids loaded from adk_agent_registry)`);
+  emit('info', `[A2A] ✓ Serving '${config.syndicate_name}' on ${host ?? '0.0.0.0'}:${port}`);
+  emit('info', `[A2A]   card     ${base}/.well-known/agent-card.json`);
+  emit('info', `[A2A]   jsonrpc  ${base}/a2a/jsonrpc   rest ${base}/a2a/rest`);
+  emit('info', `[A2A]   auth     ${authMode}`);
+  emit('info', `[A2A]   storage  ${pgStorage ? 'postgres (multi-instance safe)' : sessionBackend === 'durable' ? 'supabase (tasks are per process: one replica)' : 'in-memory (lost on restart; one replica)'}`);
+  emit('info', `[A2A]   agents   ${servedAgents ? servedAgents.join(', ') : 'the default, plus any file in the agents directory at /:agentId/ (A2A_SERVED_AGENTS restricts)'}`);
+  if (registryAgents) emit('info', `[A2A]   registry ${registryAgents.join(', ')} (bare ids loaded from adk_agent_registry)`);
   if (keyMode === 'server' && sessionBackend === 'durable' && authKind === 'secret') {
-    console.warn('[A2A] ⚠ Key mode is "server": sessions and memory are scoped by X-User-Id (else "default").');
-    console.warn('[A2A]   Data written by earlier versions lives under key-hash silos (a2a-<hash>/…) that');
-    console.warn('[A2A]   only A2A_KEY_MODE=byok reaches. Keep byok until that data is migrated.');
+    emit('warn', '[A2A] ⚠ Key mode is "server": sessions and memory are scoped by X-User-Id (else "default").');
+    emit('warn', '[A2A]   Data written by earlier versions lives under key-hash silos (a2a-<hash>/…) that');
+    emit('warn', '[A2A]   only A2A_KEY_MODE=byok reaches. Keep byok until that data is migrated.');
   }
-  console.log(`[A2A]   health   ${base}/healthz  ${base}/readyz`);
+  if (budgetLabel) emit('info', `[A2A]   budgets  ${budgetLabel}`);
+  if (metricsToken) emit('info', `[A2A]   metrics  ${base}/metrics (bearer A2A_METRICS_TOKEN)`);
+  emit('info', `[A2A]   health   ${base}/healthz  ${base}/readyz`);
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
   let stopping = false;
@@ -249,10 +309,10 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
   const stop = async (signal: string) => {
     if (stopping) return;
     stopping = true;
-    console.log(`[A2A] ${signal}: draining — no new tasks; waiting up to ${graceMs} ms for running ones.`);
+    emit('info', `[A2A] ${signal}: draining — no new tasks; waiting up to ${graceMs} ms for running ones.`);
     server.close();
     const canceled = await shutdown(graceMs);
-    if (canceled > 0) console.warn(`[A2A] ⚠ ${canceled} task(s) did not finish in time and were canceled.`);
+    if (canceled > 0) emit('warn', `[A2A] ⚠ ${canceled} task(s) did not finish in time and were canceled.`);
     // Give canceled tasks a moment to publish their final status, then flush
     // telemetry so the last turns reach the ledger, then release the pool.
     await new Promise((r) => setTimeout(r, canceled > 0 ? 500 : 0));
@@ -263,7 +323,7 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
   process.on('SIGTERM', () => void stop('SIGTERM'));
   process.on('SIGINT', () => void stop('SIGINT'));
   process.on('unhandledRejection', (reason) => {
-    console.error(`[A2A] ⚠ Unhandled rejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+    emit('error', `[A2A] ⚠ Unhandled rejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
   });
 
   return server;

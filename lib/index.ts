@@ -32,6 +32,7 @@ export { runSyndicateTurn, ingestTurnMemory } from './runtime/syndicateTurn.ts';
 export type {
   DrainedRun,
   MessagePart,
+  TurnUsage,
   RouteDecision,
   SyndicateTurnOptions,
   SyndicateTurnResult,
@@ -57,6 +58,12 @@ export {
   trustedHeader,
 } from './a2a/identity.ts';
 export type { Authenticator, CallerEntry, IdentityScheme, JwtIdentityOptions } from './a2a/identity.ts';
+export { budgets, memoryUsageStore, parseBudgets, postgresUsageStore, supabaseUsageStore } from './a2a/policy.ts';
+export type { BudgetConfig, BudgetLimits, DailyUsage, Policy, PolicyDecision, PolicySubject, UsageStore } from './a2a/policy.ts';
+export { createMetrics } from './observability/metrics.ts';
+export type { Metrics, TaskRecord } from './observability/metrics.ts';
+export { patternRedactor, redactRow, setTelemetryRedactor, telemetryRedactor } from './observability/redact.ts';
+export type { Redactor } from './observability/redact.ts';
 export { RemoteA2AAgent, remoteAgentTool } from './a2a/remoteAgent.ts';
 export type { RemoteAnswer } from './a2a/remoteAgent.ts';
 

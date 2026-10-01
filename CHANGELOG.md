@@ -127,6 +127,23 @@ the starter pack and the templates), not the repo's full history.
     token, the server secret). Operator routes such as `POST /v1/x-packet`
     require it, so an end user's JWT or gateway identity cannot spend the
     operator's X budget.
+- **Governance** (ADR 0026):
+  - `runSyndicateTurn` returns `usage`: model calls plus input, output and
+    thinking tokens, summed over every agent in the turn.
+  - Budgets: `policy: budgets(config)` (env `A2A_BUDGETS`) sets daily limits per
+    caller and per scope on tasks, calls and tokens; a task over budget ends
+    `rejected` with the reason. Counters: `memoryUsageStore`,
+    `postgresUsageStore`, `supabaseUsageStore` (table from
+    `db/migrations/0004_usage.sql`).
+  - `onTaskEnd` gives one `TaskRecord` per task; `A2A_LOG_FORMAT=json` makes
+    every server line JSON.
+  - `GET /metrics` serves Prometheus text behind `A2A_METRICS_TOKEN`
+    (`createMetrics`).
+  - With an authenticator, the rate limit counts per caller or per scope
+    instead of per IP.
+  - The telemetry ledger is redacted before it is written: key-shaped
+    credentials by default (`TELEMETRY_REDACT`), emails, phones, cards and SSNs
+    on request, or your own `setTelemetryRedactor`.
 - **`keyMode: 'byok'` now holds under any authenticator**: the caller's
   `X-API-Key` pays whoever the caller is. A `resolveRequest` used to switch
   BYOK billing off. The key-hash scope applies only without an authenticator.
