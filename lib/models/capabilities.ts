@@ -107,3 +107,207 @@ export function capabilitySummary(agentName: string, r: CapabilityReport): strin
         : `${r.providerLabel} has no native ${r.dropped.join('/')}`;
   return `${agentName}: ${r.model}${via} — dropped ${r.dropped.join(', ')} (${why}).`;
 }
+
+// ── The capability matrix (ADR 0019) ─────────────────────────────────────────
+//
+// "Multi-model" promises that any provider can run any role, orchestrators
+// included. This table states, per resolved path (a direct provider, or the
+// gateway transport), what an agent can rely on. Each cell describes what the
+// ADAPTER SENDS, not how a given model behaves once it receives the request:
+//
+//   supported    the feature reaches the provider in its native form
+//   degraded     it reaches the provider in a weaker form; `note` names the loss
+//   unsupported  the adapter does not send it; `note` says what happens instead
+//
+// `evidence: 'test'` cells are asserted against the real outgoing request body
+// in tests/capabilityMatrix.test.ts, so changing an adapter without changing
+// its row fails a test. `evidence: 'adk'` cells are ADK's own Gemini adapter,
+// which this repo does not build requests for.
+
+export const CAPABILITIES = [
+  'delegation',
+  'memory_tools',
+  'structured_output',
+  'thinking_with_tools',
+  'streaming',
+  'vision',
+  'native_search',
+] as const;
+export type Capability = (typeof CAPABILITIES)[number];
+
+export const CAPABILITY_LABELS: Record<Capability, string> = {
+  delegation: 'delegation (subagents as tools)',
+  memory_tools: 'memory tools (load_memory)',
+  structured_output: 'structured output (outputSchema)',
+  thinking_with_tools: 'thinking with tool use',
+  streaming: 'token streaming',
+  vision: 'image input',
+  native_search: 'native web search',
+};
+
+export type Support = 'supported' | 'degraded' | 'unsupported';
+
+export interface CapabilityCell {
+  support: Support;
+  /** What is lost, or what happens instead. Present unless `supported` is the whole story. */
+  note?: string;
+  evidence: 'test' | 'adk';
+}
+
+/** Matrix rows: each direct provider, plus the gateway transport. */
+export type MatrixRow = ProviderId | 'gateway';
+
+const ok = (evidence: CapabilityCell['evidence'] = 'test', note?: string): CapabilityCell =>
+  note ? { support: 'supported', note, evidence } : { support: 'supported', evidence };
+const degraded = (note: string): CapabilityCell => ({ support: 'degraded', note, evidence: 'test' });
+const unsupported = (note: string): CapabilityCell => ({ support: 'unsupported', note, evidence: 'test' });
+
+const nativeSearch = (row: ProviderId): CapabilityCell =>
+  SERVER_SIDE_TOOLS.web_search.includes(row)
+    ? ok(row === 'gemini' ? 'adk' : 'test')
+    : unsupported('no native search on this path; the web_search sentinel is dropped (use web_extract)');
+
+const RESPONSES_REASONING_NOTE =
+  'reasoning is requested, but reasoning items are not carried across tool calls, so the model re-reasons each step';
+const CHAT_THINKING_NOTE =
+  'thinkingConfig budgets are ignored on chat-completions; generateContentConfig.reasoningEffort is the lever';
+
+export const CAPABILITY_MATRIX: Record<MatrixRow, Record<Capability, CapabilityCell>> = {
+  gemini: {
+    delegation: ok('adk'),
+    memory_tools: ok('adk'),
+    structured_output: ok('adk'),
+    thinking_with_tools: ok('adk'),
+    streaming: ok('adk'),
+    vision: ok('adk'),
+    native_search: nativeSearch('gemini'),
+  },
+  anthropic: {
+    delegation: ok(),
+    memory_tools: ok(),
+    structured_output: ok('test', 'sent as a forced tool call; with a thinking budget the tool is offered under tool_choice auto'),
+    thinking_with_tools: unsupported(
+      'signed thinking blocks are not replayed on tool loops, which Anthropic requires; give a thinking Claude agent no tools',
+    ),
+    streaming: ok(),
+    vision: unsupported('image parts are dropped from the request; route image work to a Gemini, GPT or vision Ollama agent'),
+    native_search: nativeSearch('anthropic'),
+  },
+  openai: {
+    delegation: ok(),
+    memory_tools: ok(),
+    structured_output: ok(),
+    thinking_with_tools: degraded(RESPONSES_REASONING_NOTE),
+    streaming: ok(),
+    vision: ok('test', 'user-turn images only'),
+    native_search: nativeSearch('openai'),
+  },
+  xai: {
+    delegation: ok(),
+    memory_tools: ok(),
+    structured_output: ok(),
+    thinking_with_tools: degraded(RESPONSES_REASONING_NOTE),
+    streaming: ok(),
+    vision: ok('test', 'user-turn images only'),
+    native_search: nativeSearch('xai'),
+  },
+  ollama: {
+    delegation: ok(),
+    memory_tools: ok(),
+    structured_output: degraded('JSON mode only (json_object): the output is JSON but the schema is not enforced'),
+    thinking_with_tools: degraded(CHAT_THINKING_NOTE),
+    streaming: ok(),
+    vision: ok('test', 'needs a vision model, e.g. ollama/qwen3-vl:8b'),
+    native_search: nativeSearch('ollama'),
+  },
+  gateway: {
+    delegation: ok(),
+    memory_tools: ok(),
+    structured_output: ok('test', 'strict json_schema; upstream support varies by model'),
+    thinking_with_tools: degraded(CHAT_THINKING_NOTE),
+    streaming: ok(),
+    vision: ok('test', 'upstream model must accept images'),
+    native_search: unsupported('a gateway cannot enable upstream native search; the web_search sentinel is dropped'),
+  },
+};
+
+/** The matrix cell for a model on the path it will actually take. */
+export function capabilityOf(
+  model: string,
+  capability: Capability,
+  opts: { callerKey?: boolean } = {},
+): CapabilityCell & { row: MatrixRow } {
+  const plan = planTransport(model, opts);
+  const row: MatrixRow = plan.transport === 'gateway' ? 'gateway' : plan.provider;
+  return { row, ...CAPABILITY_MATRIX[row][capability] };
+}
+
+/** What one agent's YAML asks of its model. */
+export interface AgentNeedsInput {
+  tools?: readonly string[];
+  outputSchema?: unknown;
+  generateContentConfig?: { thinkingConfig?: { thinkingBudget?: number; includeThoughts?: boolean } };
+  /** True when this agent delegates to subagents through tools (DELEGATE mode). */
+  delegates?: boolean;
+}
+
+export function requiredCapabilities(agent: AgentNeedsInput): Capability[] {
+  const tools = agent.tools ?? [];
+  const needs = new Set<Capability>();
+  if (agent.delegates) needs.add('delegation');
+  if (tools.includes('load_memory')) needs.add('memory_tools');
+  if (agent.outputSchema) needs.add('structured_output');
+  const thinking = agent.generateContentConfig?.thinkingConfig;
+  const thinks = !!thinking && (thinking.thinkingBudget ?? 0) !== 0;
+  if (thinks && (tools.length > 0 || agent.delegates)) needs.add('thinking_with_tools');
+  if (tools.includes('web_search')) needs.add('native_search');
+  return [...needs];
+}
+
+export interface CapabilityGap {
+  capability: Capability;
+  support: Exclude<Support, 'supported'>;
+  row: MatrixRow;
+  note?: string;
+}
+
+/** The capabilities an agent needs that its resolved path does not fully give it. */
+export function capabilityGaps(
+  model: string,
+  agent: AgentNeedsInput,
+  opts: { callerKey?: boolean } = {},
+): CapabilityGap[] {
+  const gaps: CapabilityGap[] = [];
+  for (const capability of requiredCapabilities(agent)) {
+    const cell = capabilityOf(model, capability, opts);
+    if (cell.support === 'supported') continue;
+    gaps.push({ capability, support: cell.support, row: cell.row, ...(cell.note ? { note: cell.note } : {}) });
+  }
+  return gaps;
+}
+
+const SUPPORT_MARK: Record<Support, string> = { supported: '✓', degraded: '◐', unsupported: '✗' };
+
+/** The matrix as a Markdown table plus notes, for documentation and the doctor. */
+export function renderCapabilityMatrix(): string {
+  const rows = Object.keys(CAPABILITY_MATRIX) as MatrixRow[];
+  const label = (r: MatrixRow) => (r === 'gateway' ? 'Gateway (any id)' : PROVIDERS[r].label);
+  const lines: string[] = [];
+  lines.push(`| Capability | ${rows.map(label).join(' | ')} |`);
+  lines.push(`|---|${rows.map(() => '---').join('|')}|`);
+  const notes: string[] = [];
+  for (const cap of CAPABILITIES) {
+    const cells = rows.map((r) => {
+      const cell = CAPABILITY_MATRIX[r][cap];
+      if (!cell.note) return SUPPORT_MARK[cell.support];
+      notes.push(`${label(r)} · ${CAPABILITY_LABELS[cap]}: ${cell.note}.`);
+      return `${SUPPORT_MARK[cell.support]}${notes.length}`;
+    });
+    lines.push(`| ${CAPABILITY_LABELS[cap]} | ${cells.join(' | ')} |`);
+  }
+  lines.push('');
+  lines.push('✓ supported · ◐ degraded · ✗ unsupported. Gemini cells are ADK\'s own adapter; every other cell is asserted against the request the adapter sends.');
+  lines.push('');
+  notes.forEach((n, i) => lines.push(`${i + 1}. ${n}`));
+  return lines.join('\n');
+}

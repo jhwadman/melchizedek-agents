@@ -7,10 +7,11 @@ tags:
   - routing
 generated:
   by: process:wiki-build
-  at: 2026-09-22
+  at: 2026-10-01
 sources:
   - resource: lib/models/providerMap.ts
   - resource: lib/models/registry.ts
+  - resource: lib/models/capabilities.ts
 ---
 
 # Provider routing
@@ -42,3 +43,33 @@ What a gateway cannot do is enable any upstream native search, so every server-s
 `npm run doctor` (`lib/doctor.ts`; the `melchizedek-doctor` bin in the package) reads every syndicate the loader can see — the root and `examples/` — resolves each agent's model under the current environment through these same modules, and prints one table: agent, model, provider, the declared server-side tools the path keeps (✓) or drops (✗), and whether the path is funded (direct key, gateway, or local). One verdict per syndicate, then the variables that would unlock the most and where to get each. It is read-only and never prints a key value. Every starter-pack file opens with a `# tier:` header (`keyless`, a single provider such as `gemini`, or `multi-provider`) that the doctor checks against the models. The live counterpart that actually sends a prompt per provider is `npm run demo:models`.
 
 Wiki agent operations default to `gemini-3.8-flash` (WIKI_AGENT_MODEL in lib/config.ts). Schema-dialect bridging between Gemini-uppercase and standard JSON Schema is covered in [tool contracts](/tools/tool-contracts.md).
+
+<!-- wiki:generated section="capabilities" source="lib/models/capabilities.ts" -->
+| Capability | Google Gemini | Anthropic Claude | OpenAI GPT | xAI Grok | Ollama (local) | Gateway (any id) |
+|---|---|---|---|---|---|---|
+| delegation (subagents as tools) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| memory tools (load_memory) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| structured output (outputSchema) | ✓ | ✓1 | ✓ | ✓ | ◐2 | ✓3 |
+| thinking with tool use | ✓ | ✗4 | ◐5 | ◐6 | ◐7 | ◐8 |
+| token streaming | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| image input | ✓ | ✗9 | ✓10 | ✓11 | ✓12 | ✓13 |
+| native web search | ✓ | ✓ | ✓ | ✓ | ✗14 | ✗15 |
+
+✓ supported · ◐ degraded · ✗ unsupported. Gemini cells are ADK's own adapter; every other cell is asserted against the request the adapter sends.
+
+1. Anthropic Claude · structured output (outputSchema): sent as a forced tool call; with a thinking budget the tool is offered under tool_choice auto.
+2. Ollama (local) · structured output (outputSchema): JSON mode only (json_object): the output is JSON but the schema is not enforced.
+3. Gateway (any id) · structured output (outputSchema): strict json_schema; upstream support varies by model.
+4. Anthropic Claude · thinking with tool use: signed thinking blocks are not replayed on tool loops, which Anthropic requires; give a thinking Claude agent no tools.
+5. OpenAI GPT · thinking with tool use: reasoning is requested, but reasoning items are not carried across tool calls, so the model re-reasons each step.
+6. xAI Grok · thinking with tool use: reasoning is requested, but reasoning items are not carried across tool calls, so the model re-reasons each step.
+7. Ollama (local) · thinking with tool use: thinkingConfig budgets are ignored on chat-completions; generateContentConfig.reasoningEffort is the lever.
+8. Gateway (any id) · thinking with tool use: thinkingConfig budgets are ignored on chat-completions; generateContentConfig.reasoningEffort is the lever.
+9. Anthropic Claude · image input: image parts are dropped from the request; route image work to a Gemini, GPT or vision Ollama agent.
+10. OpenAI GPT · image input: user-turn images only.
+11. xAI Grok · image input: user-turn images only.
+12. Ollama (local) · image input: needs a vision model, e.g. ollama/qwen3-vl:8b.
+13. Gateway (any id) · image input: upstream model must accept images.
+14. Ollama (local) · native web search: no native search on this path; the web_search sentinel is dropped (use web_extract).
+15. Gateway (any id) · native web search: a gateway cannot enable upstream native search; the web_search sentinel is dropped.
+<!-- /wiki:generated -->

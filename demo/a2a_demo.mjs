@@ -1,100 +1,95 @@
 /**
- * A2A Demo Script
- * Demonstrates conversing with the Melchizedek A2A server.
- * Uses native fetch for zero dependencies.
+ * A2A demo client — talks to a Melchizedek A2A server with native fetch
+ * (no dependencies). It reads the agent card, then sends two messages in ONE
+ * conversation so you can see the session carry over.
+ *
+ *   npm run start:a2a            # in one terminal (or: npx melchizedek-serve <file>.yaml)
+ *   node demo/a2a_demo.mjs       # in another
+ *
+ * Environment (read from the shell, then ./.env):
+ *   A2A_URL             base URL of the server   (default http://localhost:4000)
+ *   A2A_SERVER_SECRET   the server's bearer secret, when it has one
+ *   GOOGLE_GENAI_API_KEY / GEMINI_API_KEY   your model key — sent as X-API-Key
+ *                       only when the server's card asks for one (BYOK mode)
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-// Load environment variables from .env if present
+// Minimal .env read from the current directory; the shell wins.
 try {
-  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const envPath = path.join(root, '.env');
+  const envPath = path.join(process.cwd(), '.env');
   if (fs.existsSync(envPath)) {
-    const raw = fs.readFileSync(envPath, 'utf-8');
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq === -1) continue;
-      const key = trimmed.slice(0, eq).trim();
-      const val = trimmed.slice(eq + 1).trim();
-      if (!process.env[key]) process.env[key] = val;
+    for (const line of fs.readFileSync(envPath, 'utf-8').split('\n')) {
+      const m = line.trim().match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (!m || process.env[m[1]]) continue;
+      const val = m[2].trim().replace(/^(['"])(.*)\1$/, '$2');
+      if (val && !/^your[_-].*[_-]here$/i.test(val)) process.env[m[1]] = val;
     }
   }
-} catch (e) {
-  // Ignore env load errors
+} catch {
+  // no .env — the shell environment is enough
 }
 
-const API_KEY = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY || "<YOUR_GEMINI_API_KEY>";
-const A2A_SERVER_SECRET = process.env.A2A_SERVER_SECRET || "local_demo_secret_token";
-const A2A_URL = process.env.A2A_URL || "http://localhost:4000/a2a/jsonrpc";
+const BASE = (process.env.A2A_URL || 'http://localhost:4000').replace(/\/a2a\/jsonrpc$/, '').replace(/\/$/, '');
+const API_KEY = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY;
+const SECRET = process.env.A2A_SERVER_SECRET;
 
-async function main() {
-  console.log("========================================");
-  console.log("📡 Melchizedek A2A Client Demo");
-  console.log("========================================\n");
+const headers = {
+  'Content-Type': 'application/json',
+  ...(SECRET ? { Authorization: `Bearer ${SECRET}` } : {}),
+};
 
-  const requestPayload = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "message/send",
+/** One message in a conversation. `contextId` belongs INSIDE `message`. */
+async function send(text, contextId) {
+  const body = {
+    jsonrpc: '2.0',
+    id: crypto.randomUUID(),
+    method: 'message/send',
     params: {
       message: {
+        kind: 'message',
         messageId: crypto.randomUUID(),
-        role: "user",
-        parts: [{ kind: "text", text: "Hello! Please tell me a brief joke." }]
+        role: 'user',
+        contextId,
+        parts: [{ kind: 'text', text }],
       },
-      contextId: "demo-session-001"
-    }
+    },
   };
-
-  console.log("➡️  Sending A2A JSON-RPC Request:");
-  console.log(JSON.stringify(requestPayload, null, 2));
-
-  try {
-    const headers = {
-      "Content-Type": "application/json",
-      "X-API-Key": API_KEY,
-      "X-Provider": "google" // Required by Melchizedek's BYOK middleware
-    };
-
-    if (A2A_SERVER_SECRET) {
-      headers["Authorization"] = `Bearer ${A2A_SERVER_SECRET}`;
-    }
-
-    const response = await fetch(A2A_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(requestPayload)
-    });
-
-    if (!response.ok) {
-      console.error(`\n❌ HTTP Error: ${response.status} ${response.statusText}`);
-      const text = await response.text();
-      console.error("Response:", text);
-      return;
-    }
-
-    const data = await response.json();
-    console.log("\n⬅️  Received A2A Response:");
-    
-    if (data.error) {
-       console.error("❌ RPC Error:", JSON.stringify(data.error, null, 2));
-       return;
-    }
-
-    // Safely print the result from the agent
-    console.log(JSON.stringify(data.result, null, 2));
-    
-    console.log("\n✅ A2A Conversation Successful!");
-  } catch (error) {
-    console.error("\n❌ Request failed:", error.message);
-    console.log("\nDid you remember to start the server?");
-    console.log("1. cd /Users/koainpker/Desktop/Git/melchizedek");
-    console.log("2. npm run start:a2a");
-  }
+  const res = await fetch(`${BASE}/a2a/jsonrpc`, { method: 'POST', headers, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`RPC error: ${JSON.stringify(data.error)}`);
+  const task = data.result;
+  const answer = task?.status?.message?.parts?.map((p) => p.text).join('') ?? '';
+  return { state: task?.status?.state, answer };
 }
 
-main();
+async function main() {
+  console.log(`Server: ${BASE}\n`);
+
+  const cardRes = await fetch(`${BASE}/.well-known/agent-card.json`, { headers: SECRET ? { Authorization: `Bearer ${SECRET}` } : {} });
+  if (!cardRes.ok) throw new Error(`agent card: HTTP ${cardRes.status} ${await cardRes.text()}`);
+  const card = await cardRes.json();
+  console.log(`Agent: ${card.name} — ${card.description}`);
+  // A server in BYOK mode declares the X-API-Key scheme: the caller's key
+  // funds its inference. Otherwise the server's own keys pay.
+  if (card.securitySchemes?.apiKey) {
+    if (!API_KEY) throw new Error('this server bills inference to the caller: set GOOGLE_GENAI_API_KEY');
+    headers['X-API-Key'] = API_KEY;
+  }
+  console.log(`Skills: ${(card.skills ?? []).map((s) => s.name).join(', ') || '(none)'}\n`);
+
+  const contextId = `demo-${crypto.randomUUID()}`;
+  const first = await send('Hello! Please tell me a one-line joke.', contextId);
+  console.log(`[${first.state}] ${first.answer}\n`);
+  const second = await send('Explain the joke you just told in one sentence.', contextId);
+  console.log(`[${second.state}] ${second.answer}\n`);
+  console.log('The second answer refers to the first: same contextId, same session.');
+}
+
+main().catch((err) => {
+  console.error(`\n✗ ${err.message}`);
+  console.error('\nIs the server running? Start it from the project root with `npm run start:a2a`');
+  console.error('(or `npx melchizedek-serve <file>.yaml` in a project that installed the package).');
+  process.exit(1);
+});

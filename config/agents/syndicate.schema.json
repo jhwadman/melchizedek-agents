@@ -1,0 +1,504 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "syndicate_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Display name for this syndicate."
+    },
+    "orchestrator": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_$][A-Za-z0-9_$-]*$",
+          "description": "Unique agent name within the tree. A valid identifier; cannot be \"user\"."
+        },
+        "description": {
+          "description": "One line other agents read to decide when to delegate here.",
+          "type": "string"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model id; its prefix picks the provider (gemini-*, claude-*, gpt-*/o*, grok-*, ollama/*)."
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "System prompt / persona."
+        },
+        "globalInstruction": {
+          "description": "Instruction applied to every agent in the tree; only the root agent's value takes effect.",
+          "type": "string"
+        },
+        "tools": {
+          "description": "Named tools from lib/toolRegistry.ts (e.g. web_search, web_extract, wiki_search).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "includeContents": {
+          "description": "\"default\" = include conversation history, \"none\" = stateless.",
+          "type": "string",
+          "enum": [
+            "default",
+            "none"
+          ]
+        },
+        "disallowTransferToParent": {
+          "type": "boolean"
+        },
+        "disallowTransferToPeers": {
+          "type": "boolean"
+        },
+        "outputKey": {
+          "description": "Session-state key the final reply is saved under.",
+          "type": "string"
+        },
+        "generateContentConfig": {
+          "type": "object",
+          "properties": {
+            "temperature": {
+              "type": "number"
+            },
+            "topP": {
+              "type": "number"
+            },
+            "topK": {
+              "type": "number"
+            },
+            "maxOutputTokens": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "stopSequences": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "candidateCount": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "presencePenalty": {
+              "type": "number"
+            },
+            "frequencyPenalty": {
+              "type": "number"
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "responseMimeType": {
+              "type": "string"
+            },
+            "safetySettings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string"
+                  },
+                  "threshold": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "category",
+                  "threshold"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "thinkingConfig": {
+              "type": "object",
+              "properties": {
+                "thinkingBudget": {
+                  "description": "Reasoning token budget. 0 = off, -1 = dynamic.",
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "includeThoughts": {
+                  "description": "Stream the thinking trace in the response.",
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": {},
+              "description": "Gemini thinking controls (generateContentConfig.thinkingConfig)."
+            }
+          },
+          "additionalProperties": {},
+          "description": "Model generation config (@google/genai GenerateContentConfig). Do not set tools here."
+        },
+        "outputSchema": {
+          "description": "JSON Schema for structured output. Cannot be combined with AgentTool delegation.",
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "mcp_server_url": {
+          "description": "MCP server (SSE) whose tools are discovered at runtime and merged with `tools`.",
+          "type": "string"
+        },
+        "orchestration": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "sub-agent"
+              ]
+            },
+            "delegates": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "name",
+        "model",
+        "instruction"
+      ],
+      "additionalProperties": false,
+      "description": "The root agent (ADK LlmAgentConfig)."
+    },
+    "subagents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z_$][A-Za-z0-9_$-]*$",
+            "description": "Unique agent name within the tree. A valid identifier; cannot be \"user\"."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Required: the orchestrator reads it to decide when to call this subagent."
+          },
+          "model": {
+            "description": "Model id. Inherits the orchestrator's when omitted.",
+            "type": "string",
+            "minLength": 1
+          },
+          "instruction": {
+            "type": "string",
+            "minLength": 1,
+            "description": "System prompt / persona."
+          },
+          "globalInstruction": {
+            "description": "Instruction applied to every agent in the tree; only the root agent's value takes effect.",
+            "type": "string"
+          },
+          "tools": {
+            "description": "Named tools from lib/toolRegistry.ts (e.g. web_search, web_extract, wiki_search).",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "includeContents": {
+            "description": "\"default\" = include conversation history, \"none\" = stateless.",
+            "type": "string",
+            "enum": [
+              "default",
+              "none"
+            ]
+          },
+          "disallowTransferToParent": {
+            "type": "boolean"
+          },
+          "disallowTransferToPeers": {
+            "type": "boolean"
+          },
+          "outputKey": {
+            "description": "Session-state key the final reply is saved under.",
+            "type": "string"
+          },
+          "generateContentConfig": {
+            "type": "object",
+            "properties": {
+              "temperature": {
+                "type": "number"
+              },
+              "topP": {
+                "type": "number"
+              },
+              "topK": {
+                "type": "number"
+              },
+              "maxOutputTokens": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "stopSequences": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "candidateCount": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "presencePenalty": {
+                "type": "number"
+              },
+              "frequencyPenalty": {
+                "type": "number"
+              },
+              "seed": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "responseMimeType": {
+                "type": "string"
+              },
+              "safetySettings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "category": {
+                      "type": "string"
+                    },
+                    "threshold": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "category",
+                    "threshold"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "thinkingConfig": {
+                "type": "object",
+                "properties": {
+                  "thinkingBudget": {
+                    "description": "Reasoning token budget. 0 = off, -1 = dynamic.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "includeThoughts": {
+                    "description": "Stream the thinking trace in the response.",
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "Gemini thinking controls (generateContentConfig.thinkingConfig)."
+              }
+            },
+            "additionalProperties": {},
+            "description": "Model generation config (@google/genai GenerateContentConfig). Do not set tools here."
+          },
+          "outputSchema": {
+            "description": "JSON Schema for structured output. Cannot be combined with AgentTool delegation.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "mcp_server_url": {
+            "description": "MCP server (SSE) whose tools are discovered at runtime and merged with `tools`.",
+            "type": "string"
+          },
+          "orchestration": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "sub-agent"
+                ]
+              },
+              "delegates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "yaml_reference": {
+            "description": "A whole nested syndicate (filename under the agents dir) used as this subagent.",
+            "type": "string",
+            "minLength": 1
+          },
+          "a2a_agent_url": {
+            "description": "A remote agent over A2A: the server base URL or its agent-card URL. Needs no model or instruction; credentials come from A2A_AGENT_TOKENS, never YAML.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "additionalProperties": false,
+        "description": "A subagent: an inline agent, a nested syndicate (yaml_reference), or a remote A2A agent (a2a_agent_url).",
+        "anyOf": [
+          {
+            "required": [
+              "instruction"
+            ]
+          },
+          {
+            "required": [
+              "yaml_reference"
+            ]
+          },
+          {
+            "required": [
+              "a2a_agent_url"
+            ]
+          }
+        ],
+        "not": {
+          "required": [
+            "yaml_reference",
+            "a2a_agent_url"
+          ]
+        }
+      },
+      "description": "The orchestrator's team. Use `subagents: []` for a single-agent syndicate."
+    },
+    "dispatch": {
+      "type": "object",
+      "properties": {
+        "default_route": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Subagent used whenever routing yields no usable answer. Must name a declared subagent."
+        },
+        "route_key": {
+          "description": "JSON property holding the chosen route. Default \"route\".",
+          "type": "string"
+        },
+        "reason_key": {
+          "description": "JSON property holding the justification. Default \"reason\".",
+          "type": "string"
+        },
+        "route_overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Subagent to run on a match."
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "description": "JS regular expression source tested against the raw message."
+              },
+              "flags": {
+                "description": "Regex flags. Default \"i\".",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Shown to the waiting user as the [STATUS] route note.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "route",
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "default_route"
+      ],
+      "additionalProperties": false,
+      "description": "Opts into PLAN-DISPATCH orchestration (lib/dispatch.ts)."
+    },
+    "variables": {
+      "description": "Defaults for {{token}} interpolation. {{current_date}} is built in.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean"
+        ]
+      }
+    },
+    "memory_system": {
+      "description": "Persistence and semantic-memory layer.",
+      "type": "string",
+      "enum": [
+        "internal-only",
+        "session-only",
+        "long-term"
+      ]
+    },
+    "guards": {
+      "description": "Post-answer guards by name (lib/guards/index.ts).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "memory_namespace": {
+      "description": "Where long-term memory is stored: the syndicate name plus a generated id, written once and never recomputed (ADR 0020). Syndicates that declare the same namespace share memory.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,96}$"
+    },
+    "memory_extraction_rules": {
+      "description": "Domain rules appended to the fact-extraction prompt (long-term memory only).",
+      "type": "string"
+    },
+    "max_steps": {
+      "description": "Hard cap on runner loops (LLM → tool cycles).",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "syndicate_name",
+    "orchestrator",
+    "subagents"
+  ],
+  "additionalProperties": false,
+  "description": "A Melchizedek syndicate definition (lib/loadSyndicate.ts).",
+  "title": "Melchizedek syndicate"
+}

@@ -99,11 +99,26 @@ Supabase backend (without one, sessions fall back to in-memory). Setup:
 1. Create a free project at [supabase.com](https://supabase.com).
 2. Copy the Project URL and `service_role` key into `.env`
    (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`).
-3. Run the SQL schema from `DOCUMENTATION.md` §Memory in the Supabase
-   SQL Editor (two tables, one index, one similarity function).
-4. **Harden it**: run [`db/hardening.sql`](./db/hardening.sql) in the
-   same editor — it enables deny-by-default RLS so the anon key can't
-   read your session or memory tables over the REST API.
+3. Install the schema **and** its hardening in one step. Either print the
+   SQL and paste it into the Supabase SQL Editor:
+
+   ```bash
+   npm run db -- print            # package users: npx melchizedek-db print
+   ```
+
+   or, with `DATABASE_URL` set to the project's Postgres connection string
+   and `psql` installed, apply it directly:
+
+   ```bash
+   npm run db -- apply
+   ```
+
+   That runs the migrations in [`db/migrations/`](./db/migrations/) (tables,
+   indexes, the recall function, nightly session expiry) and then
+   [`db/hardening.sql`](./db/hardening.sql) (deny-by-default RLS, so the
+   anon key can read nothing over the REST API). Both are idempotent.
+4. Check it: `npm run db -- status` reports the schema version, whether
+   hardening is on, and how many sessions are stored.
 
 Then run a memory syndicate, tell it something, exit, and start a new
 session — it remembers:
@@ -144,9 +159,20 @@ npm run start:a2a
 ```
 
 Exposes the syndicate as a JSON-RPC agent-to-agent endpoint with an
-agent card, bearer-token auth (`A2A_SERVER_SECRET`), and rate limiting.
-See `demo/a2a_demo.mjs` for a working client and `DOCUMENTATION.md`
-§A2A for the protocol details.
+agent card. The boot log prints the URLs, the auth mode and whether
+sessions are durable. Without `A2A_SERVER_SECRET` it answers on
+`127.0.0.1` only; set one (`openssl rand -hex 32`) before exposing it.
+Rate limits, a per-task deadline, a concurrency cap and the served-agent
+allowlist are environment settings (`.env.example`); `/healthz` and
+`/readyz` serve load-balancer probes; SIGTERM drains running tasks.
+
+```bash
+node demo/a2a_demo.mjs        # a two-turn client: same contextId, same conversation
+```
+
+`DOCUMENTATION.md` §6 is the HTTP reference: routes, headers, sessions,
+limits and errors. To deploy, `docker build -t melchizedek .` or
+`docker compose up` (see `Dockerfile` and `compose.yaml`).
 
 ## 7. Use the engine from your own repo (the npm package)
 
@@ -154,15 +180,34 @@ Everything above runs inside a clone. When your syndicates deserve their
 own repo, the same engine is a typed dependency:
 
 ```bash
-npm install melchizedek-agents
+npm install melchizedek-agents @google/adk@2.2.0
+npx melchizedek-init                         # config/agents/conversational.yaml + .env; --list for others
+npx melchizedek-doctor                       # which keys it needs, and whether it is ready
 ```
 
 ```typescript
-import { loadSyndicate, registerAvailableProviders } from 'melchizedek-agents';
+import { InMemorySessionService } from '@google/adk';
+import { loadSyndicate, registerAvailableProviders, runSyndicateTurn } from 'melchizedek-agents';
 
 registerAvailableProviders();                 // registers every model whose key is present
 const config = loadSyndicate('mine.yaml');    // reads <your-repo>/config/agents/mine.yaml
+
+const result = await runSyndicateTurn({
+  config,
+  parts: [{ text: 'Hello' }],
+  appName: 'my-app', userId: 'u1', sessionId: 'c1',
+  sessionService: new InMemorySessionService(),
+});
+console.log(result.text);
 ```
+
+- **One runtime.** `runSyndicateTurn` is what the server, the CLI, the
+  worker and the eval harness all call, so a syndicate behaves the same
+  wherever it runs. `createA2AApp(options)` gives you the A2A server as an
+  Express app to mount in your own; `registerTool` / `registerGuard`
+  extend what YAML can name.
+- **Your keys come from your `.env`.** The bins read `.env` from the
+  directory you run them in.
 
 - **Your syndicates live with your code.** The loader reads
   `<cwd>/config/agents/` by default; point it anywhere with

@@ -15,7 +15,7 @@ sources:
 
 # Setup paths
 
-Prereq everywhere: Node ≥ 22 (`--experimental-strip-types` runs the TypeScript directly), `npm install`, and a `.env` at the repo root (loaded by `lib/loadEnv.ts`; real env vars always win over the file).
+Prereq everywhere: Node ≥ 22.6 (`--experimental-strip-types` runs the TypeScript directly; the npm package runs compiled JS), `npm install`, and a `.env` — `lib/loadEnv.ts` reads the one in the directory you run from, then the repo's own; real env vars always win, and `.env.example` placeholders (`your_..._here`) are ignored, so copying the template sets nothing.
 
 ## Path A — local REPL (~5 min)
 
@@ -33,10 +33,10 @@ With [Ollama](https://ollama.com) serving `qwen3:8b` (the smallest pulled model 
 
 ## Path B — A2A HTTP server (~15 min)
 
-`npm run start:a2a -- <syndicate>.yaml` on `$PORT` (default 4000). Callers bring their own model key per request; set `A2A_SERVER_SECRET` before exposing it anywhere — the contract is in [A2A](/protocols/a2a.md).
+`npm run start:a2a -- <syndicate>.yaml` on `$PORT` (default 4000). The server's own keys pay unless `A2A_KEY_MODE=byok`; without `A2A_SERVER_SECRET` it binds `127.0.0.1` only. The boot log names the URLs, the auth mode and the session backend — the contract is in [A2A](/protocols/a2a.md).
 
 ## Path C — cloud (~30 min)
 
-The `Procfile` targets Heroku-style dynos running the A2A server; pair with Supabase for sessions, [memory](/memory/architecture.md), and the agent registry — apply the [canonical schema](/memory/schema.md) in the Supabase SQL editor first (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` in the environment).
+The public package ships a `Dockerfile` (compiled server, non-root, health check) and a `compose.yaml`; this deployment runs the same server on Heroku-style dynos. Pair it with Supabase for sessions and [memory](/memory/architecture.md): `npm run db -- apply` (or `print` into the SQL editor) installs the migrations in `db/migrations/` and the hardening, and `npm run db -- status` checks them. Probes go to `/healthz` and `/readyz`; SIGTERM drains running tasks for `A2A_SHUTDOWN_GRACE_MS`. Tasks and the config cache are per process, so run one replica until the task store is durable ([ADR 0021](/decisions/0021-postgres-first-storage.md)).
 
 Model choice guidance and the errors you will actually hit: [failure modes](/operations/failure-modes.md).

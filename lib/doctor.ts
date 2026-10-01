@@ -26,8 +26,10 @@ import path from 'node:path';
 
 import { loadSyndicate } from './loadSyndicate.ts';
 import type { SyndicateYamlConfig } from './loadSyndicate.ts';
-import { describeCapabilities } from './models/capabilities.ts';
-import type { CapabilityReport } from './models/capabilities.ts';
+import { SyndicateValidationError } from './syndicateSchema.ts';
+import { LEGACY_MEMORY_APP_NAME } from './memory/namespace.ts';
+import { CAPABILITY_LABELS, capabilityGaps, describeCapabilities } from './models/capabilities.ts';
+import type { AgentNeedsInput, CapabilityGap, CapabilityReport } from './models/capabilities.ts';
 import {
   GATEWAY_ENV,
   GATEWAY_KEY_ENV,
@@ -54,6 +56,12 @@ export interface DoctorRow {
   role: 'orchestrator' | 'subagent';
   model: string;
   report: CapabilityReport;
+  /**
+   * What this agent's YAML asks of its model that the resolved path does not
+   * fully give it (lib/models/capabilities.ts, ADR 0019). Gaps never block a
+   * syndicate; they are printed so a degraded role is not a surprise.
+   */
+  gaps: CapabilityGap[];
 }
 
 export type VerdictState = 'ready' | 'ready-local' | 'via-gateway' | 'blocked';
@@ -69,8 +77,17 @@ export interface DoctorSyndicate {
   verdict: { state: VerdictState; detail: string };
   /** `npm run <script>` when package.json has an alias for this file. */
   runCommand?: string;
-  /** A load or parse error; rows are empty when set. */
+  /**
+   * A load, parse or validation error (every problem, one per line). Rows
+   * are empty when the file itself failed; a nested failure keeps the rows
+   * that did resolve.
+   */
   error?: string;
+  /**
+   * Long-term memory only: the namespace its facts are filed under
+   * (ADR 0020), and what is wrong with it, if anything.
+   */
+  memory?: { namespace: string; declared: boolean; issue?: string };
 }
 
 export interface Unlock {
@@ -158,6 +175,24 @@ export function tierOf(rows: readonly DoctorRow[]): Tier {
 interface WalkOptions {
   load: (file: string) => SyndicateYamlConfig;
   seen: Set<string>;
+  /** Nested `yaml_reference:` files that failed to load or validate. */
+  nestedErrors: string[];
+}
+
+/** The first problem, without the file prefix the doctor already shows. */
+function firstProblem(err: unknown): string {
+  if (err instanceof SyndicateValidationError) return err.issues[0] ?? err.message;
+  return (err as Error).message.split('\n')[0];
+}
+
+/** The capability-relevant fields of one agent's YAML. */
+function needsOf(agent: Partial<AgentNeedsInput> & { tools?: string[] }, delegates = false): AgentNeedsInput {
+  return {
+    tools: agent.tools ?? [],
+    outputSchema: agent.outputSchema,
+    generateContentConfig: agent.generateContentConfig,
+    delegates,
+  };
 }
 
 function walk(
@@ -169,25 +204,36 @@ function walk(
   const orch = config.orchestrator;
   const orchModel = orch?.model;
   if (orch && orchModel) {
+    // In DELEGATE mode the orchestrator calls its subagents as tools; under
+    // plan-dispatch it is a tool-less classifier and code runs the route.
+    const delegates = !config.dispatch && (config.subagents ?? []).length > 0;
     rows.push({
       agent: prefix + orch.name,
       role: 'orchestrator',
       model: orchModel,
       report: describeCapabilities(orchModel, orch.tools ?? []),
+      gaps: capabilityGaps(orchModel, needsOf(orch, delegates)),
     });
   }
   for (const sub of config.subagents ?? []) {
+    // A remote A2A agent runs its own model on someone else's server; there
+    // is no local model to fund or to check.
+    if ((sub as { a2a_agent_url?: string }).a2a_agent_url) continue;
     if (sub.yaml_reference) {
       if (opts.seen.has(sub.yaml_reference)) continue;
       opts.seen.add(sub.yaml_reference);
       try {
         walk(opts.load(sub.yaml_reference), `${prefix}${sub.name} › `, opts, rows);
       } catch (err) {
+        // Recorded, not just shown as a row: a parent whose nested team
+        // cannot load cannot run, so it must not reach the ready verdict.
+        opts.nestedErrors.push(`${sub.yaml_reference}: ${firstProblem(err)}`);
         rows.push({
           agent: `${prefix}${sub.name}`,
           role: 'subagent',
           model: `(nested ${sub.yaml_reference} failed to load: ${(err as Error).message})`,
           report: describeCapabilities('gemini-unloadable', []),
+          gaps: [],
         });
       }
       continue;
@@ -200,11 +246,15 @@ function walk(
       role: 'subagent',
       model,
       report: describeCapabilities(model, sub.tools ?? []),
+      gaps: capabilityGaps(model, needsOf(sub)),
     });
   }
 }
 
 function verdictOf(rows: readonly DoctorRow[]): DoctorSyndicate['verdict'] {
+  // A file that resolves to no runnable agent is structurally broken, not
+  // ready — the funded checks below are vacuously true on an empty list.
+  if (rows.length === 0) return { state: 'blocked', detail: 'invalid — no agents resolved' };
   const blocked = rows.filter((r) => !r.report.funded);
   if (blocked.length > 0) {
     const envs = [...new Set(blocked.map((r) => r.report.keyEnv ?? 'a provider key'))];
@@ -258,27 +308,74 @@ export function diagnoseSyndicate(
   try {
     const config = load(file);
     const rows: DoctorRow[] = [];
-    walk(config, '', { load, seen: new Set([file, path.basename(file)]) }, rows);
+    const nestedErrors: string[] = [];
+    walk(config, '', { load, seen: new Set([file, path.basename(file)]), nestedErrors }, rows);
+    const memory =
+      config.memory_system === 'long-term'
+        ? {
+            namespace: config.memory_namespace ?? LEGACY_MEMORY_APP_NAME,
+            declared: !!config.memory_namespace,
+          }
+        : undefined;
     return {
       file,
       name: config.syndicate_name ?? path.basename(file),
       tier: tierOf(rows),
       ...(declaredTier ? { declaredTier } : {}),
       rows,
-      verdict: verdictOf(rows),
+      verdict: nestedErrors.length
+        ? { state: 'blocked', detail: `invalid — nested ${nestedErrors[0]}` }
+        : verdictOf(rows),
       ...(runCommand ? { runCommand } : {}),
+      ...(nestedErrors.length ? { error: nestedErrors.join('\n') } : {}),
+      ...(memory ? { memory } : {}),
     };
   } catch (err) {
+    // A schema failure is the author's to fix and names the key; anything
+    // else (unreadable file, YAML syntax) keeps the old "failed to load".
+    const invalid = err instanceof SyndicateValidationError;
     return {
       file,
       name: path.basename(file),
       tier: 'gemini',
       ...(declaredTier ? { declaredTier } : {}),
       rows: [],
-      verdict: { state: 'blocked', detail: 'failed to load' },
+      verdict: {
+        state: 'blocked',
+        detail: invalid ? `invalid — ${firstProblem(err)}` : 'failed to load',
+      },
       ...(runCommand ? { runCommand } : {}),
-      error: (err as Error).message,
+      error: invalid ? err.issues.join('\n') : (err as Error).message,
     };
+  }
+}
+
+/**
+ * ADR 0020: a long-term syndicate declares the namespace its facts are filed
+ * under, and two syndicates share memory only by declaring the same one.
+ * Checked for the deployment's own files (the agents-dir root). The shipped
+ * examples and templates are copied before use, and a copy gets its own
+ * namespace from `npm run doctor -- --fix-namespaces <file>`.
+ */
+export function flagMemoryNamespaces(syndicates: DoctorSyndicate[]): void {
+  const own = syndicates.filter((s) => s.memory && !s.file.includes('/'));
+  const byNamespace = new Map<string, DoctorSyndicate[]>();
+  for (const s of own) {
+    const list = byNamespace.get(s.memory!.namespace) ?? [];
+    list.push(s);
+    byNamespace.set(s.memory!.namespace, list);
+  }
+  for (const s of own) {
+    const m = s.memory!;
+    const others = byNamespace.get(m.namespace)!.filter((o) => o !== s).map((o) => o.file);
+    if (!m.declared) {
+      m.issue =
+        `no memory_namespace: facts are filed under the server-wide "${LEGACY_MEMORY_APP_NAME}"` +
+        (others.length ? `, shared with ${others.join(', ')}` : '') +
+        ` — npm run doctor -- --fix-namespaces ${s.file} (existing facts stay under the old name until re-keyed)`;
+    } else if (others.length) {
+      m.issue = `memory_namespace "${m.namespace}" is shared with ${others.join(', ')}: these syndicates read and write the same facts`;
+    }
   }
 }
 
@@ -336,6 +433,8 @@ export function runDoctor(options: {
     blocked: 0,
   };
   for (const s of syndicates) counts[s.verdict.state]++;
+
+  flagMemoryNamespaces(syndicates);
 
   return { agentsDir, syndicates, unlocks, gateway, counts };
 }
@@ -405,11 +504,15 @@ export function renderDoctor(result: DoctorResult, opts: { color?: boolean } = {
     const head = `${s.name} ${c.dim}(${s.file})${c.reset}`;
     const verdict = paint(s.verdict.state, `${labelOf(s.verdict.state)}${s.verdict.detail ? ` — ${s.verdict.detail}` : ''}`);
     if (s.error) {
-      lines.push(`${head}`);
-      lines.push(`  ${c.red}failed to load: ${s.error}${c.reset}`);
+      lines.push(`${head}  ${verdict}`);
+      const prefix = s.verdict.detail === 'failed to load' ? 'failed to load: ' : '';
+      for (const line of s.error.split('\n')) lines.push(`  ${c.red}${prefix}${line}${c.reset}`);
       continue;
     }
     lines.push(`${head}  ${verdict}${s.runCommand ? `  ${c.dim}${s.runCommand}${c.reset}` : ''}`);
+    if (s.memory?.issue) {
+      lines.push(`  ${c.yellow}⚠ memory: ${s.memory.issue}${c.reset}`);
+    }
     if (s.declaredTier && s.declaredTier !== s.tier) {
       lines.push(`  ${c.yellow}⚠ header says "tier: ${s.declaredTier}" but the models say ${s.tier}${c.reset}`);
     }
@@ -428,6 +531,12 @@ export function renderDoctor(result: DoctorResult, opts: { color?: boolean } = {
           pad(needs, W.needs) +
           key,
       );
+      for (const g of r.gaps) {
+        const mark = g.support === 'unsupported' ? `${c.red}✗` : `${c.yellow}◐`;
+        lines.push(
+          `      ${mark} ${CAPABILITY_LABELS[g.capability]} ${g.support} on ${g.row}${c.reset}${g.note ? ` ${c.dim}— ${g.note}${c.reset}` : ''}`,
+        );
+      }
     }
   }
   lines.push('');

@@ -46,7 +46,14 @@ export function providerKeyPresent(provider: ProviderId): boolean {
   if (!keyEnv) return true;
   // Gemini historically accepts either env name.
   if (provider === 'gemini') {
-    return !!(process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY);
+    return realValue(process.env.GOOGLE_GENAI_API_KEY) || realValue(process.env.GEMINI_API_KEY);
   }
-  return !!process.env[keyEnv];
+  return realValue(process.env[keyEnv]);
+}
+
+/** Set, and not a `.env.example` placeholder (`your_..._here`, `<...>`).
+ *  Inlined rather than imported: this module stays a dependency-free leaf. */
+function realValue(v: string | undefined): boolean {
+  if (!v || !v.trim()) return false;
+  return !/^your[_-].*[_-]here$/i.test(v.trim()) && !/^<[^>]*>$/.test(v.trim());
 }

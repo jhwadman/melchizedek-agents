@@ -1,44 +1,89 @@
 ---
 type: schema
 title: Memory & telemetry schema
-description: "The canonical Supabase DDL: memory facts table with pgvector search, telemetry sink, and row-level-security hardening."
+description: "The canonical Postgres DDL, verbatim from db/: the numbered migrations (sessions, memory facts, erase, the direct-Postgres tables), the telemetry ledger, and the row-level-security hardening."
 tags:
   - schema
+  - postgres
   - supabase
   - memory
 generated:
   by: process:wiki-build
-  at: 2026-09-25
+  at: 2026-10-01
 sources:
-  - resource: db/memory_v2.sql
+  - resource: db/migrations/0001_base.sql
+  - resource: db/migrations/0002_erase_scope.sql
+  - resource: db/migrations/0003_postgres_storage.sql
   - resource: db/telemetry.sql
   - resource: db/hardening.sql
+  - resource: db/memory_v2.sql
 ---
 
 # Memory & telemetry schema
 
-The generated sections below are the db/*.sql files verbatim — the canonical form. The same DDL is mirrored prose-side in README.md and DOCUMENTATION.md (private and overlay); per CLAUDE.md those four mirrors must stay identical, and this document derives from the db/ copy so it cannot drift from it.
+The generated sections below are the db/ files verbatim, in install order. `npm run db -- apply` runs the numbered migrations, then the hardening; with the ledger enabled, telemetry.sql and the hardening again. Every migration is idempotent and records itself in `melchizedek_schema_version`. The same SQL runs on Supabase or on any Postgres with pgvector ([ADR 0021](/decisions/0021-postgres-first-storage.md)).
 
-<!-- wiki:generated section="memory-ddl" source="db/memory_v2.sql" -->
-## Memory facts (v2 upgrade path)
+<!-- wiki:generated section="migration-0001_base" source="db/migrations/0001_base.sql" -->
+## Migration 0001_base
 
 ```sql
 -- ============================================================================
--- memory_v2.sql — structured memory records for adk_memory_facts
+-- 0001_base.sql — the base schema: sessions and long-term memory.
 --
--- Run in the Supabase SQL Editor AFTER the base schema (README §Supabase
--- setup). Idempotent; safe to re-run. Existing rows survive: old facts get
--- status 'active', empty keys, and NULL tag/date/source — they keep working
--- as plain semantic memories.
+-- Migrations in db/migrations/ run in filename order, then db/hardening.sql
+-- (required before serving real users), then optionally db/telemetry.sql
+-- (and hardening.sql again). `npx melchizedek-db apply` does exactly that;
+-- `print` emits the same SQL to paste into the Supabase SQL Editor.
 --
--- What this adds:
---   * structured columns: tag, fact_date, source, status, keys, superseded_by
---   * indexes for the two non-semantic recall channels (keys, dates)
---   * match_memory_facts v2 — same call signature, now returns the
---     structured columns so the service can re-rank and relabel.
+-- Every statement is idempotent: re-running a migration changes nothing
+-- already in place, so this file is also the upgrade path from any earlier
+-- layout (it subsumes db/memory_v2.sql). Each migration records its own
+-- number in melchizedek_schema_version as its last statement.
+--
+-- The vector width (768) must equal EMBEDDING_DIMENSIONS in lib/config.ts.
 -- ============================================================================
 
--- 1. Structured record columns
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ── 1. Sessions ──────────────────────────────────────────────────────────────
+-- One row per conversation. `id` is the composite `{appName}:{userId}:{sessionId}`
+-- (TEXT, not UUID), which isolates parallel subagents sharing one session id.
+CREATE TABLE IF NOT EXISTS adk_sessions (
+  id TEXT PRIMARY KEY,
+  app_name TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  state JSONB DEFAULT '{}'::jsonb,
+  events JSONB DEFAULT '[]'::jsonb,
+  last_update_time BIGINT,
+  expire_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Retention: every write pushes expire_at seven days out, so a conversation
+-- idle for seven days expires. The prune below deletes expired rows.
+CREATE INDEX IF NOT EXISTS adk_sessions_expire_idx ON adk_sessions (expire_at);
+CREATE INDEX IF NOT EXISTS adk_sessions_user_idx ON adk_sessions (app_name, user_id);
+
+-- ── 2. Long-term memory ──────────────────────────────────────────────────────
+-- Structured records: every fact carries its date, source, active/superseded
+-- status and entity keys alongside the embedding (lib/memory/README.md).
+CREATE TABLE IF NOT EXISTS adk_memory_facts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_key TEXT NOT NULL,
+  fact TEXT NOT NULL,
+  embedding vector(768),
+  tag TEXT,
+  fact_date DATE,
+  source TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  keys TEXT[] NOT NULL DEFAULT '{}',
+  superseded_by UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Older layouts: add the structured columns where they are missing.
 ALTER TABLE adk_memory_facts
   ADD COLUMN IF NOT EXISTS tag TEXT,
   ADD COLUMN IF NOT EXISTS fact_date DATE,
@@ -47,15 +92,21 @@ ALTER TABLE adk_memory_facts
   ADD COLUMN IF NOT EXISTS keys TEXT[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS superseded_by UUID;
 
--- 2. Recall-channel indexes: entity keys (GIN) and dates (btree, per user)
-CREATE INDEX IF NOT EXISTS adk_memory_facts_keys_idx
-  ON adk_memory_facts USING gin (keys);
-CREATE INDEX IF NOT EXISTS adk_memory_facts_date_idx
-  ON adk_memory_facts (user_key, fact_date);
+-- Every query filters on user_key first; per-user sets are small, so an
+-- exact scan within the silo is the dependable plan. The HNSW index serves
+-- the large-silo case and, unlike an IVFFlat index built on an empty
+-- table, needs no training data. (An existing IVFFlat index from an older
+-- layout keeps working; drop it once this one exists if you like.)
+CREATE INDEX IF NOT EXISTS adk_memory_facts_user_idx ON adk_memory_facts (user_key);
+CREATE INDEX IF NOT EXISTS adk_memory_facts_embedding_hnsw_idx
+  ON adk_memory_facts USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS adk_memory_facts_keys_idx ON adk_memory_facts USING gin (keys);
+CREATE INDEX IF NOT EXISTS adk_memory_facts_date_idx ON adk_memory_facts (user_key, fact_date);
 
--- 3. match_memory_facts v2 — drop every prior signature first (Postgres
---    overloads functions by argument list; leaving an old one creates an
---    ambiguous call).
+-- ── 3. Recall RPC ────────────────────────────────────────────────────────────
+-- filter_user_key is REQUIRED: a NULL key would return every user's facts.
+-- Every earlier signature is dropped first (Postgres overloads by argument
+-- list; a leftover overload makes the call ambiguous).
 DROP FUNCTION IF EXISTS match_memory_facts(vector, int, text);
 DROP FUNCTION IF EXISTS match_memory_facts(vector, text, int);
 
@@ -99,11 +150,299 @@ BEGIN
   LIMIT match_count;
 END;
 $$;
+
+-- ── 4. Session retention ─────────────────────────────────────────────────────
+-- Deletes conversations whose expire_at has passed, including the per-
+-- subagent rows ADK writes beside them. SECURITY DEFINER so a scheduled job
+-- can run it; db/hardening.sql revokes it from every API role.
+CREATE OR REPLACE FUNCTION melchizedek_prune_sessions()
+RETURNS BIGINT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE n BIGINT := 0;
+BEGIN
+  DELETE FROM adk_sessions WHERE expire_at IS NOT NULL AND expire_at < now();
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN n;
+END;
+$$;
+
+-- Nightly when pg_cron is available (Supabase: Database → Extensions →
+-- pg_cron). Without it, run `npm run sessions:prune` on a schedule.
+DO $cron$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    PERFORM cron.schedule('melchizedek-prune-sessions', '23 3 * * *',
+                          'SELECT melchizedek_prune_sessions()');
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_cron schedule skipped: %', SQLERRM;
+END
+$cron$;
+
+-- ── 5. Schema version ────────────────────────────────────────────────────────
+-- One row per applied migration, so tooling (and the server) can tell a
+-- current database from a stale one. Every migration ends by inserting its
+-- own number.
+CREATE TABLE IF NOT EXISTS melchizedek_schema_version (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO melchizedek_schema_version (version, name)
+VALUES (1, '0001_base')
+ON CONFLICT (version) DO NOTHING;
+```
+<!-- /wiki:generated -->
+
+<!-- wiki:generated section="migration-0002_erase_scope" source="db/migrations/0002_erase_scope.sql" -->
+## Migration 0002_erase_scope
+
+```sql
+-- ============================================================================
+-- 0002_erase_scope — one erase operation across every store (ADR 0020 item 7)
+-- ============================================================================
+-- melchizedek_erase_scope(scope_key, namespace, include_nested) deletes
+-- everything that holds a scope's words, in one transaction, and returns a
+-- row count per store:
+--
+--   memory_facts   adk_memory_facts   user_key = '<namespace>/<scope_key>'
+--   sessions       adk_sessions       the scope's conversations, INCLUDING the
+--                                     per-subagent rows ADK writes beside them
+--                                     ('<SubAgent>:<scope>:<context>')
+--   turns          adk_turns          ledger rows for those conversations
+--   spans          adk_telemetry      spans of those turns' traces
+--   payloads       adk_payloads       captured prompts of those traces
+--   verdicts       adk_verdicts       judgments of those traces
+--   labels         adk_labels         human labels of those traces
+--   tasks          adk_a2a_tasks      A2A tasks the scope owns in those conversations
+--                                     (0003; the Postgres adapter's task store)
+--
+-- namespace NULL erases the scope in every namespace. include_nested also
+-- erases scopes nested beneath this one ('<scope_key>/...'), which is how a
+-- key-level silo is erased together with its end users under keyMode byok.
+-- Ledger tables are optional (db/telemetry.sql); absent ones report 0.
+--
+-- Conversations are identified by context id. When the same scope reused one
+-- context id with two namespaces, a namespace-scoped erase removes both
+-- conversations: erasure errs toward deleting, never toward keeping.
+--
+-- SECURITY INVOKER: it can delete only what the calling role can. It is
+-- revoked from PUBLIC here and again by db/hardening.sql, and granted to
+-- service_role where that role exists (Supabase).
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION melchizedek_erase_scope(
+  p_scope_key      text,
+  p_namespace      text    DEFAULT NULL,
+  p_include_nested boolean DEFAULT false
+) RETURNS TABLE(store text, deleted bigint)
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  -- LIKE pattern for scopes nested beneath this one, with the scope's own
+  -- wildcard characters escaped.
+  nested_like text := replace(replace(replace(p_scope_key, '\', '\\'), '%', '\%'), '_', '\_') || '/%';
+  contexts    text[];
+  traces      text[];
+  n           bigint;
+BEGIN
+  IF p_scope_key IS NULL OR btrim(p_scope_key) = '' THEN
+    RAISE EXCEPTION 'melchizedek_erase_scope: scope_key is required';
+  END IF;
+
+  -- The conversations (context ids) being erased. With a namespace, they are
+  -- the namespace's own session rows; without one, every row of the scope.
+  -- adk_sessions.id is '<app_name>:<user_id>:<context id>'.
+  SELECT coalesce(array_agg(DISTINCT substr(s.id, length(s.app_name) + length(s.user_id) + 3)), '{}')
+    INTO contexts
+  FROM adk_sessions s
+  WHERE (s.user_id = p_scope_key OR (p_include_nested AND s.user_id LIKE nested_like))
+    AND (p_namespace IS NULL OR s.app_name = p_namespace);
+
+  -- Ledger traces of those conversations, collected before anything is deleted.
+  IF to_regclass('public.adk_turns') IS NOT NULL THEN
+    EXECUTE $q$
+      SELECT coalesce(array_agg(DISTINCT trace_id), '{}') FROM adk_turns
+      WHERE (user_id = $1 OR ($2 AND user_id LIKE $3))
+        AND ($4 IS NULL OR session_id = ANY($5))
+    $q$ INTO traces USING p_scope_key, p_include_nested, nested_like, p_namespace, contexts;
+  ELSE
+    traces := '{}';
+  END IF;
+
+  -- Memory facts. user_key is '<namespace>/<scope>' and a namespace never
+  -- contains '/', so the scope is exactly what follows the first slash.
+  DELETE FROM adk_memory_facts f
+  WHERE (p_namespace IS NULL OR split_part(f.user_key, '/', 1) = p_namespace)
+    AND (substr(f.user_key, strpos(f.user_key, '/') + 1) = p_scope_key
+         OR (p_include_nested AND substr(f.user_key, strpos(f.user_key, '/') + 1) LIKE nested_like));
+  GET DIAGNOSTICS n = ROW_COUNT;
+  store := 'memory_facts'; deleted := n; RETURN NEXT;
+
+  -- Sessions: every row of the scope in those conversations, whatever app
+  -- name ADK gave it (subagents run under their own agent name).
+  DELETE FROM adk_sessions s
+  WHERE (s.user_id = p_scope_key OR (p_include_nested AND s.user_id LIKE nested_like))
+    AND substr(s.id, length(s.app_name) + length(s.user_id) + 3) = ANY(contexts);
+  GET DIAGNOSTICS n = ROW_COUNT;
+  store := 'sessions'; deleted := n; RETURN NEXT;
+
+  -- The ledger, when installed.
+  IF to_regclass('public.adk_turns') IS NOT NULL THEN
+    EXECUTE $q$
+      DELETE FROM adk_turns
+      WHERE (user_id = $1 OR ($2 AND user_id LIKE $3))
+        AND ($4 IS NULL OR session_id = ANY($5))
+    $q$ USING p_scope_key, p_include_nested, nested_like, p_namespace, contexts;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  ELSE
+    n := 0;
+  END IF;
+  store := 'turns'; deleted := n; RETURN NEXT;
+
+  IF to_regclass('public.adk_telemetry') IS NOT NULL THEN
+    EXECUTE 'DELETE FROM adk_telemetry WHERE trace_id = ANY($1)' USING traces;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  ELSE
+    n := 0;
+  END IF;
+  store := 'spans'; deleted := n; RETURN NEXT;
+
+  IF to_regclass('public.adk_payloads') IS NOT NULL THEN
+    EXECUTE 'DELETE FROM adk_payloads WHERE trace_id = ANY($1)' USING traces;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  ELSE
+    n := 0;
+  END IF;
+  store := 'payloads'; deleted := n; RETURN NEXT;
+
+  IF to_regclass('public.adk_verdicts') IS NOT NULL THEN
+    EXECUTE 'DELETE FROM adk_verdicts WHERE trace_id = ANY($1)' USING traces;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  ELSE
+    n := 0;
+  END IF;
+  store := 'verdicts'; deleted := n; RETURN NEXT;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'adk_labels' AND column_name = 'trace_id'
+  ) THEN
+    EXECUTE 'DELETE FROM adk_labels WHERE trace_id = ANY($1)' USING traces;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  ELSE
+    n := 0;
+  END IF;
+  store := 'labels'; deleted := n; RETURN NEXT;
+
+  IF to_regclass('public.adk_a2a_tasks') IS NOT NULL THEN
+    EXECUTE $q$
+      DELETE FROM adk_a2a_tasks
+      WHERE (owner = $1 OR ($2 AND owner LIKE $3))
+        AND ($4 IS NULL OR context_id = ANY($5))
+    $q$ USING p_scope_key, p_include_nested, nested_like, p_namespace, contexts;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  ELSE
+    n := 0;
+  END IF;
+  store := 'tasks'; deleted := n; RETURN NEXT;
+END;
+$$;
+
+-- No API role may execute it (db/hardening.sql repeats this for every
+-- melchizedek function); the server's role gets it back.
+DO $$
+BEGIN
+  REVOKE ALL ON FUNCTION melchizedek_erase_scope(text, text, boolean) FROM PUBLIC;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE ALL ON FUNCTION melchizedek_erase_scope(text, text, boolean) FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON FUNCTION melchizedek_erase_scope(text, text, boolean) FROM authenticated;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT EXECUTE ON FUNCTION melchizedek_erase_scope(text, text, boolean) TO service_role;
+  END IF;
+END $$;
+
+INSERT INTO melchizedek_schema_version (version, name)
+VALUES (2, '0002_erase_scope')
+ON CONFLICT (version) DO NOTHING;
+```
+<!-- /wiki:generated -->
+
+<!-- wiki:generated section="migration-0003_postgres_storage" source="db/migrations/0003_postgres_storage.sql" -->
+## Migration 0003_postgres_storage
+
+```sql
+-- ============================================================================
+-- 0003_postgres_storage — tables the direct-Postgres adapter writes (ADR 0021)
+-- ============================================================================
+-- lib/storage/postgres/ uses these instead of the whole-row JSONB rewrite the
+-- Supabase session service does. Both adapters share adk_sessions (one row per
+-- conversation: state, timestamps, expiry); the Postgres adapter keeps the
+-- events here, one row per event, so two turns appending to one conversation
+-- both land instead of the later write erasing the earlier one.
+-- ============================================================================
+
+-- ── 1. Session events: append-only, one row per event ──────────────────────
+CREATE TABLE IF NOT EXISTS adk_session_events (
+  session_id TEXT    NOT NULL REFERENCES adk_sessions(id) ON DELETE CASCADE,
+  seq        INTEGER NOT NULL,
+  ts         DOUBLE PRECISION,           -- the event's own timestamp (seconds)
+  event      JSONB   NOT NULL,
+  PRIMARY KEY (session_id, seq)
+);
+
+-- ── 2. A2A tasks: durable, shared across instances, scoped to their owner ──
+-- One row per task. tenant/owner come from the A2A ServerCallContext
+-- (the SDK's own scoping rule), so one caller cannot read another's task by
+-- id, and a task survives a restart or a poll that lands on another process.
+CREATE TABLE IF NOT EXISTS adk_a2a_tasks (
+  tenant     TEXT        NOT NULL DEFAULT '',
+  owner      TEXT        NOT NULL,
+  agent_id   TEXT        NOT NULL,
+  id         TEXT        NOT NULL,
+  context_id TEXT,
+  state      INTEGER,                    -- TaskState enum value
+  status_ts  TEXT,                       -- task.status.timestamp (ISO), the list order
+  task       JSONB       NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expire_at  TIMESTAMPTZ,
+  PRIMARY KEY (tenant, owner, agent_id, id)
+);
+CREATE INDEX IF NOT EXISTS adk_a2a_tasks_list_idx
+  ON adk_a2a_tasks (tenant, owner, agent_id, status_ts DESC, id DESC);
+CREATE INDEX IF NOT EXISTS adk_a2a_tasks_expire_idx ON adk_a2a_tasks (expire_at);
+
+-- ── 3. Lock both down like every other table ───────────────────────────────
+-- (db/hardening.sql repeats this; it must also hold for a database that is
+-- never hardened, such as a private Postgres with no REST layer.)
+ALTER TABLE adk_session_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE adk_a2a_tasks ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE ALL ON adk_session_events, adk_a2a_tasks FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON adk_session_events, adk_a2a_tasks FROM authenticated;
+  END IF;
+END $$;
+
+INSERT INTO melchizedek_schema_version (version, name)
+VALUES (3, '0003_postgres_storage')
+ON CONFLICT (version) DO NOTHING;
 ```
 <!-- /wiki:generated -->
 
 <!-- wiki:generated section="telemetry-ddl" source="db/telemetry.sql" -->
-## Telemetry sink
+## Telemetry ledger (optional)
 
 ```sql
 -- ============================================================
@@ -566,7 +905,8 @@ REVOKE ALL ON adk_sessions     FROM anon, authenticated;
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['adk_telemetry', 'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels'] LOOP
+  FOREACH t IN ARRAY ARRAY['adk_telemetry', 'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels',
+                            'adk_session_events', 'adk_a2a_tasks'] LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
       EXECUTE format('REVOKE ALL ON %I FROM anon, authenticated', t);
@@ -579,11 +919,16 @@ BEGIN
       EXECUTE format('REVOKE ALL ON %I FROM anon, authenticated', t);
     END IF;
   END LOOP;
-  IF to_regprocedure('public.melchizedek_prune_telemetry(integer)') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION melchizedek_prune_telemetry(integer) FROM anon, authenticated';
-  END IF;
-  IF to_regprocedure('public.match_turns(vector, integer, timestamptz, text, text, boolean)') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION match_turns(vector, integer, timestamptz, text, text, boolean) FROM anon, authenticated';
+  -- Function privileges for these are handled in the FUNCTIONS block below.
+END $$;
+
+-- Schema bookkeeping (db/migrations). Nothing secret, but nothing the public
+-- API needs either.
+DO $$
+BEGIN
+  IF to_regclass('public.melchizedek_schema_version') IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE melchizedek_schema_version ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'REVOKE ALL ON melchizedek_schema_version FROM anon, authenticated';
   END IF;
 END $$;
 
@@ -598,20 +943,36 @@ BEGIN
   END IF;
 END $$;
 
--- The vector-search RPC must not be callable from the public API either
--- (it reads adk_memory_facts on behalf of whoever calls it). The revoke
--- resolves every existing overload by name, so it works on any schema
--- version (the v1 signature, memory_v2's, or both side by side).
+-- ── FUNCTIONS: no API role may execute them ──────────────────────────────
+-- Postgres grants EXECUTE on every new function to PUBLIC, and anon and
+-- authenticated inherit PUBLIC — so revoking from those two roles BY NAME
+-- (what this file did before 2026-10) left the PUBLIC grant in force. Two
+-- of these are SECURITY DEFINER (they bypass RLS): through the anon key,
+-- match_turns would read stored conversations and the prune functions would
+-- delete the ledger and sessions. Revoke from PUBLIC as well, then grant
+-- back to service_role only (the server's role; it is not a superuser and
+-- would otherwise lose access too).
+--
+-- Every overload of every melchizedek function is covered by name, so this
+-- works on any schema version.
 DO $$
-DECLARE fn regprocedure;
+DECLARE
+  fn regprocedure;
+  has_service_role boolean := EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role');
 BEGIN
   FOR fn IN
     SELECT p.oid::regprocedure
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname = 'match_memory_facts'
+    WHERE n.nspname = 'public'
+      AND p.proname IN ('match_memory_facts', 'match_turns', 'melchizedek_prune_telemetry',
+                        'melchizedek_prune_sessions', 'melchizedek_rls_status',
+                        'melchizedek_erase_scope')
   LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM anon, authenticated', fn);
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn);
+    IF has_service_role THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn);
+    END IF;
   END LOOP;
 END $$;
 
@@ -631,10 +992,21 @@ AS $$
   WHERE n.nspname = 'public'
     AND c.relname IN ('adk_memory_facts', 'adk_sessions', 'adk_telemetry',
                       'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels',
-                      'adk_agent_registry');
+                      'adk_agent_registry', 'adk_session_events', 'adk_a2a_tasks');
 $$;
 
-REVOKE ALL ON FUNCTION melchizedek_rls_status() FROM anon, authenticated;
+REVOKE ALL ON FUNCTION melchizedek_rls_status() FROM PUBLIC, anon, authenticated;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT EXECUTE ON FUNCTION melchizedek_rls_status() TO service_role;
+  END IF;
+END $$;
+
+-- Verify (each must return false):
+--   SELECT has_function_privilege('anon', 'match_turns(vector,integer,timestamptz,text,text,boolean)', 'EXECUTE');
+--   SELECT has_function_privilege('anon', 'melchizedek_prune_telemetry(integer)', 'EXECUTE');
+--   SELECT has_function_privilege('anon', 'melchizedek_prune_sessions()', 'EXECUTE');
 
 -- ── Tier 2 (optional, for sensitive deployments): constrain the server ───
 -- Left commented out because it requires an application change: the server
@@ -660,6 +1032,89 @@ REVOKE ALL ON FUNCTION melchizedek_rls_status() FROM anon, authenticated;
 --   FOR ALL TO melchizedek_app
 --   USING (user_id = split_part(current_setting('app.user_key', true), '/', 2))
 --   WITH CHECK (user_id = split_part(current_setting('app.user_key', true), '/', 2));
+```
+<!-- /wiki:generated -->
+
+<!-- wiki:generated section="memory-ddl" source="db/memory_v2.sql" -->
+## Upgrade path for databases created before the migrations
+
+```sql
+-- ============================================================================
+-- memory_v2.sql — structured memory records for adk_memory_facts
+--
+-- Run in the Supabase SQL Editor AFTER the base schema (README §Supabase
+-- setup). Idempotent; safe to re-run. Existing rows survive: old facts get
+-- status 'active', empty keys, and NULL tag/date/source — they keep working
+-- as plain semantic memories.
+--
+-- What this adds:
+--   * structured columns: tag, fact_date, source, status, keys, superseded_by
+--   * indexes for the two non-semantic recall channels (keys, dates)
+--   * match_memory_facts v2 — same call signature, now returns the
+--     structured columns so the service can re-rank and relabel.
+-- ============================================================================
+
+-- 1. Structured record columns
+ALTER TABLE adk_memory_facts
+  ADD COLUMN IF NOT EXISTS tag TEXT,
+  ADD COLUMN IF NOT EXISTS fact_date DATE,
+  ADD COLUMN IF NOT EXISTS source TEXT,
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS keys TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS superseded_by UUID;
+
+-- 2. Recall-channel indexes: entity keys (GIN) and dates (btree, per user)
+CREATE INDEX IF NOT EXISTS adk_memory_facts_keys_idx
+  ON adk_memory_facts USING gin (keys);
+CREATE INDEX IF NOT EXISTS adk_memory_facts_date_idx
+  ON adk_memory_facts (user_key, fact_date);
+
+-- 3. match_memory_facts v2 — drop every prior signature first (Postgres
+--    overloads functions by argument list; leaving an old one creates an
+--    ambiguous call).
+DROP FUNCTION IF EXISTS match_memory_facts(vector, int, text);
+DROP FUNCTION IF EXISTS match_memory_facts(vector, text, int);
+
+CREATE OR REPLACE FUNCTION match_memory_facts (
+  query_embedding vector(768),
+  filter_user_key text,
+  match_count int DEFAULT 10
+) RETURNS TABLE (
+  id UUID,
+  user_key TEXT,
+  fact TEXT,
+  tag TEXT,
+  fact_date DATE,
+  source TEXT,
+  status TEXT,
+  keys TEXT[],
+  created_at TIMESTAMPTZ,
+  similarity float
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF filter_user_key IS NULL THEN
+    RAISE EXCEPTION 'filter_user_key is required';
+  END IF;
+  RETURN QUERY
+  SELECT
+    adk_memory_facts.id,
+    adk_memory_facts.user_key,
+    adk_memory_facts.fact,
+    adk_memory_facts.tag,
+    adk_memory_facts.fact_date,
+    adk_memory_facts.source,
+    adk_memory_facts.status,
+    adk_memory_facts.keys,
+    adk_memory_facts.created_at,
+    1 - (adk_memory_facts.embedding <=> query_embedding) AS similarity
+  FROM adk_memory_facts
+  WHERE adk_memory_facts.user_key = filter_user_key
+  ORDER BY adk_memory_facts.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$;
 ```
 <!-- /wiki:generated -->
 

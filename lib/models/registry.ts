@@ -25,6 +25,8 @@
 
 import { Gemini, LLMRegistry } from '@google/adk';
 import type { BaseLlm, LlmRequest, LlmResponse } from '@google/adk';
+import { currentTurnSignal } from '../runtime/turnControl.ts';
+import { errorStatus, retryUntilFirstYield } from './retry.ts';
 
 import {
   DEFAULT_CLAUDE_MODEL,
@@ -65,7 +67,8 @@ export { GatewayLlm };
 
 // ── TracedGemini ─────────────────────────────────────────────────────────────
 // ADK's built-in Gemini adapter, wrapped so Gemini calls emit the same
-// per-request llm.request spans (tokens, latency) as every other provider.
+// per-request llm.request spans (tokens, latency) as every other provider,
+// and get the shared transient-failure retries (lib/models/retry.ts).
 
 export class TracedGemini extends Gemini {
   // CRITICAL: reuse Gemini's exact regex instances. The LLMRegistry dict is
@@ -77,24 +80,52 @@ export class TracedGemini extends Gemini {
   async *generateContentAsync(
     llmRequest: LlmRequest,
     stream?: boolean,
+    abortSignal?: AbortSignal,
   ): AsyncGenerator<LlmResponse, void> {
     yield* traceLlmGeneration(
       { provider: 'gemini', model: this.model, llmRequest },
-      this.tagAndGenerate(llmRequest, stream),
+      this.tagAndGenerate(llmRequest, stream, abortSignal ?? currentTurnSignal()),
     );
   }
 
   /** Tags the llm.request span (web_search = Gemini grounding), then
-   *  delegates to ADK's Gemini. Runs inside the span context. */
+   *  delegates to ADK's Gemini. Runs inside the span context. The abort
+   *  signal is forwarded so a canceled turn stops the request in flight
+   *  (ADK's Gemini puts it on the genai request config). */
   private async *tagAndGenerate(
     llmRequest: LlmRequest,
     stream?: boolean,
+    abortSignal?: AbortSignal,
   ): AsyncGenerator<LlmResponse, void> {
     const hasGrounding = (llmRequest.config?.tools ?? []).some(
       (t: any) => t && (t.googleSearch || t.googleSearchRetrieval),
     );
     if (hasGrounding) setLlmSpanAttribute('llm.web_search.native', true);
-    yield* super.generateContentAsync(llmRequest, stream);
+    // Retries live here, not in genai's own httpOptions.retryOptions: that
+    // hook (p-retry 4, client-level only) ignores the abort signal — it
+    // sleeps and re-sends after a canceled turn — honours no Retry-After,
+    // does not retry Node's "fetch failed" resets, and replaces a 4xx's
+    // error body (e.g. "API key not valid") with a bare statusText. Wrapping
+    // the call keeps genai's ApiError intact and applies the same policy as
+    // every other adapter. A retry is only made while nothing has been
+    // yielded, so a stream that fails mid-reply is surfaced, not replayed.
+    // ADK's request preprocessing is idempotent, so re-sending the same
+    // llmRequest is safe. Both the registry class and resolveModel()'s
+    // per-request instances are TracedGemini, so both get this.
+    try {
+      yield* retryUntilFirstYield(
+        () => super.generateContentAsync(llmRequest, stream, abortSignal),
+        {
+          signal: abortSignal,
+          onRetry: ({ retries }) => setLlmSpanAttribute('llm.retries', retries),
+        },
+      );
+    } catch (err) {
+      // genai's ApiError carries the status; put it where the ledger reads.
+      const status = errorStatus(err);
+      if (status !== undefined) setLlmSpanAttribute('llm.http_status', status);
+      throw err;
+    }
   }
 }
 

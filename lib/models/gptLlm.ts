@@ -73,7 +73,8 @@ import {
   collectionsMaxResultsFromEnv,
 } from '../tools/collectionsSearchTool.ts';
 import { providerForModel } from './providerMap.ts';
-import { toLowercaseJsonSchema, toStrictJsonSchema } from './schemaNormalize.ts';
+import { providerRequestOptions } from '../runtime/turnControl.ts';
+import { toLowercaseJsonSchema, toStrictJsonSchema, toolDeclarationFor } from './schemaNormalize.ts';
 
 /** Reasoning-capable ids: o-series and the gpt-5 family. The reasoning
  *  param is also dropped and retried once on a 400, so a miss here only
@@ -165,15 +166,13 @@ export function buildResponsesTools(llmRequest: LlmRequest): any[] {
     if (isWebSearchSentinel(tool)) continue; // added as a native tool below
     if (isXSearchSentinel(tool)) continue;   // added as a native tool below
     if (isCollectionsSearchSentinel(tool)) continue; // added as a native tool below
-    const t = tool as any;
-    if (t.name && t.description) {
+    const decl = toolDeclarationFor(tool);
+    if (decl) {
       tools.push({
         type: 'function',
-        name: t.name,
-        description: t.description,
-        parameters: toLowercaseJsonSchema(
-          t.parameters ?? { type: 'object', properties: {} },
-        ),
+        name: decl.name,
+        description: decl.description,
+        parameters: decl.parameters,
         strict: false,
       });
     }
@@ -476,11 +475,11 @@ export class GptLlm extends BaseLlm {
     request: Record<string, unknown>,
   ): Promise<any> {
     try {
-      return await client.responses.create(request);
+      return await client.responses.create(request, providerRequestOptions());
     } catch (err: any) {
       if (err?.status === 400 && request.reasoning) {
         delete request.reasoning;
-        return await client.responses.create(request);
+        return await client.responses.create(request, providerRequestOptions());
       }
       throw err;
     }

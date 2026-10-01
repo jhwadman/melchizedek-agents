@@ -1,0 +1,103 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The two LTS lines enterprises run. engines.node is >=22.6.
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: typecheck
+        run: npx tsc --noEmit
+      - name: offline test suite (no network, no keys)
+        run: npm test
+      - name: build the package
+        run: npm run build
+      - name: pack and consume the tarball like a user would
+        run: |
+          set -euo pipefail
+          npm pack --silent
+          TARBALL="$PWD/$(ls melchizedek-agents-*.tgz)"
+          CONSUMER="$(mktemp -d)"
+          cd "$CONSUMER"
+          npm init -y >/dev/null
+          ADK="$(node -p "require('$GITHUB_WORKSPACE/package.json').devDependencies['@google/adk']")"
+          npm install --no-audit --no-fund "$TARBALL" "@google/adk@$ADK"
+          mkdir -p config/agents
+          cp node_modules/melchizedek-agents/config/agents/examples/tutor.yaml config/agents/
+          node --input-type=module -e "
+            import { loadSyndicate, runSyndicateTurn, createA2AApp, registerTool } from 'melchizedek-agents';
+            const cfg = loadSyndicate('tutor.yaml');
+            if (!cfg.orchestrator?.name) throw new Error('loadSyndicate returned no orchestrator');
+            for (const [n, f] of Object.entries({ runSyndicateTurn, createA2AApp, registerTool })) {
+              if (typeof f !== 'function') throw new Error(n + ' is not exported');
+            }
+            console.log('package OK:', cfg.syndicate_name);
+          "
+          npx melchizedek-db print | head -1
+
+  postgres:
+    name: storage integration (Postgres + pgvector)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: the Supabase API roles hardening.sql revokes from
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN;"
+      - name: migrations, telemetry and hardening apply, and re-apply cleanly
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+        run: |
+          npm run db -- apply --telemetry
+          npm run db -- apply --telemetry
+      - name: storage integration suite (creates and drops its own database)
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        run: node --disable-warning=DEP0040 --experimental-strip-types --test tests/postgresStorage.test.ts
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: production dependencies have no high or critical advisories
+        run: npm audit --omit=dev --audit-level=high
+      - name: registry signatures verify
+        run: npm ci && npm audit signatures

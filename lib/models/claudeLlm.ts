@@ -58,7 +58,8 @@ import {
   wantsWebSearch,
   isWebSearchSentinel,
 } from '../tools/webSearchTool.ts';
-import { toLowercaseJsonSchema } from './schemaNormalize.ts';
+import { providerRequestOptions } from '../runtime/turnControl.ts';
+import { toLowercaseJsonSchema, toolDeclarationFor } from './schemaNormalize.ts';
 
 // ── Type aliases to avoid @anthropic-ai/sdk import errors when not installed ─
 // We use dynamic import inside the methods so the rest of the framework still
@@ -88,14 +89,12 @@ export function buildAnthropicTools(llmRequest: LlmRequest): any[] {
   const anthropicTools: any[] = [];
   for (const [, tool] of Object.entries(llmRequest.toolsDict ?? {})) {
     if (isWebSearchSentinel(tool)) continue; // added as a server tool below
-    const t = tool as any;
-    if (t.name && t.description) {
+    const decl = toolDeclarationFor(tool);
+    if (decl) {
       anthropicTools.push({
-        name: t.name,
-        description: t.description,
-        input_schema: toLowercaseJsonSchema(
-          t.parameters ?? { type: 'object', properties: {} },
-        ),
+        name: decl.name,
+        description: decl.description,
+        input_schema: decl.parameters,
       });
     }
   }
@@ -286,7 +285,7 @@ export class ClaudeLlm extends BaseLlm {
     try {
       if (stream) {
         // Streaming path
-        const streamResponse = await client.messages.stream(requestBase);
+        const streamResponse = await client.messages.stream(requestBase, providerRequestOptions());
 
         for await (const chunk of streamResponse) {
           if (chunk.type === 'content_block_delta') {
@@ -321,7 +320,7 @@ export class ClaudeLlm extends BaseLlm {
         yield this.finalResponse(final, /*includeText=*/ true);
       } else {
         // Non-streaming path
-        const response = await client.messages.create(requestBase);
+        const response = await client.messages.create(requestBase, providerRequestOptions());
 
         // Thinking first, as a display-only partial.
         const thinkingText = (response.content ?? [])

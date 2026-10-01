@@ -50,7 +50,11 @@ const TASK_TOOLS = Object.fromEntries(
   TASK_TOOL_CONTRACTS.map((contract) => [contract.name, toFunctionTool(contract)]),
 );
 
-const TOOL_MAP: Record<string, unknown> = {
+// The built-in tools. The wiki build reads these keys from this literal.
+// A plain object literal inherits from Object.prototype, so a YAML naming
+// `constructor` or `toString` resolved to a prototype function instead of
+// the unknown-tool warning; TOOL_MAP below is the null-prototype copy.
+const BUILTIN_TOOLS: Record<string, unknown> = {
   ...WIKI_TOOLS,
   ...SCIENCE_TOOLS,
   ...TASK_TOOLS,
@@ -76,6 +80,10 @@ const TOOL_MAP: Record<string, unknown> = {
   preload_memory: PRELOAD_MEMORY,
 };
 
+// Null-prototype copy (as GUARD_MAP is): resolution and registration go
+// through this map, never the literal above.
+const TOOL_MAP: Record<string, unknown> = Object.assign(Object.create(null), BUILTIN_TOOLS);
+
 /**
  * Resolve an array of tool-name strings to live ADK tool instances.
  * Unknown names are skipped; `onUnknown` (if provided) is invoked for each so
@@ -87,7 +95,7 @@ export function resolveTools(
 ): any[] {
   return toolNames
     .map((name) => {
-      const tool = TOOL_MAP[name];
+      const tool = Object.prototype.hasOwnProperty.call(TOOL_MAP, name) ? TOOL_MAP[name] : undefined;
       if (tool === undefined) {
         onUnknown?.(name);
         return null;
@@ -95,4 +103,35 @@ export function resolveTools(
       return tool;
     })
     .filter(Boolean);
+}
+
+/**
+ * Make a tool resolvable by name from a syndicate YAML's `tools:` list.
+ *
+ * For package consumers: the registry is otherwise closed (YAML can name
+ * only what is registered, never load code), and editing this file under
+ * node_modules is not an option. Registering is the same deliberate act of
+ * exposure as listing a tool above — it happens in your code, where a
+ * reviewer reads it. Pass a `defineTool` contract (lib/tools/toolContract.ts)
+ * or a ready ADK tool. Replacing a built-in requires `{ override: true }`.
+ */
+export function registerTool(
+  name: string,
+  tool: unknown,
+  options: { override?: boolean } = {},
+): void {
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name)) {
+    throw new Error(`registerTool: '${name}' is not a valid tool name`);
+  }
+  if (Object.prototype.hasOwnProperty.call(TOOL_MAP, name) && !options.override) {
+    throw new Error(`registerTool: '${name}' is already registered (pass { override: true } to replace it)`);
+  }
+  const t = tool as Record<string, unknown>;
+  const isContract = !!t && typeof t === 'object' && 'schema' in t && typeof t.execute === 'function' && !('runAsync' in t);
+  TOOL_MAP[name] = isContract ? toFunctionTool(tool as any) : tool;
+}
+
+/** Names a YAML can declare under `tools:` right now. */
+export function registeredToolNames(): string[] {
+  return Object.keys(TOOL_MAP).sort();
 }

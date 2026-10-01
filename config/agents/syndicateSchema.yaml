@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=./syndicate.schema.json
 # ============================================================
 # Melchizedek Syndicate Schema Reference
 # ============================================================
@@ -5,6 +6,13 @@
 # This file documents ALL available properties for a syndicate
 # YAML definition. Every property name maps 1:1 to its ADK
 # counterpart so there is zero translation confusion.
+#
+# It is an annotated EXAMPLE. The enforced contract is
+# lib/syndicateSchema.ts: every load validates against it and a
+# misspelt or unknown key fails with its path and the key it was
+# probably meant to be. Its JSON Schema, config/agents/
+# syndicate.schema.json (npm run schema:gen), is what the modeline
+# above points an editor at — add the same line to your own file.
 #
 # ADK source references:
 #   LlmAgentConfig      → @google/adk :: agents/llm_agent.d.ts
@@ -80,7 +88,7 @@ dispatch:
   # malformed JSON, an unknown name, or a classifier that failed outright.
   # Must name a declared subagent that can handle ANY message: routing is an
   # optimisation, answering the user is the contract.
-  default_route: "TheGeneralistSubagent"
+  default_route: "MySubagent"
   # [optional] JSON property holding the chosen route. Default "route".
   route_key: "route"
   # [optional] Deterministic pre-classification: a message matching `pattern`
@@ -91,7 +99,7 @@ dispatch:
   # silently disables the routes it shadows. A rule naming an undeclared
   # subagent or carrying an invalid regex is skipped with a warning.
   route_overrides:
-    - route: "TheSpecialistOnlyItCanDoThis"
+    - route: "MySubagent"
       pattern: "(?:https?://)?example\\.com/"   # JS regex source
       flags: "i"                               # [optional] default "i"
       reason: "shown to the waiting user as the [STATUS] route note"
@@ -143,7 +151,7 @@ orchestrator:
   # Maps to: tools[] on LlmAgent
   # Supported values include "web_search" (provider-agnostic: maps to the
   # model's NATIVE search on Gemini/Claude/GPT/Grok, omitted with a warning
-  # on local models), "google_search" (Gemini-only, legacy), "code_execution".
+  # on local models) and "google_search" (Gemini-only, legacy).
   # Full registry: lib/toolRegistry.ts.
   tools: []
 
@@ -248,11 +256,23 @@ subagents:
 
     # ── LlmAgentConfig fields ───────────────────────────────
 
+    # [alternative] A whole nested syndicate as this subagent: a
+    # filename resolved like any other (root, then examples/, then
+    # templates/). It brings its own model and instruction, so neither
+    # is needed here. Cannot be combined with a2a_agent_url.
+    # yaml_reference: "research_desk.yaml"
+
+    # [alternative] A REMOTE agent over the A2A protocol: the server's
+    # base URL (its card is read from /.well-known/agent-card.json) or
+    # the card URL itself. Needs no model or instruction. Credentials
+    # come from A2A_AGENT_TOKENS (host → bearer), never from YAML.
+    # a2a_agent_url: "https://agents.example.com"
+
     # [optional] Override the model for this subagent.
     # If omitted, inherits the orchestrator's model.
     model: "gemini-3.1-flash-lite"
 
-    # [required] System prompt for this subagent.
+    # [required unless yaml_reference / a2a_agent_url] System prompt.
     # Maps to: instruction
     instruction: |
       You are a specialist subagent. Complete the task passed to you
@@ -261,7 +281,7 @@ subagents:
     # [optional] Named built-in tools for this subagent.
     # Maps to: tools[] on LlmAgent
     # Supported values include "web_search" (provider-agnostic),
-    # "google_search" (Gemini-only, legacy), "code_execution",
+    # "google_search" (Gemini-only, legacy),
     # and the knowledge-bundle tools "wiki_map", "wiki_search",
     # "wiki_read", "wiki_links", "wiki_dive", "wiki_save"
     # (lib/toolRegistry.ts is the authoritative name→tool map).

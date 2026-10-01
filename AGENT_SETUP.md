@@ -161,15 +161,17 @@ application calls like any other API:
    `A2A_SERVER_SECRET` in `.env`.
 2. `npm run start:a2a` — the endpoint speaks the open A2A protocol,
    publishes an agent card, and enforces bearer auth + rate limiting.
-3. Every request carries three headers: `Authorization: Bearer
-   <A2A_SERVER_SECRET>`, `X-API-Key: <a Gemini key>` (inference bills
-   the caller — your server key stays yours), and `X-User-Id: <your
-   app's opaque user id>` — the id your backend assigns after
-   authenticating its own user, never one the user chooses. That last
-   header is what keeps one user's memory out of another's session.
+3. Every request carries `Authorization: Bearer <A2A_SERVER_SECRET>`
+   and `X-User-Id: <your app's opaque user id>` — the id your backend
+   assigns after authenticating its own user, never one the user
+   chooses. That header is what keeps one user's sessions and memory out
+   of another's. The server's own provider keys pay for inference. (To
+   make callers fund their own, set `A2A_KEY_MODE=byok`; each request
+   then also carries `X-API-Key`. To plug in your own identity system,
+   use `createA2AApp({ resolveRequest })`.)
 4. `demo/a2a_demo.mjs` is a complete working client; `DOCUMENTATION.md`
-   §A2A has the protocol details, and `lib/memory/README.md` covers
-   per-user memory siloing and the right-to-erasure endpoint before you
+   §6 is the HTTP reference, and `DELETE /memory` erases everything
+   stored for a user — facts, transcripts and ledger rows — before you
    serve real people.
 
 When you're ready, hand your coding agent a prompt shaped like this:

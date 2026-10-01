@@ -9,6 +9,8 @@
  */
 
 import type { BaseSessionService, BaseMemoryService } from '@google/adk';
+import { isPlaceholderValue } from '../loadEnv.ts';
+import type { Embedder, MemoryExtractor } from '../memory/providers.ts';
 
 export interface RlsHardeningStatus {
   /** true only when db/hardening.sql has been applied and RLS is on for both tables. */
@@ -27,6 +29,8 @@ export interface PersistenceServices {
    * throws — callers use this to warn operators at boot, not to gate.
    */
   checkRlsHardening: () => Promise<RlsHardeningStatus>;
+  /** RPC access for operations that span stores (lib/memory/erase.ts). */
+  rpcClient: { rpc: (fn: string, args?: Record<string, unknown>) => any };
 }
 
 export interface SupabaseProviderOptions {
@@ -34,6 +38,10 @@ export interface SupabaseProviderOptions {
   apiKey: string;
   /** Whether to construct the SupabaseVectorMemoryService (long-term memory). */
   withMemory: boolean;
+  /** Fact extractor and embedder for memory (lib/memory/providers.ts).
+   *  Default: from the environment (MEMORY_* variables), Gemini when unset. */
+  extractor?: MemoryExtractor;
+  embedder?: Embedder;
 }
 
 /**
@@ -42,10 +50,17 @@ export interface SupabaseProviderOptions {
  * fall back to in-memory services.
  */
 export function hasSupabaseCredentials(): boolean {
-  return !!(
-    process.env.SUPABASE_URL &&
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
+  const url = process.env.SUPABASE_URL?.trim();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!url || !key || isPlaceholderValue(url) || isPlaceholderValue(key)) return false;
+  // A value that is not an http(s) URL is a misconfiguration, not credentials:
+  // treating it as present crashed supabase-js before the first prompt.
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -73,7 +88,10 @@ export async function createSupabaseServices(
     const { SupabaseVectorMemoryService } = await import(
       '../memory/supabaseMemoryService.ts'
     );
-    memoryService = new SupabaseVectorMemoryService({ apiKey: options.apiKey }, supabase);
+    memoryService = new SupabaseVectorMemoryService(
+      { apiKey: options.apiKey, extractor: options.extractor, embedder: options.embedder },
+      supabase,
+    );
   }
 
   // ── Hardening probe ─────────────────────────────────────────────────────────
@@ -131,5 +149,5 @@ export async function createSupabaseServices(
     }
   };
 
-  return { sessionService, memoryService, checkRlsHardening };
+  return { sessionService, memoryService, checkRlsHardening, rpcClient: supabase };
 }

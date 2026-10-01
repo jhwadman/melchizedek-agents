@@ -55,6 +55,50 @@ function normalizeNode(node: unknown): unknown {
 }
 
 /**
+ * The declaration a non-Gemini adapter should send for one ADK tool:
+ * name, description, and a lowercase JSON-Schema `parameters`.
+ *
+ * Read from the tool's own `_getDeclaration()` — the same source ADK's Gemini
+ * path uses — and only fall back to a `parameters` property for plain objects
+ * (tests, hand-built tools). Reading `.parameters` directly was the bug behind
+ * plans/gpt-agenttool-delegation.md: `AgentTool` and ADK's `load_memory` keep
+ * their schema ONLY in `_getDeclaration()`, so every Claude / GPT / Grok /
+ * Ollama / gateway orchestrator was told its subagents took no arguments and
+ * called them with `{}`. A FunctionTool built from a zod object is also
+ * converted here (ADK's `toSchema`), where `.parameters` would be the raw zod
+ * object. Returns undefined for tools that declare nothing (the server-side
+ * search sentinels) and for tools with no name.
+ */
+export function toolDeclarationFor(tool: unknown): {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+} | undefined {
+  if (!tool || typeof tool !== 'object') return undefined;
+  const t = tool as Record<string, any>;
+  let decl: Record<string, any> | undefined;
+  if (typeof t._getDeclaration === 'function') {
+    try {
+      decl = t._getDeclaration() ?? undefined;
+    } catch {
+      decl = undefined;
+    }
+    // A tool that implements _getDeclaration and returns nothing declares
+    // nothing (search sentinels): do not resurrect it from other fields.
+    if (!decl) return undefined;
+  }
+  const name = decl?.name ?? t.name;
+  if (!name || typeof name !== 'string') return undefined;
+  const description = decl?.description ?? t.description ?? '';
+  const parameters = decl ? decl.parameters : t.parameters;
+  return {
+    name,
+    description: typeof description === 'string' ? description : '',
+    parameters: toLowercaseJsonSchema(parameters ?? { type: 'object', properties: {} }),
+  };
+}
+
+/**
  * The lowercase schema in the shape OpenAI-style "strict" structured output
  * demands: every object node carries `additionalProperties: false` and lists
  * ALL of its properties as required. Optional fields are expressed by the

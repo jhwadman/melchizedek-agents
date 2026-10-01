@@ -1,0 +1,41 @@
+# Local stack: the A2A server, plus optional Ollama (keyless local models)
+# and Phoenix (a trace viewer for the OTLP spans the server emits).
+#
+#   docker compose up                          # server only
+#   docker compose --profile local-models up   # + Ollama
+#   docker compose --profile traces up         # + Phoenix on http://localhost:6006
+#
+# Sessions and long-term memory use Supabase (SUPABASE_URL and
+# SUPABASE_SERVICE_ROLE_KEY in .env). Without them the server runs with
+# in-memory sessions. For a local Supabase, `npx supabase start` and point
+# the two variables at it, then `npx melchizedek-db apply` (or `print`).
+services:
+  melchizedek:
+    build: .
+    command: ["${SYNDICATE:-tutor.yaml}"]
+    env_file: [.env]
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4000"
+      # Inside compose, Ollama and Phoenix are reachable by service name.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    ports: ["4000:4000"]
+    volumes:
+      - ./config/agents:/app/config/agents:ro
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  ollama:
+    profiles: [local-models]
+    image: ollama/ollama
+    ports: ["11434:11434"]
+    volumes: [ollama:/root/.ollama]
+
+  phoenix:
+    profiles: [traces]
+    image: arizephoenix/phoenix
+    ports: ["6006:6006"]
+
+volumes:
+  ollama:

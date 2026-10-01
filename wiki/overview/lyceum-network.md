@@ -28,7 +28,7 @@ This repo is the **source of truth** for a three-repo network:
 Facts deliberately live in several places — a prompt is taught in a lesson, downloadable as markdown, shipped in two repos. The covenant: **when a fact changes here, every mirror updates in the same pass.** The workspace `lyceum-sync` skill maps the known chains; the update order is fixed:
 
 1. Edit the source of truth here (YAML / lib / db), typecheck.
-2. Sync this repo's own docs (README/DOCUMENTATION SQL blocks and their overlay twins — the [schema](/memory/schema.md) is mirrored in four places by design).
+2. Sync this repo's own docs. The SQL schema lives only in `db/migrations/`; the docs point to it, so a schema change is a new migration, not a doc edit.
 3. Regenerate the public repo via the [export pipeline](/operations/export-pipeline.md) — it scans, tests, and commits, but never pushes.
 4. Sync the teaching site under its own workflow, then grep each changed fact across all three repos.
 

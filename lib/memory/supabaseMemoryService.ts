@@ -5,10 +5,12 @@ import type {
 	MemoryEntry,
 	Session,
 } from '@google/adk';
-import { GoogleGenAI } from '@google/genai';
 import type { Content } from '@google/genai';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS, MEMORY_EXTRACTION_MODEL } from '../config.ts';
+import { memoryProvidersFromEnv } from './providers.ts';
+import { isSupabaseClient, supabaseMemoryStore } from './store.ts';
+import type { FactRow, MemoryStore, NewFact } from './store.ts';
+import type { Embedder, MemoryExtractor } from './providers.ts';
 
 /**
  * Harness-injected blocks the Discord surface prefixes to a user message
@@ -79,17 +81,6 @@ interface MemoryRecord {
 	supersedes: string | null;
 }
 
-interface FactRow {
-	id: string;
-	fact: string;
-	tag: string | null;
-	fact_date: string | null;
-	source: string | null;
-	status: string | null;
-	keys: string[] | null;
-	created_at: string | null;
-	similarity: number;
-}
 
 const RECORD_RE = /^\[([A-Z]+)((?:\s*\|[^\]]*)?)\]\s*(.+)$/;
 
@@ -146,8 +137,9 @@ const MONTH_NAMES = [
 ];
 
 export class SupabaseVectorMemoryService implements BaseMemoryService {
-	private genai: GoogleGenAI;
-	private supabase: SupabaseClient;
+	private extractor: MemoryExtractor;
+	private embedder: Embedder;
+	private store: MemoryStore;
 	/**
 	 * How many of each session's events have already been distilled.
 	 * Keyed `{userKey}::{sessionId}`.
@@ -158,10 +150,32 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 	 */
 	private ingestedEventCount = new Map<string, number>();
 
-	constructor(config: { apiKey: string }, supabaseClient: SupabaseClient) {
-		this.genai = new GoogleGenAI({ apiKey: config.apiKey });
-		this.supabase = supabaseClient;
-		console.log(`[MemoryService] Initialized — backend: Supabase Vector Search (pgvector), structured records`);
+	/**
+	 * @param config.apiKey The server's Gemini key, used only when the
+	 *   configured extraction model or embedder is Gemini (the default).
+	 * @param config.extractor / config.embedder What computes memory
+	 *   (lib/memory/providers.ts, ADR 0020). Default: from the environment
+	 *   (MEMORY_EXTRACTION_MODEL, MEMORY_EMBEDDING_*), which is Gemini when
+	 *   nothing is set.
+	 */
+	/**
+	 * @param backend Where facts live: a Supabase client (REST), or any
+	 *   MemoryStore, e.g. the direct-Postgres one (lib/storage/postgres).
+	 */
+	constructor(
+		config: { apiKey: string; extractor?: MemoryExtractor; embedder?: Embedder },
+		backend: SupabaseClient | MemoryStore,
+	) {
+		const fromEnv = config.extractor && config.embedder
+			? undefined
+			: memoryProvidersFromEnv(process.env, config.apiKey);
+		this.extractor = config.extractor ?? fromEnv!.extractor;
+		this.embedder = config.embedder ?? fromEnv!.embedder;
+		this.store = isSupabaseClient(backend) ? supabaseMemoryStore(backend) : backend;
+		console.log(
+			`[MemoryService] Initialized — backend: Supabase Vector Search (pgvector), structured records; `
+			+ `extraction ${this.extractor.model}, embeddings ${this.embedder.provider}/${this.embedder.model} (${this.embedder.dimensions}d)`,
+		);
 	}
 
 	/**
@@ -191,12 +205,19 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 		console.log(`[MemoryService] Extracting records from session: ${session.id} `
 			+ `(${fresh.length} new turn(s) of ${(session.events ?? []).length})`);
 
+		// Every step below THROWS on failure, and the watermark advances only
+		// after the records are stored. A provider 429 during extraction, a
+		// failed embedding or a rejected insert therefore leaves these turns
+		// pending, and the next task in this session retries them. (Before,
+		// each failure was swallowed and the watermark moved past turns that
+		// were never distilled — a lost fact costs the user something they
+		// said.) A retried batch that partly landed is absorbed by the
+		// semantic dedup below.
+		const advance = () => this.ingestedEventCount.set(watermarkKey, (session.events ?? []).length);
 		const records = await this.extractRecords(transcript, extractionRules);
-		// Advance only after extraction SUCCEEDS — a throw leaves the turns
-		// pending so the next task retries them rather than losing them.
-		this.ingestedEventCount.set(watermarkKey, (session.events ?? []).length);
 
 		if (records.length === 0) {
+			advance();
 			console.log(`[MemoryService] No records extracted from session ${session.id}.`);
 			return;
 		}
@@ -206,6 +227,7 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 
 		const inserted = await this.upsertToSupabase(userKey, records, embeddings);
 		await this.applySupersessions(userKey, records, inserted);
+		advance();
 
 		console.log(`[MemoryService] Stored ${inserted.size} record(s) for user key: ${userKey}`);
 	}
@@ -220,17 +242,15 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 	 * `adk_sessions` and must be cleared separately if full erasure is needed.
 	 */
 	async deleteUserMemory(userKey: string): Promise<number> {
-		const { count, error } = await this.supabase
-			.from('adk_memory_facts')
-			.delete({ count: 'exact' })
-			.eq('user_key', userKey);
-
-		if (error) {
-			throw new Error(`Memory deletion failed for ${userKey}: ${error.message}`);
+		let count: number;
+		try {
+			count = await this.store.deleteUser(userKey);
+		} catch (err: unknown) {
+			throw new Error(`Memory deletion failed for ${userKey}: ${err instanceof Error ? err.message : String(err)}`);
 		}
 
-		console.log(`[MemoryService] Deleted ${count ?? 0} fact(s) for user key: ${userKey}`);
-		return count ?? 0;
+		console.log(`[MemoryService] Deleted ${count} fact(s) for user key: ${userKey}`);
+		return count;
 	}
 
 	async searchMemory(request: SearchMemoryRequest): Promise<SearchMemoryResponse> {
@@ -252,16 +272,7 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 			.replace('{domain_rules}', domainRules)
 			.replace('{transcript}', transcript);
 		try {
-			const response = await this.genai.models.generateContent({
-				model: MEMORY_EXTRACTION_MODEL,
-				contents: [{ role: 'user', parts: [{ text: prompt }] }],
-				config: {
-					temperature: 0.1,
-					maxOutputTokens: 4096,
-				}
-			});
-
-			const text = response.text?.trim() ?? '';
+			const text = (await this.extractor.extract(prompt)).trim();
 			if (!text || text === 'NO_FACTS_EXTRACTED') return [];
 
 			return text
@@ -270,8 +281,7 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 				.filter((r): r is MemoryRecord => r !== null);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
-			console.error(`[MemoryService] Record extraction failed: ${msg}`);
-			return [];
+			throw new Error(`Record extraction failed (turns stay pending for retry): ${msg}`);
 		}
 	}
 
@@ -323,30 +333,12 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 	}
 
 	private async embedTexts(texts: string[]): Promise<number[][]> {
-		const embeddings: number[][] = [];
-		for (const text of texts) {
-			try {
-				const response = await this.genai.models.embedContent({
-					model: EMBEDDING_MODEL,
-					contents: text,
-					config: {
-						outputDimensionality: EMBEDDING_DIMENSIONS
-					}
-				});
-
-				if (response.embeddings && response.embeddings.length > 0) {
-					embeddings.push(response.embeddings[0].values ?? []);
-				} else {
-					console.warn(`[MemoryService] Empty embedding returned for: "${text.slice(0, 50)}..."`);
-					embeddings.push([]);
-				}
-			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
-				console.error(`[MemoryService] Embedding failed: ${msg}`);
-				embeddings.push([]);
-			}
+		try {
+			return await this.embedder.embed(texts);
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			throw new Error(`Embedding failed (turns stay pending for retry): ${msg}`);
 		}
-		return embeddings;
 	}
 
 	private serializeEvents(events: Session['events']): string {
@@ -386,32 +378,26 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 		// the extraction model rephrases, so the semantic pass below is what
 		// actually stops "the user has $831 in a forgotten Roth IRA" being
 		// stored six ways.
-		const { data: existing } = await this.supabase
-			.from('adk_memory_facts')
-			.select('fact')
-			.eq('user_key', userKey)
-			.in('fact', records.map(r => r.line));
-		const known = new Set((existing ?? []).map((row) => row.fact));
+		const known = await this.store.existingFacts(userKey, records.map(r => r.line));
 
 		// Second pass: semantic. One similarity probe per surviving candidate —
 		// the embedding is already computed, and the same RPC the supersession
 		// path uses. A restatement is dropped; the stored row keeps its
 		// original date, which is the earliest the user asserted it.
-		const payload: Array<Record<string, unknown>> = [];
+		const payload: NewFact[] = [];
 		for (let i = 0; i < records.length; i++) {
 			const record = records[i];
 			if (embeddings[i].length === 0 || known.has(record.line)) continue;
 
-			const { data: near, error: nearErr } = await this.supabase.rpc('match_memory_facts', {
-				query_embedding: embeddings[i],
-				match_count: 5,
-				filter_user_key: userKey,
-			});
-			if (nearErr) {
+			let near: FactRow[] | undefined;
+			try {
+				near = await this.store.match(userKey, embeddings[i], 5);
+			} catch (err: unknown) {
 				// Fail OPEN: a dedup probe that errors must not silently drop a
 				// record. A duplicate is recoverable; a lost fact is not.
-				console.error(`[MemoryService] Dedup probe failed (storing anyway):`, nearErr.message);
-			} else if (isSemanticDuplicate(record, (near ?? []) as FactRow[])) {
+				console.error(`[MemoryService] Dedup probe failed (storing anyway):`, err instanceof Error ? err.message : err);
+			}
+			if (near && isSemanticDuplicate(record, near)) {
 				console.log(`[MemoryService] Duplicate skipped [${record.tag}]: "${record.line.slice(0, 70)}..."`);
 				continue;
 			}
@@ -430,17 +416,14 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 
 		if (payload.length === 0) return insertedIds;
 
-		const { data, error } = await this.supabase
-			.from('adk_memory_facts')
-			.insert(payload)
-			.select('id, fact');
-
-		if (error) {
-			console.error(`[MemoryService] Failed to upsert to Supabase:`, error.message);
-			return insertedIds;
+		let data: Array<{ id: string; fact: string }>;
+		try {
+			data = await this.store.insert(payload);
+		} catch (err: unknown) {
+			throw new Error(`Failed to store memory records (turns stay pending for retry): ${err instanceof Error ? err.message : String(err)}`);
 		}
 
-		for (const row of data ?? []) {
+		for (const row of data) {
 			insertedIds.set(row.fact, row.id);
 		}
 		return insertedIds;
@@ -471,31 +454,30 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 			const vec = targetEmbeddings[i];
 			if (!vec || vec.length === 0) continue;
 
-			const { data, error } = await this.supabase.rpc('match_memory_facts', {
-				query_embedding: vec,
-				match_count: 5,
-				filter_user_key: userKey,
-			});
-			if (error) {
-				console.error(`[MemoryService] Supersession lookup failed:`, error.message);
+			let data: FactRow[];
+			try {
+				data = await this.store.match(userKey, vec, 5);
+			} catch (err: unknown) {
+				console.error(`[MemoryService] Supersession lookup failed:`, err instanceof Error ? err.message : err);
 				continue;
 			}
 
 			const correctionId = insertedIds.get(correction.line) as string;
-			for (const row of (data ?? []) as FactRow[]) {
+			for (const row of data) {
 				if (newIds.has(row.id)) continue; // never retire a record from this same ingestion
 				if ((row.status ?? 'active') !== 'active') continue;
 				const sharesKey = (row.keys ?? []).some(k => correction.keys.includes(k));
 				const retire = row.similarity >= 0.85 || (row.similarity >= 0.6 && sharesKey);
 				if (!retire) continue;
 
-				const { error: updateError } = await this.supabase
-					.from('adk_memory_facts')
-					.update({ status: 'superseded', superseded_by: correctionId })
-					.eq('id', row.id)
-					.eq('user_key', userKey);
+				let updateError: string | undefined;
+				try {
+					await this.store.retire(userKey, row.id, correctionId);
+				} catch (err: unknown) {
+					updateError = err instanceof Error ? err.message : String(err);
+				}
 				if (updateError) {
-					console.error(`[MemoryService] Failed to retire superseded record:`, updateError.message);
+					console.error(`[MemoryService] Failed to retire superseded record:`, updateError);
 				} else {
 					console.log(`[MemoryService] Superseded: "${row.fact.slice(0, 60)}..." → ${correctionId}`);
 				}
@@ -522,15 +504,13 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 		}
 
 		try {
-			// Calls the Postgres RPC function `match_memory_facts` created in Supabase
-			const { data, error } = await this.supabase.rpc('match_memory_facts', {
-				query_embedding: queryVec,
-				match_count: 24,
-				filter_user_key: userKey,
-			});
-
-			if (error) {
-				console.error(`[MemoryService] Failed to query Supabase Vector Search:`, error.message);
+			// The `match_memory_facts` function (db/migrations/0001_base.sql),
+			// through whichever store this service was given.
+			let data: FactRow[];
+			try {
+				data = await this.store.match(userKey, queryVec, 24);
+			} catch (err: unknown) {
+				console.error(`[MemoryService] Failed to query memory:`, err instanceof Error ? err.message : err);
 				return { memories: [] };
 			}
 
@@ -538,7 +518,7 @@ export class SupabaseVectorMemoryService implements BaseMemoryService {
 			const queryYears: string[] = q.match(/\b20\d{2}\b/g) ?? [];
 			const queryMonths = MONTH_NAMES.filter(mn => q.includes(mn));
 
-			const scored = ((data ?? []) as FactRow[]).map(row => {
+			const scored = data.map(row => {
 				let score = row.similarity;
 				const status = row.status ?? 'active';
 

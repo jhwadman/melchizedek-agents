@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { hasSupabaseCredentials } from './persistence/supabaseProvider.ts';
+import { validateSyndicateConfig } from './syndicateSchema.ts';
 import type { DispatchConfig } from './dispatch.ts';
 
 export type { DispatchConfig } from './dispatch.ts';
@@ -68,8 +69,8 @@ export interface AgentYamlConfig {
    */
   globalInstruction?: string;
   /**
-   * Named built-in tools to attach to this agent.
-   * Supported: "google_search", "code_execution"
+   * Named tools to attach to this agent — lib/toolRegistry.ts is the
+   * authoritative name → tool map (e.g. "web_search", "web_extract").
    * Maps to LlmAgentConfig.tools[].
    */
   tools?: string[];
@@ -112,12 +113,28 @@ export interface SubagentYamlConfig extends Partial<AgentYamlConfig> {
   name: string;
   description: string;
   yaml_reference?: string;
+  /**
+   * A REMOTE agent, reached over the A2A protocol: the base URL of an A2A
+   * server (its agent card is read from `<url>/.well-known/agent-card.json`),
+   * or the card URL itself. The subagent becomes a tool that sends the
+   * orchestrator's request as an A2A message and returns the remote answer.
+   * No model or instruction is needed — the remote agent has its own.
+   * Credentials come from A2A_AGENT_TOKENS (host → bearer), never from YAML.
+   * See lib/a2a/remoteAgent.ts.
+   */
+  a2a_agent_url?: string;
 }
 
 export type VariableMap = Record<string, string | number | boolean>;
 
 export interface SyndicateYamlConfig {
   syndicate_name: string;
+  /**
+   * Where long-term memory is stored (ADR 0020): the syndicate name plus a
+   * generated id, written once and never recomputed, so a rename does not
+   * move memory. Syndicates that declare the same value share memory.
+   */
+  memory_namespace?: string;
   orchestrator: AgentYamlConfig;
   subagents: SubagentYamlConfig[];
   /**
@@ -173,6 +190,14 @@ export interface LoadSyndicateOptions {
    * so a non-default root is best set process-wide via the env var.
    */
   agentsDir?: string;
+  /**
+   * Look a name up in `examples/` and `templates/` when it is not at the
+   * agents root. Default true (the CLI, scripts and nested references rely
+   * on it). The A2A server passes false for ids it was not told to serve:
+   * a deployment whose own file is missing must fail, not silently answer
+   * with the public example of the same name (ADR 0018).
+   */
+  shippedFallback?: boolean;
 }
 
 // ── Variable Injection (private) ──────────────────────────
@@ -230,6 +255,55 @@ function findUnresolvedTokens(obj: unknown): string[] {
   }
   walk(obj);
   return [...tokens];
+}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Interpolate, then validate. Shared by the file and registry paths so a
+ * syndicate means the same thing wherever it is stored.
+ *
+ * Validation runs on the INTERPOLATED value (before `variables` is stripped
+ * and before caller overrides): a full-token `max_steps: "{{n}}"` is checked
+ * as the number it resolved to, and a `{{token}}` inside a string is still a
+ * string. A non-object document skips interpolation and fails validation
+ * with a pointed message instead of a TypeError on `raw.variables`.
+ */
+function resolveAndValidate(
+  raw: unknown,
+  label: string,
+  options: LoadSyndicateOptions,
+): SyndicateYamlConfig {
+  const { bindings = {}, overrides } = options;
+  const yamlVars = isPlainObject(raw) && isPlainObject(raw.variables)
+    ? (raw.variables as VariableMap)
+    : {};
+
+  const merged: VariableMap = {
+    ...defaultBindings(),
+    ...yamlVars,
+    ...bindings,
+  };
+
+  const interpolated = isPlainObject(raw) ? interpolateDeep(raw, merged) : raw;
+
+  const unresolved = findUnresolvedTokens(interpolated);
+  if (unresolved.length > 0) {
+    console.warn(
+      `⚠ Unresolved template variables: ${unresolved.map((t) => `{{${t}}}`).join(', ')}`,
+    );
+  }
+
+  const valid = validateSyndicateConfig(interpolated, label);
+  const { variables: _stripped, ...clean } = valid;
+  let config = clean as SyndicateYamlConfig;
+
+  if (overrides) {
+    config = applyOverrides(config, overrides);
+  }
+
+  return config;
 }
 
 function applyOverrides(
@@ -392,7 +466,7 @@ export function loadSyndicate(
   // examples/ (the starter pack), then templates/ (the production
   // templates), still inside the jail, so moving a YAML between them never
   // breaks a bare-id A2A route, an npm script, or a nested yaml_reference.
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(filePath) && options.shippedFallback !== false) {
     for (const dir of SHIPPED_DIRS) {
       const candidate = path.resolve(agentsDir, dir, filename);
       if (candidate.startsWith(agentsDir + path.sep) && fs.existsSync(candidate)) {
@@ -402,63 +476,30 @@ export function loadSyndicate(
     }
   }
   const fileContent = fs.readFileSync(filePath, 'utf-8');
-  const raw = parse(fileContent) as SyndicateYamlConfig;
-
-  const merged: VariableMap = {
-    ...defaultBindings(),
-    ...(raw.variables ?? {}),
-    ...bindings,
-  };
-
-  const hasVars = Object.keys(merged).length > 0;
-  const interpolated = hasVars ? interpolateDeep(raw, merged) : raw;
-
-  if (hasVars) {
-    const unresolved = findUnresolvedTokens(interpolated);
-    if (unresolved.length > 0) {
-      console.warn(
-        `⚠ Unresolved template variables: ${unresolved.map(t => `{{${t}}}`).join(', ')}`,
-      );
-    }
-  }
-
-  const { variables: _stripped, ...clean } = interpolated;
-  let config = clean as SyndicateYamlConfig;
-
-  if (overrides) {
-    config = applyOverrides(config, overrides);
-  }
-
-  return config;
+  // Errors name the file as the author knows it (relative to the cwd when it
+  // is under it), so a multi-file nested load says WHICH file is wrong.
+  const rel = path.relative(process.cwd(), filePath);
+  const label = rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : filePath;
+  return resolveAndValidate(parse(fileContent), label, { bindings, overrides });
 }
 
 // ── Registry Validation (Step 7) ──────────────────────────
 
-const VALID_SYSTEM_TOOLS = [
-  'google_search',
-  'generate_image',
-  'load_memory',
-  'preload_memory',
-  'get_company_fundamentals',
-  'get_macro_metrics',
-  'get_technical_indicators'
-];
-
 /**
- * Validates registry configurations against strict ADK and project constraints.
+ * Per-agent minimum check, predating lib/syndicateSchema.ts. Kept because the
+ * public package exports it; the loaders now run the full
+ * `validateSyndicateConfig`, which subsumes this (and names the key path).
  */
 export function validateRegistryConfig(config: Record<string, any>): void {
-  // 1. Enforce native property mapping rules
+  // Model parameters belong in generateContentConfig; a legacy `options`
+  // block would otherwise be ignored without a word.
   if ('options' in config) {
     throw new Error(`[Validation Error] Legacy 'options' object found. Model parameters must reside in 'generateContentConfig'.`);
   }
 
-  // 2. Validate declared tool references (Relaxed for MCP compatibility)
-  // We no longer strictly validate against VALID_SYSTEM_TOOLS because tools may be
-  // dynamically provided by an external MCP server.
-
-  // 3. Ensure core ADK properties exist
-  if (!config.name || (!config.yaml_reference && (!config.model || !config.instruction))) {
+  // A nested (yaml_reference) or remote (a2a_agent_url) agent brings its own
+  // model and instruction.
+  if (!config.name || (!config.yaml_reference && !config.a2a_agent_url && (!config.model || !config.instruction))) {
     throw new Error(`[Validation Error] Configuration fails validation against ADK LlmAgentConfig specifications.`);
   }
 }
@@ -490,43 +531,9 @@ export async function loadSyndicateFromRegistry(
     throw new Error(`Registry document ${registryId} not found`);
   }
 
-  const raw = data.yaml_content as SyndicateYamlConfig;
-  
-  // Validate orchestrator
-  validateRegistryConfig(raw.orchestrator);
-  // Validate subagents
-  for (const sub of raw.subagents || []) {
-    validateRegistryConfig(sub);
-  }
-
-  const { bindings = {}, overrides } = options;
-
-  const merged: VariableMap = {
-    ...defaultBindings(),
-    ...(raw.variables ?? {}),
-    ...bindings,
-  };
-
-  const hasVars = Object.keys(merged).length > 0;
-  const interpolated = hasVars ? interpolateDeep(raw, merged) : raw;
-
-  if (hasVars) {
-    const unresolved = findUnresolvedTokens(interpolated);
-    if (unresolved.length > 0) {
-      console.warn(
-        `⚠ Unresolved template variables: ${unresolved.map((t: string) => `{{${t}}}`).join(', ')}`,
-      );
-    }
-  }
-
-  const { variables: _stripped, ...clean } = interpolated;
-  let config = clean as SyndicateYamlConfig;
-
-  if (overrides) {
-    config = applyOverrides(config, overrides);
-  }
-
-  return config;
+  // The registry row is the live copy of a file (scripts/deploy_agent.ts), so
+  // it answers to the same schema; the label says where the bad copy lives.
+  return resolveAndValidate(data.yaml_content, `registry:${registryId}`, options);
 }
 
 

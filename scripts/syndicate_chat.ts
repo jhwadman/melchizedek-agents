@@ -4,25 +4,18 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadSyndicate, parseCliBindings } from '../lib/loadSyndicate.ts';
 import type { SyndicateYamlConfig } from '../lib/loadSyndicate.ts';
-import { traceAgentRun } from '../lib/observability/tracer.ts';
+import { isDispatchSyndicate } from '../lib/dispatch.ts';
+import { ingestTurnMemory, runSyndicateTurn } from '../lib/runtime/syndicateTurn.ts';
 
-// ADK Imports
 import {
-	LlmAgent,
-	Runner,
 	InMemorySessionService,
 	getFunctionCalls,
 	getFunctionResponses,
-	AgentTool,
 	setLogLevel,
 	LogLevel,
-	StreamingMode
 } from '@google/adk';
+import type { BaseMemoryService, BaseSessionService, Event } from '@google/adk';
 import { randomUUID } from 'node:crypto';
-
-// Tool resolution (shared registry) + MCP factory
-import { resolveTools as resolveNamedTools } from '../lib/toolRegistry.ts';
-import { createMcpTools } from '../lib/tools/mcpToolFactory.ts';
 import { loadEnv } from '../lib/loadEnv.ts';
 
 // ── LLM Provider Registration ─────────────────────────────────────────────────
@@ -40,9 +33,7 @@ import {
 import type { ProviderId } from '../lib/models/registry.ts';
 
 // ── Persistence Factory ───────────────────────────────────────────────────────
-// WHY: All Firebase-specific initialization is encapsulated in firebaseProvider.
-// To swap the session/memory backend (e.g. Postgres, SQLite), replace this
-// import with a sibling provider module that exports the same interface.
+// Supabase-specific initialization lives in supabaseProvider.ts.
 import {
 	hasSupabaseCredentials,
 	createSupabaseServices,
@@ -63,12 +54,11 @@ const c = {
 };
 
 // ── Persistence Mode Detection ────────────────────────────────────────────
-// WHY: We detect which cloud credentials are present in the environment and
-// selectively enable Firebase session persistence and/or Firestore memory.
-// This lets the same CLI script work in three modes:
-//   1. Full cloud — Firebase sessions + Firestore Vector memory (production)
-//   2. Session only — Firebase sessions, no long-term memory
-//   3. Local only — InMemorySessionService (development, no credentials)
+// Which services the syndicate's memory_system asks for, given the
+// credentials present:
+//   1. long-term     — Supabase sessions + pgvector memory
+//   2. session-only  — Supabase sessions, no long-term memory
+//   3. internal-only — process memory (also the fallback without credentials)
 // The user sees which mode is active in the startup banner.
 
 interface PersistenceConfig {
@@ -115,7 +105,7 @@ function banner(
 ): void {
 	console.log('');
 	console.log(`${c.cyan}${c.bold}  ╔══════════════════════════════════════╗${c.reset}`);
-	console.log(`${c.cyan}${c.bold}  ║   Melchizedek Syndicate (ADK v1.0)   ║${c.reset}`);
+	console.log(`${c.cyan}${c.bold}  ║        Melchizedek Syndicate         ║${c.reset}`);
 	console.log(`${c.cyan}${c.bold}  ╚══════════════════════════════════════╝${c.reset}`);
 	console.log(`${c.dim}  Syndicate    : ${c.yellow}${config.syndicate_name}${c.reset}`);
 	console.log(`${c.dim}  Orchestrator : ${c.yellow}${config.orchestrator.name} (${config.orchestrator.model})${c.reset}`);
@@ -246,157 +236,34 @@ async function main(): Promise<void> {
 	// ── Detect persistence mode ──────────────────────────────────────────────
 	const persistence = detectPersistenceConfig(config.memory_system);
 
-	// ── Tool resolver ─────────────────────────────────────────────────────────
-	// WHY: Tool names in YAML are strings. This function maps them to live ADK
-	// tool instances. Add new FunctionTools here as the syndicate library grows.
-	const resolveTools = (toolNames: string[] = []): any[] =>
-		resolveNamedTools(toolNames, (name) =>
-			console.warn(`${c.yellow}⚠ Unknown tool: '${name}' — skipping.${c.reset}`),
-		);
-
-	// 1. Build ADK Subagents
-	const orchestratorTools: any[] = [];
-	for (const subConfig of config.subagents) {
-		const tools = resolveTools(subConfig.tools);
-		
-		if (subConfig.mcp_server_url) {
-			const mcpTools = await createMcpTools(subConfig.mcp_server_url);
-			for (const mcpTool of mcpTools) {
-				if (!tools.some(t => t.name === mcpTool.name)) {
-					tools.push(mcpTool);
-				}
-			}
-		}
-
-		const agent = new LlmAgent({
-			name: subConfig.name,
-			model: subConfig.model,
-			instruction: subConfig.instruction,
-			description: subConfig.description,
-			tools: tools.length > 0 ? tools : undefined,
-			inputSchema: {
-				type: "OBJECT",
-				properties: {
-					query: {
-						type: "STRING",
-						description: `The search query or instruction for ${subConfig.name}`
-					}
-				},
-				required: ["query"]
-			} as any,
-			outputSchema: subConfig.outputSchema as any,
-			generateContentConfig: {
-				...(subConfig.generateContentConfig as any),
-				toolConfig: {
-					...(subConfig.generateContentConfig as any)?.toolConfig,
-					includeServerSideToolInvocations: true
-				}
-			} as any
-		});
-
-		orchestratorTools.push(new AgentTool({ agent }));
-	}
-
-	// 2. Build ADK Orchestrator and provide subagents + its own direct tools
-	// WHY: The orchestrator may declare its own tools in YAML (e.g. generate_image,
-	// load_memory, preload_memory) in addition to — or instead of — subagent AgentTools.
-	const orchestratorDirectTools = resolveTools(config.orchestrator.tools);
-	const allOrchestratorTools = [...orchestratorTools, ...orchestratorDirectTools];
-
-	const orchestrator = new LlmAgent({
-		name: config.orchestrator.name,
-		model: config.orchestrator.model,
-		instruction: config.orchestrator.instruction,
-		description: 'The master orchestrator.',
-		tools: allOrchestratorTools.length > 0 ? allOrchestratorTools : undefined,
-		outputSchema: config.orchestrator.outputSchema as any,
-		generateContentConfig: {
-			...(config.orchestrator.generateContentConfig as any),
-			toolConfig: {
-				...(config.orchestrator.generateContentConfig as any)?.toolConfig,
-				includeServerSideToolInvocations: true
-			}
-		} as any
-	});
-
-	// 3. Build the runner.
-	//
-	// WHY: We now construct a full `Runner` (not InMemoryRunner) when cloud
-	// credentials are available. Runner accepts explicit sessionService and
-	// memoryService instances, enabling persistent state across process restarts
-	// (Firebase) and semantic long-term memory (Vertex). When no cloud credentials
-	// are detected, we fall back to InMemoryRunner for local development.
-	const appName = config.syndicate_name || 'melchizedek-syndicate';
-
-	let runner: Runner;
-
-	// ── Runner Construction ───────────────────────────────────────────────────
-	// WHY: The persistence provider is resolved here, not inline. Supabase init,
-	// service construction, and credential handling all live in supabaseProvider.ts.
-	// To swap backends, update the import at the top of this file — nothing here
-	// needs to change.
+	// ── Persistence ───────────────────────────────────────────────────────────
+	// The same services the server would use for this syndicate's
+	// memory_system: Supabase sessions (and the memory service for
+	// long-term) when configured, process memory otherwise.
+	let sessionService: BaseSessionService = new InMemorySessionService();
+	let memoryService: BaseMemoryService | undefined;
 	if (persistence.sessionService === 'supabase') {
-		// ── Supabase Mode ─────────────────────────────────────────
-		// WHY: Full cloud persistence. Session state survives process restarts
-		// (Supabase) and long-term memory accumulates across sessions (Supabase
-		// pgvector). All Supabase-specific init is delegated to the factory.
-		const { sessionService, memoryService } = await createSupabaseServices({
-			// Empty only when an all-local syndicate runs keyless — in that case
-			// detectPersistenceConfig has already forced withMemory to false.
+		const services = await createSupabaseServices({
+			// Empty only when an all-local syndicate runs keyless — then
+			// detectPersistenceConfig has already left the memory service off.
 			apiKey: apiKey ?? '',
 			withMemory: persistence.memoryService === 'supabase-vector',
 		});
-
-		runner = new Runner({
-			agent: orchestrator,
-			appName,
-			sessionService,
-			memoryService,
-		});
-	} else {
-		// ── In-Memory Mode ────────────────────────────────────────────────────
-		// WHY: No Supabase credentials found. Use InMemorySessionService for
-		// session state (volatile, process-scoped). Memory service is omitted
-		// since it requires Supabase to function.
-		const sessionService = new InMemorySessionService();
-
-		runner = new Runner({
-			agent: orchestrator,
-			appName,
-			sessionService,
-			memoryService: undefined,
-		});
+		sessionService = services.sessionService;
+		memoryService = services.memoryService;
 	}
 
-	// WHY: We create the session explicitly so we control the ID and can
-	// display it in the banner. The session record lives in whichever
-	// sessionService was wired into the runner.
-	await runner.sessionService.createSession({
-		appName,
-		userId: SESSION_USER_ID,
-		sessionId: SESSION_ID,
-		state: {}
-	});
-
-	// Now that the session is live, render the startup banner with the session ID.
+	const appName = config.syndicate_name || 'melchizedek-syndicate';
+	await sessionService.createSession({ appName, userId: SESSION_USER_ID, sessionId: SESSION_ID, state: {} });
 	banner(config, persistence, mergedBindings, SESSION_ID);
 
-	// Suppress verbose ADK info and benign warnings
-	const originalInfo = console.info;
-	console.info = (...args) => {
-		if (typeof args[0] === 'string' && args[0].includes('[ADK]')) return;
-		originalInfo(...args);
-	};
-	const originalWarn = console.warn;
-	console.warn = (...args) => {
-		if (typeof args[0] === 'string' && args[0].includes('[ADK]') && args[0].includes('Event from an unknown agent')) return;
-		originalWarn(...args);
-	};
-	const originalLog = console.log;
-	console.log = (...args) => {
-		if (typeof args[0] === 'string' && args[0].includes('[ADK]')) return;
-		originalLog(...args);
-	};
+	// Plan-dispatch, nested yaml_reference syndicates, guards and the
+	// max_steps cap run here exactly as the A2A server runs them: both call
+	// lib/runtime/syndicateTurn.ts. (This file used to build its own graph
+	// and silently ran dispatch syndicates in DELEGATE mode.)
+	if (isDispatchSyndicate(config)) {
+		console.log(`${c.dim}  Mode         : plan-dispatch (classifier → one route answers)${c.reset}\n`);
+	}
 
 	// Strip --bind/--bindings/--syndicate pairs AND bare '--' separators from
 	// argv to get the actual user query. The bare '--' leaks in when npm passes
@@ -413,119 +280,78 @@ async function main(): Promise<void> {
 	}
 	const cliInput = queryParts.join(' ');
 
+	// Ctrl+C during a turn cancels the turn; Ctrl+C at the prompt exits.
+	let activeTurn: AbortController | undefined;
+
 	async function runChat(trimmed: string) {
+		const printer = makePrinter();
+		activeTurn = new AbortController();
 		try {
-			// WHY: runAsync (not runEphemeral) is used here so that the runner
-			// reads the existing session from InMemorySessionService, appends the
-			// new user message, runs the agent, and writes the assistant reply back
-			// — preserving full multi-turn history within this process lifetime.
-			let stream = runner.runAsync({
+			const result = await runSyndicateTurn({
+				config,
+				parts: [{ text: trimmed }],
+				appName,
 				userId: SESSION_USER_ID,
 				sessionId: SESSION_ID,
-				newMessage: { role: 'user', parts: [{ text: trimmed }] },
+				sessionService,
+				memoryService,
+				compile: {
+					onUnknownTool: (name) => console.warn(`${c.yellow}⚠ Unknown tool: '${name}' — skipping.${c.reset}`),
+					log: (message) => console.log(`${c.dim}  ${message}${c.reset}`),
+				},
 				// SSE makes the adapters emit display-only partials as tokens
-				// land, so thinking and the reply appear as they are produced
-				// rather than in one block when the call returns.
-				runConfig: {
-					streamingMode: STREAM_REPLIES ? StreamingMode.SSE : StreamingMode.NONE
-				}
+				// land, so thinking and the reply appear as they are produced.
+				streaming: STREAM_REPLIES,
+				signal: activeTurn.signal,
+				trace: { bindings: mergedBindings },
+				events: {
+					onEvent: printer.onEvent,
+					onProgress: (text) => {
+						if (text.startsWith('Routed to') || text.startsWith('Guard ')) console.log(`\n${c.dim}[${text}]${c.reset}`);
+					},
+				},
 			});
-
-			stream = traceAgentRun(stream, {
-				syndicateName: config.syndicate_name || 'melchizedek-syndicate',
-				bindings: mergedBindings,
-				input: trimmed
-			});
-
-			let currentMode: 'thinking' | 'text' | 'none' = 'none';
-			// Under SSE the reply arrives as partials and is then REPEATED whole
-			// on the final event — the one ADK persists to session history. Show
-			// the partials, skip the repeat. With streaming off nothing is
-			// partial, so this stays false and every event prints as before.
-			let streamedText = false;
-
-			for await (const event of stream) {
-				const isPartial = (event as any).partial === true;
-				const calls = getFunctionCalls(event);
-				if (calls && calls.length > 0) {
-					for (const call of calls) {
-						if (call.name === 'transfer_to_agent') {
-							console.log(`\n${c.dim}[${event.author} is delegating to subagent: ${JSON.stringify(call.args)}]${c.reset}`);
-						} else {
-							console.log(`\n${c.dim}[${event.author} is calling tool: ${call.name}]${c.reset}`);
-						}
-					}
-				}
-
-				const responses = getFunctionResponses(event);
-				if (responses && responses.length > 0) {
-					for (const response of responses) {
-						console.log(`\n${c.dim}[Received response from: ${response.name}]${c.reset}`);
-					}
-				}
-
-				// WHY: LlmResponse can carry errorCode/errorMessage (e.g. billing errors,
-				// rate limits, invalid model) without raising a JS exception. Without this
-				// check those errors are silently dropped, producing a blank response.
-				// NOTE: 'STOP' is a normal finishReason mapped to errorCode by ADK when content is empty.
-				const evAny = event as any;
-				if ((evAny.errorCode || evAny.errorMessage) && evAny.errorCode !== 'STOP') {
-					console.error(`\n${c.yellow}⚠ [${evAny.errorCode ?? 'ERROR'}] ${evAny.errorMessage ?? ''}${c.reset}`);
-				}
-
-				if (event.content && event.content.parts) {
-					for (const part of event.content.parts) {
-						if ((part as any).thought) {
-							if (currentMode !== 'thinking') {
-								console.log(`\n${c.cyan}✦ ${event.author} is thinking...${c.reset}`);
-								currentMode = 'thinking';
-							}
-							process.stdout.write(c.dim + part.text + c.reset);
-						} else if (part.text) {
-							if (!isPartial && streamedText) continue;
-							if (currentMode === 'thinking') {
-								console.log(`\n\n${c.magenta}${c.bold}${event.author}${c.reset} › `);
-								currentMode = 'text';
-							} else if (currentMode === 'none') {
-								process.stdout.write(`\n${c.magenta}${c.bold}${event.author}${c.reset} › `);
-								currentMode = 'text';
-							}
-							process.stdout.write(part.text);
-							if (isPartial) streamedText = true;
-						} else if ((part as any).inlineData) {
-							// WHY: Image generation models return binary data as base64-encoded
-							// inlineData parts. We detect these, decode them, and save to disk
-							// so the user gets a real file rather than raw base64 in the terminal.
-							const { mimeType, data } = (part as any).inlineData;
-							const ext = mimeType?.split('/')[1] ?? 'png';
-							const outputDir = join(process.cwd(), 'outputs');
-							mkdirSync(outputDir, { recursive: true });
-							const filename = `image_${Date.now()}.${ext}`;
-							const filepath = join(outputDir, filename);
-							writeFileSync(filepath, Buffer.from(data, 'base64'));
-							process.stdout.write(`\n${c.green}✓ Image saved → outputs/${filename}${c.reset}\n`);
-						}
-					}
-				}
-
-				// A complete event ends the turn; the next one starts fresh.
-				if (!isPartial) streamedText = false;
+			printer.finish();
+			if (result.relayFallback) {
+				// The orchestrator's relay came back empty; show what shipped.
+				console.log(`\n${c.dim}[relay fallback — the specialist's answer]${c.reset}\n${result.text}`);
+			}
+			if (result.status !== 'completed') {
+				console.error(`\n${c.yellow}⚠ [${result.error?.code ?? 'ERROR'}] ${result.error?.message ?? ''}${c.reset}`);
 			}
 			console.log('\n');
-
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			console.error(`\n${c.yellow}⚠ Error: ${msg}${c.reset}\n`);
+		} finally {
+			activeTurn = undefined;
 		}
 	}
+
+	const ingest = async () => {
+		if (!memoryService) return;
+		try {
+			const ingested = await ingestTurnMemory({
+				memoryService,
+				sessionService,
+				appName,
+				userId: SESSION_USER_ID,
+				sessionId: SESSION_ID,
+				extractionRules: config.memory_extraction_rules,
+			});
+			console.log(ingested
+				? `${c.green}  ✓ Session ingested into long-term memory.${c.reset}`
+				: `${c.dim}  No session data to ingest.${c.reset}`);
+		} catch (err: unknown) {
+			console.error(`${c.yellow}  ⚠ Memory ingestion failed: ${err instanceof Error ? err.message : String(err)}${c.reset}`);
+		}
+	};
 
 	if (cliInput) {
 		console.log(`${c.green}${c.bold}You${c.reset} › ${cliInput}`);
 		await runChat(cliInput);
-		// WHY: After a single-shot CLI invocation, ingest the session into
-		// long-term memory before exiting. This ensures even one-off queries
-		// contribute to the agent's knowledge base.
-		await ingestSessionMemory(runner, appName, SESSION_USER_ID, SESSION_ID);
+		// A one-shot query still contributes to long-term memory.
+		await ingest();
 		return;
 	}
 
@@ -536,12 +362,9 @@ async function main(): Promise<void> {
 			if (!trimmed) { ask(); return; }
 
 			if (['exit', 'quit', 'bye'].includes(trimmed.toLowerCase())) {
-				// WHY: On session end, ingest the full conversation into long-term
-				// memory. This is the critical moment where ephemeral session data
-				// becomes persistent knowledge — the Runner's memoryService
-				// extracts facts, embeds them, and stores them for future retrieval.
+				// Session end is where the conversation becomes long-term memory.
 				console.log(`\n${c.dim}  Ingesting session into long-term memory...${c.reset}`);
-				await ingestSessionMemory(runner, appName, SESSION_USER_ID, SESSION_ID);
+				await ingest();
 				console.log(`${c.cyan}  Goodbye! 👋${c.reset}\n`);
 				rl.close();
 				return;
@@ -552,12 +375,14 @@ async function main(): Promise<void> {
 		});
 	};
 
-	// WHY: If the user forcefully exits the CLI (Ctrl+C), we must intercept the 
-	// termination signal to ensure the current session is gracefully ingested 
-	// into long-term memory before the process dies.
 	process.on('SIGINT', async () => {
+		if (activeTurn) {
+			console.log(`\n${c.dim}  Canceling the turn...${c.reset}`);
+			activeTurn.abort();
+			return;
+		}
 		console.log(`\n${c.dim}  Intercepted exit signal. Ingesting session into long-term memory...${c.reset}`);
-		await ingestSessionMemory(runner, appName, SESSION_USER_ID, SESSION_ID);
+		await ingest();
 		console.log(`${c.cyan}  Goodbye! 👋${c.reset}\n`);
 		process.exit(0);
 	});
@@ -566,40 +391,66 @@ async function main(): Promise<void> {
 }
 
 /**
- * Ingests the current session into the Runner's memory service.
+ * Prints a turn's events as they arrive: tool calls, thinking (dimmed), the
+ * reply streamed token by token, and inline images saved to outputs/.
  *
- * WHY: The ADK Runner does not automatically call addSessionToMemory() —
- * that responsibility falls to the application layer. We fetch the full
- * session (with all accumulated events) from the session service and pass
- * it to the memory service's extraction pipeline. This is where session
- * transcripts get compressed into semantic facts and stored for future recall.
+ * Under SSE the reply arrives as partials and is then REPEATED whole on the
+ * final event (the one ADK persists to session history): show the partials,
+ * skip the repeat.
  */
-async function ingestSessionMemory(
-	runner: Runner,
-	appName: string,
-	userId: string,
-	sessionId: string
-): Promise<void> {
-	if (!runner.memoryService) return;
-
-	try {
-		const session = await runner.sessionService.getSession({
-			appName,
-			userId,
-			sessionId,
-		});
-
-		if (!session || session.events.length === 0) {
-			console.log(`${c.dim}  No session data to ingest.${c.reset}`);
-			return;
-		}
-
-		await runner.memoryService.addSessionToMemory(session);
-		console.log(`${c.green}  ✓ Session ingested into long-term memory.${c.reset}`);
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		console.error(`${c.yellow}  ⚠ Memory ingestion failed: ${msg}${c.reset}`);
-	}
+function makePrinter() {
+	let currentMode: 'thinking' | 'text' | 'none' = 'none';
+	let streamedText = false;
+	return {
+		onEvent(event: Event) {
+			const e = event as any;
+			const isPartial = e.partial === true;
+			for (const call of getFunctionCalls(event) ?? []) {
+				if (call.name === 'transfer_to_agent') {
+					console.log(`\n${c.dim}[${e.author} is delegating to subagent: ${JSON.stringify(call.args)}]${c.reset}`);
+				} else {
+					console.log(`\n${c.dim}[${e.author} is calling tool: ${call.name}]${c.reset}`);
+				}
+				currentMode = 'none';
+			}
+			for (const response of getFunctionResponses(event) ?? []) {
+				console.log(`\n${c.dim}[Received response from: ${response.name}]${c.reset}`);
+				currentMode = 'none';
+			}
+			for (const part of event.content?.parts ?? []) {
+				const p = part as any;
+				if (p.thought) {
+					if (currentMode !== 'thinking') {
+						console.log(`\n${c.cyan}✦ ${e.author} is thinking...${c.reset}`);
+						currentMode = 'thinking';
+					}
+					process.stdout.write(c.dim + p.text + c.reset);
+				} else if (p.text) {
+					if (!isPartial && streamedText) continue;
+					if (currentMode !== 'text') {
+						process.stdout.write(`\n${c.magenta}${c.bold}${e.author}${c.reset} › `);
+						currentMode = 'text';
+					}
+					process.stdout.write(p.text);
+					if (isPartial) streamedText = true;
+				} else if (p.inlineData) {
+					// Image models return base64 inlineData; save it as a file.
+					const { mimeType, data } = p.inlineData;
+					const ext = mimeType?.split('/')[1] ?? 'png';
+					const outputDir = join(process.cwd(), 'outputs');
+					mkdirSync(outputDir, { recursive: true });
+					const filename = `image_${Date.now()}.${ext}`;
+					writeFileSync(join(outputDir, filename), Buffer.from(data, 'base64'));
+					process.stdout.write(`\n${c.green}✓ Image saved → outputs/${filename}${c.reset}\n`);
+				}
+			}
+			// A complete event ends that agent's turn; the next starts fresh.
+			if (!isPartial) streamedText = false;
+		},
+		finish() {
+			currentMode = 'none';
+		},
+	};
 }
 
 main().catch((err) => {

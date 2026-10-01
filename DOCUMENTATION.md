@@ -26,7 +26,7 @@ see [`QUICKSTART.md`](./QUICKSTART.md).
 config/agents/            YOUR syndicate definitions (the engine's input)
 config/agents/examples/   the starter pack — shipped example syndicates
 lib/loadSyndicate.ts      YAML → validated config (+ variable binding)
-lib/dispatch.ts           plan-dispatch route resolution (§6, A2A-only)
+lib/dispatch.ts           plan-dispatch route resolution (§6)
 lib/toolRegistry.ts       tool name → live ADK tool instance
 lib/models/claudeLlm.ts   Claude adapter registered into the ADK registry
 lib/models/ollamaLlm.ts   open-weight local adapter (Ollama, keyless)
@@ -35,8 +35,12 @@ scripts/demo_mcp_server.ts   demo MCP server (library catalog, SSE)
 lib/session/…             Supabase-backed session service
 lib/memory/…              pgvector long-term memory service
 lib/observability/…       OpenTelemetry run tracing
-scripts/syndicate_chat.ts CLI REPL / one-shot runner (compiles the graph)
-scripts/a2a_server.ts     HTTP JSON-RPC service mode (same compiler)
+lib/runtime/syndicateTurn.ts  THE turn runner: every surface below calls it
+lib/a2a/app.ts            the A2A server as a library (createA2AApp)
+lib/a2a/remoteAgent.ts    A2A client: remote agents as subagents
+scripts/syndicate_chat.ts CLI REPL / one-shot runner
+scripts/a2a_server.ts     the A2A server bin (melchizedek-serve)
+db/schema.sql             the base schema (sessions, memory, expiry)
 db/hardening.sql          deny-by-default RLS for the Supabase tables
 tests/agents.test.ts      compiles every shipped syndicate; opt-in live check
 ```
@@ -87,18 +91,21 @@ Field reference:
 
 | Field | Where | Meaning |
 |---|---|---|
-| `syndicate_name` | root | Display name; also namespaces memory user keys. |
-| `memory_system` | root | `internal-only` (nothing persists), `session-only` (transcript persists in Supabase), `long-term` (adds fact distillation + vector recall). |
+| `syndicate_name` | root | Display name. On the CLI it also namespaces memory user keys; on the A2A server memory is keyed by the caller's silo across every long-term syndicate that server serves. |
+| `memory_system` | root | `internal-only` (nothing persists — on the server too: its transcripts stay in process memory), `session-only` (transcript persists in Supabase), `long-term` (adds fact distillation + vector recall). |
 | `variables` | root | Key/values bound into `{{placeholders}}` anywhere in instructions. `current_date` is always injected; CLI `--bind key=value` overrides. |
 | `memory_extraction_rules` | root | Domain rules appended to the shared fact-extraction prompt for THIS syndicate only (requires `memory_system: "long-term"`). The extraction prompt is global — anything domain-specific belongs here, never edited into it. Unset, the prompt renders byte-identical to before the slot existed (§4). |
-| `dispatch` | root | Switches the syndicate from DELEGATE to PLAN-DISPATCH routing (§6). `default_route` (required) names the fail-static subagent; `route_key` / `reason_key` name the router's JSON properties (defaults `route` / `reason`). A2A-only. |
-| `guards` | root | Optional list of post-answer guard NAMES (`lib/guards/index.ts`). Each runs in the A2A server after the answering turn and before the reply publishes, receiving the final text plus every tool-result text of that turn, and rewrites in place rather than re-asking the model; its notes land in the `[STATUS]` stream. Guards declared by a syndicate reached through `yaml_reference:` count too — the server resolves the union via `collectGuards()`. Resolved by name, never by module path, so registering one is a deliberate edit to `lib/guards/index.ts`; **the published registry ships one, `science`** (citation checks for `research.yaml`), and an unregistered name is warned about and skipped. A2A-only. |
+| `dispatch` | root | Switches the syndicate from DELEGATE to PLAN-DISPATCH routing (§6). `default_route` (required) names the fail-static subagent; `route_key` / `reason_key` name the router's JSON properties (defaults `route` / `reason`). Honoured by every surface (the CLI, the server, the worker, evals). |
+| `guards` | root | Optional list of post-answer guard NAMES (`lib/guards/index.ts`). Each runs after the answering turn and before the reply publishes, receiving the final text plus every tool-result text of that turn, and rewrites in place rather than re-asking the model; its notes land in the `[STATUS]` stream. Guards declared by a syndicate reached through `yaml_reference:` count too — the server resolves the union via `collectGuards()`. Resolved by name, never by module path, so adding one is a deliberate act in code; **the published registry ships one, `science`** (citation checks for `research.yaml`); `registerGuard()` adds your own from code, and an unregistered name is warned about and skipped. |
 | `name` / `model` / `instruction` | agent | The agent triple. Any Gemini id, `claude-*`, or `ollama/*` for open-weight local models (see §5). |
 | `description` | subagent | **The delegation API.** The orchestrator reads this when deciding to hand off — write it like a function signature ("Use this subagent to…, pass it…"). |
 | `tools` | agent | Names resolved by the tool registry (§3). Long-term memory agents add `preload_memory` / `load_memory`. |
 | `generateContentConfig` | agent | Temperature, output caps, thinking budget/level. |
 | `outputSchema` | agent | Structured-JSON contract. **Constraint:** an agent holding `outputSchema` cannot also hold transfer powers — the ADK deadlocks it. Keep schema-holders as leaf agents (see `critic.yaml`'s header comment for the war story). |
 | `yaml_reference` | subagent | Mount another syndicate file as a nested subagent. |
+| `a2a_agent_url` | subagent | A REMOTE agent over A2A (§6): the orchestrator delegates to it with one `request` argument; in plan-dispatch it can be a route. No `model`/`instruction` — the remote agent has its own. Credentials come from `A2A_AGENT_TOKENS`, never YAML. |
+| `max_steps` | root | Cap on model calls per turn, counted across every agent the turn reaches (orchestrator, subagents, nested syndicates). Exceeding it fails the turn with `STEP_LIMIT`. |
+| `includeContents` / `outputKey` / `globalInstruction` / `disallowTransferToParent` / `disallowTransferToPeers` | agent | Passed through to ADK's LlmAgent. `includeContents: none` makes an agent see only the current message. |
 | `mcp_server_url` | subagent | Discover this subagent's tools from a remote MCP server at load time (§3). SSRF-guarded; `ALLOW_PRIVATE_MCP=true` permits localhost for development. |
 
 Validation happens at load: missing names, legacy option blocks, and
@@ -159,92 +166,18 @@ Two Supabase tables carry the two kinds of remembering:
   history); recall is cosine similarity re-ranked by keys and dates.
   Full pipeline: [`lib/memory/README.md`](./lib/memory/README.md).
 
-Provision both in the Supabase SQL Editor:
+Install both, with their indexes, the recall function and the nightly
+session expiry, from the one canonical file:
 
-```sql
--- 1. Enable pgvector
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- 2. Sessions
-CREATE TABLE adk_sessions (
-  id TEXT PRIMARY KEY,
-  app_name TEXT NOT NULL,
-  user_id TEXT NOT NULL,
-  state JSONB DEFAULT '{}'::jsonb,
-  events JSONB DEFAULT '[]'::jsonb,
-  last_update_time BIGINT,
-  expire_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 3. Memory facts (structured records: date, source, status, index keys
---    live beside the embedding — see lib/memory/README.md)
-CREATE TABLE adk_memory_facts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_key TEXT NOT NULL,
-  fact TEXT NOT NULL,
-  embedding vector(768),
-  tag TEXT,
-  fact_date DATE,
-  source TEXT,
-  status TEXT NOT NULL DEFAULT 'active',
-  keys TEXT[] NOT NULL DEFAULT '{}',
-  superseded_by UUID,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 4. Indexes: similarity, entity keys, dates
-CREATE INDEX ON adk_memory_facts USING ivfflat (embedding vector_cosine_ops)
-WITH (lists = 100);
-CREATE INDEX adk_memory_facts_keys_idx ON adk_memory_facts USING gin (keys);
-CREATE INDEX adk_memory_facts_date_idx ON adk_memory_facts (user_key, fact_date);
-
--- 5. Cosine-similarity RPC (returns the structured columns so the
---    service can re-rank by keys/dates and relabel superseded records).
---    filter_user_key is REQUIRED: a NULL key would return every user's facts.
-CREATE OR REPLACE FUNCTION match_memory_facts (
-  query_embedding vector(768),
-  filter_user_key text,
-  match_count int DEFAULT 10
-) RETURNS TABLE (
-  id UUID,
-  user_key TEXT,
-  fact TEXT,
-  tag TEXT,
-  fact_date DATE,
-  source TEXT,
-  status TEXT,
-  keys TEXT[],
-  created_at TIMESTAMPTZ,
-  similarity float
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  IF filter_user_key IS NULL THEN
-    RAISE EXCEPTION 'filter_user_key is required';
-  END IF;
-  RETURN QUERY
-  SELECT
-    adk_memory_facts.id,
-    adk_memory_facts.user_key,
-    adk_memory_facts.fact,
-    adk_memory_facts.tag,
-    adk_memory_facts.fact_date,
-    adk_memory_facts.source,
-    adk_memory_facts.status,
-    adk_memory_facts.keys,
-    adk_memory_facts.created_at,
-    1 - (adk_memory_facts.embedding <=> query_embedding) AS similarity
-  FROM adk_memory_facts
-  WHERE adk_memory_facts.user_key = filter_user_key
-  ORDER BY adk_memory_facts.embedding <=> query_embedding
-  LIMIT match_count;
-END;
-$$;
+```bash
+npx melchizedek-db print     # paste into the Supabase SQL Editor (clone: npm run db -- print)
+npx melchizedek-db apply     # or apply with psql, DATABASE_URL set
+npx melchizedek-db status    # schema version, hardening, session counts
 ```
+
+That runs the migrations in [`db/migrations/`](./db/migrations/) and then
+[`db/hardening.sql`](./db/hardening.sql). Both are idempotent, so re-running
+them is also the upgrade path from any earlier layout.
 
 Then run [`db/hardening.sql`](./db/hardening.sql) (RLS deny-by-default;
 see §8). Upgrading an existing project to the structured columns:
@@ -411,13 +344,129 @@ itself; delegation is exercised through AgentTool function calls.
 
 ## 6. A2A service mode
 
-`npm run start:a2a` serves a syndicate as a stateless JSON-RPC
-agent-to-agent endpoint (Express): an agent card describing the service,
-`message/send` for turns, bearer-token auth via `A2A_SERVER_SECRET`, and
-rate limiting. With `PUBLIC_URL` set (a real deployment), the server
-refuses to start without the secret and refuses to run against an
-unhardened database unless explicitly overridden. `demo/a2a_demo.mjs` is
-a complete client.
+`npm run start:a2a -- <file>.yaml` (package: `npx melchizedek-serve
+<file>.yaml`) serves a syndicate as an A2A 1.0 agent that also accepts A2A
+0.3 clients (most platforms still speak 0.3; a request without an
+`A2A-Version` header is treated as 0.3, per the spec): an agent card listing
+both versions' endpoints, JSON-RPC and REST transports, and the task
+lifecycle. In your own Express
+app, mount `(await createA2AApp(options)).app` instead — same server, same
+options. `demo/a2a_demo.mjs` is a complete client.
+
+#### Routes
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /healthz` | none | liveness — always 200 while the process runs |
+| `GET /readyz` | none | readiness — 503 while draining for shutdown |
+| `GET /.well-known/agent-card.json` | bearer | the default syndicate's card |
+| `POST /a2a/jsonrpc`, `/a2a/rest` | bearer | the default syndicate |
+| `GET /<agentId>/.well-known/agent-card.json` | bearer | another syndicate's card; its URLs point at `/<agentId>/a2a/...` |
+| `POST /<agentId>/a2a/jsonrpc`, `/<agentId>/a2a/rest` | bearer | another syndicate (`A2A_SERVED_AGENTS` restricts which) |
+| `DELETE /memory` | bearer | erase everything stored for the calling scope: facts, sessions (with subagent rows) and ledger rows, with per-store counts; `?all=1` covers every memory namespace |
+
+"bearer" applies only when `A2A_SERVER_SECRET` is set. In BYOK mode every
+task route also needs `X-API-Key`. The card declares what is required in
+`securitySchemes`.
+
+#### Who pays, and whose data it is
+
+`A2A_KEY_MODE` (option `keyMode`) decides:
+
+- **`server`** (default): the server's own provider keys pay for every
+  model call (or your `credentials` plug point supplies a key per request).
+  Data is stored under `X-User-Id`, or `default` without it.
+- **`byok`**: the caller's `X-API-Key` funds agents on the provider named
+  by `X-Provider`; agents on other providers, tools and memory extraction
+  still run on the server's keys. Data is stored under a hash of that key,
+  plus `X-User-Id` beneath it, so key holders cannot reach one another's
+  data. This was the only behaviour before 0.16: a deployment holding data
+  from then must keep `byok` until that data is re-keyed.
+
+With `createA2AApp({ resolveRequest })` your own identity system (a JWT
+check, a gateway header) returns the scope key instead, and both header
+contracts are ignored.
+
+#### Headers
+
+| Header | Meaning |
+|---|---|
+| `Authorization: Bearer <secret>` | the server secret |
+| `X-User-Id` | the end user this request is for (`[A-Za-z0-9._-]{1,64}`); sessions and memory are stored under it. Authenticate your users before sending it. |
+| `X-API-Key` | BYOK mode only: the caller's model key (see above) |
+| `X-Provider` | BYOK mode only: which provider `X-API-Key` belongs to (default `google`) |
+| `X-Surface`, `X-Surface-Guild`, `-Channel`, `-User` | optional, telemetry only |
+
+#### Sessions
+
+`message.contextId` names the conversation — it goes **inside** `message`.
+Calls with the same value continue one session; a `contextId` beside
+`message` is ignored and every call starts fresh. Sessions are durable with
+Supabase and expire seven days after the last turn (a nightly prune from
+`db/migrations/0001_base.sql` deletes them). A syndicate declaring `memory_system: internal-only` keeps its
+transcripts in process memory even when Supabase is configured.
+
+#### Tasks, streaming, cancel
+
+(Method names below are 0.3's; 1.0 clients use `SendMessage`,
+`GetTask`, `SendStreamingMessage`, `CancelTask` and the 1.0 enum spellings.)
+`message/send` blocks until the turn finishes unless the request sets
+`configuration.blocking: false`; then poll `tasks/get`. `message/stream`
+emits `[STATUS]` progress updates (tool calls, the chosen route, guard
+notes) and the answer as the final status message — progress events, not
+token deltas. `tasks/cancel` stops a running task, including the model call
+in flight, and the task ends `canceled`. Final states: `completed`,
+`failed` (the message names the stage and the provider's reason),
+`canceled`, `rejected` (a file part, an empty message, or the server at
+capacity). Message parts may be `text` or `data` (sent to the model as
+JSON); `file` parts are refused.
+
+#### Limits
+
+| Setting | Default |
+|---|---|
+| `A2A_RATE_LIMIT_MAX` per `A2A_RATE_LIMIT_WINDOW_MS`, per client IP (POSTs) | 60 per 15 min |
+| `A2A_AUTH_FAILURE_MAX` failed logins per IP per 15 min, then blocked | 30 |
+| `A2A_TASK_TIMEOUT_MS` per task | 15 min |
+| `A2A_MAX_CONCURRENT_TASKS` | unlimited |
+| `max_steps` (YAML): model calls per turn, subagents included | none |
+| `A2A_BODY_LIMIT` | 1 MB |
+| `A2A_SHUTDOWN_GRACE_MS`: SIGTERM waits for running tasks | 25 s |
+
+#### What is per-process
+
+Tasks, the per-agent config cache (a config change needs a restart) and the
+rate-limit counters live in the process. Run one replica, or route each
+conversation to one replica, until the task store is durable.
+
+#### Posture at boot
+
+Without `A2A_SERVER_SECRET` the server binds `127.0.0.1` only; binding
+another `HOST` requires the secret or `ALLOW_UNAUTHENTICATED=true`. With
+`PUBLIC_URL` set it refuses to start without the secret, with the
+`.env.example` placeholder as the secret, or against an unhardened
+database (unless `ALLOW_UNHARDENED_DB=true`). Conversation content is not
+printed to stdout unless `OTEL_CONSOLE_SPANS=true`.
+
+#### Calling remote agents
+
+A subagent with `a2a_agent_url: https://other-team.example/billing` is a
+REMOTE agent, speaking A2A 1.0 or 0.3 (the card decides): the orchestrator
+delegates to it as to a local subagent (one `request` argument), and in
+plan-dispatch it can be a route. Its card and
+endpoint pass the SSRF guard (`ALLOW_PRIVATE_A2A=true` for local hosts);
+credentials come from `A2A_AGENT_TOKENS`, a JSON map of host → bearer
+token or host → headers, sent only over https (or to loopback). The same
+local conversation keeps talking to the same remote conversation.
+
+#### Deploying
+
+`Dockerfile` builds the compiled server and runs it as a non-root user with
+a health check; `compose.yaml` adds optional Ollama and Phoenix (traces).
+`npx melchizedek-db print|apply|status` installs and checks the database.
+Set `PUBLIC_URL`, `A2A_SERVER_SECRET` and the provider keys from your
+secret manager; give the orchestrator's stop timeout at least
+`A2A_SHUTDOWN_GRACE_MS`.
 
 ### Plan-dispatch routing (`dispatch:`) — the second orchestration method
 
@@ -584,7 +633,8 @@ by a person; `skills/README.md` records the procedure.
 ## 8. Security notes
 
 - **Secrets** live in `.env` only; `.env.example` documents every
-  variable. Nothing in the repo ships a key.
+  variable and ships no values (placeholders are ignored if copied in).
+  Nothing in the repo ships a key. Report vulnerabilities per SECURITY.md.
 - **Database**: default Supabase leaves `public`-schema tables readable
   by the anon key over REST. `db/hardening.sql` enables deny-by-default
   RLS and revokes anon/authenticated privileges on every table it finds:
@@ -595,8 +645,14 @@ by a person; `skills/README.md` records the procedure.
   server verifies hardening at boot and is fatal on public deployments
   without it. Note `service_role` bypasses RLS by design — the hardening
   constrains the API surface, not the trusted server.
-- **A2A**: bearer auth + rate limiting are built in; set
-  `A2A_SERVER_SECRET` before exposing anything.
+- **A2A**: bearer auth, a failed-login limiter and a request rate limit
+  are built in; without `A2A_SERVER_SECRET` the server binds loopback only.
+  See §6 for the posture checks at boot.
+- **Outbound fetches** (`web_extract`, MCP servers, remote A2A agents) pass
+  one SSRF guard (`lib/net/addressGuard.ts`): local names and non-public
+  addresses in every encoding are refused, and names are resolved and
+  refused when any address is non-public. DNS rebinding between the check
+  and the connection is the remaining, stated limit.
 - **Image tools** write only under `outputs/`, and `inspect_image` reads
   only from there.
 - **MCP** is an outbound trust decision: `mcpToolFactory` blocks

@@ -15,7 +15,36 @@ sources:
 
 # Memory architecture
 
-Long-term memory is `SupabaseVectorMemoryService` — the ADK `BaseMemoryService` contract backed by one Postgres table (`adk_memory_facts`, defined in the [canonical schema](/memory/schema.md)) with pgvector embeddings (`gemini-embedding-001`, 768 dims).
+Long-term memory is `SupabaseVectorMemoryService` — the ADK `BaseMemoryService` contract backed by one Postgres table (`adk_memory_facts`, defined in the [canonical schema](/memory/schema.md)) with pgvector embeddings (768 dims by default).
+
+## What computes it
+
+Extraction and embeddings are configured per deployment ([ADR 0020](/decisions/0020-memory-contract.md)), in `lib/memory/providers.ts`:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MEMORY_EXTRACTION_MODEL` | `gemini-3.8-flash` | Any model id. It runs through the same adapter an agent with that id would, so every provider and the gateway work, and each call is an `llm.request` span in the ledger. |
+| `MEMORY_EMBEDDING_PROVIDER` | `gemini` | `gemini`, `openai`, `ollama`, or `openai-compatible` (any `POST /embeddings` endpoint: Azure, LiteLLM, an internal proxy). |
+| `MEMORY_EMBEDDING_MODEL` | `gemini-embedding-001` / `text-embedding-3-small` / `nomic-embed-text` | Per provider. |
+| `MEMORY_EMBEDDING_DIMENSIONS` | `768` | Must equal the vector column it was created with; a returned vector of another length is refused. |
+| `MEMORY_EMBEDDING_BASE_URL`, `MEMORY_EMBEDDING_API_KEY` | — | For `openai-compatible` (and to override the OpenAI or Ollama endpoint). |
+
+The ledger's semantic search (`npm run telemetry:embed`) uses the same embedder, so both vector columns stay comparable. A deployment that sets nothing behaves as before: Gemini for both, on the server's key.
+
+## Where it is stored
+
+The memory logic runs on a `MemoryStore` (`lib/memory/store.ts`), the five database operations it needs: existing facts, nearest facts, insert, retire, delete. There are two implementations over the same table and the same `match_memory_facts` function:
+
+- **Supabase**, over its REST client.
+- **Direct Postgres** (`lib/storage/postgres`, [ADR 0021](/decisions/0021-postgres-first-storage.md)), on any Postgres with pgvector.
+
+`postgresStorage({ connectionString })` also provides sessions, A2A tasks and erase on the same connection:
+
+- **Sessions** are stored one row per event in `adk_session_events`, so two turns on one conversation both land.
+- **A2A tasks** in `adk_a2a_tasks` are scoped to their owner and shared by every instance.
+- **`erase(scopeKey)`** removes a scope's facts, conversations (sub-agent rows included), ledger rows and tasks in one transaction (`melchizedek_erase_scope`).
+
+The suite `tests/postgresStorage.test.ts` runs all of it against a real Postgres when `TEST_DATABASE_URL` is set.
 
 ## Write path
 

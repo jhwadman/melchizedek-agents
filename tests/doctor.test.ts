@@ -188,3 +188,91 @@ test('renderDoctor never prints a key value', () => {
     assert.match(text, /Read-only/);
   });
 });
+
+test('capability gaps: each agent row names what its path cannot fully do (ADR 0019)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-gaps-'));
+  try {
+    fs.writeFileSync(
+      path.join(dir, 'thinker.yaml'),
+      [
+        'syndicate_name: Thinker',
+        'orchestrator:',
+        '  name: Lead',
+        '  model: claude-sonnet-4-6',
+        '  instruction: x',
+        '  generateContentConfig:',
+        '    thinkingConfig:',
+        '      thinkingBudget: 2048',
+        'subagents:',
+        '  - name: Looker',
+        '    description: looks at pictures',
+        '    model: ollama/qwen3:8b',
+        '    instruction: x',
+        '    outputSchema:',
+        '      type: OBJECT',
+        '      properties:',
+        '        verdict: { type: STRING }',
+        '  - name: Elsewhere',
+        '    description: a remote agent',
+        '    a2a_agent_url: https://agents.example.com/',
+      ].join('\n'),
+    );
+    withEnv({ ANTHROPIC_API_KEY: 'fixture-ant-test-0123456789abcdef' }, () => {
+      const result = runDoctor({ agentsDir: dir });
+      const s = result.syndicates.find((x) => x.file === 'thinker.yaml')!;
+      assert.ok(!s.error, s.error);
+      const byAgent = Object.fromEntries(s.rows.map((r) => [r.agent, r]));
+
+      // Claude delegating while thinking: the tool loop drops signed thinking.
+      assert.deepEqual(
+        byAgent.Lead.gaps.map((g) => `${g.capability}:${g.support}`),
+        ['thinking_with_tools:unsupported'],
+      );
+      // Ollama's JSON mode does not enforce the schema.
+      assert.deepEqual(
+        byAgent.Looker.gaps.map((g) => `${g.capability}:${g.support}`),
+        ['structured_output:degraded'],
+      );
+      // The remote agent has no local model, so no row borrows the orchestrator's.
+      assert.ok(!('Elsewhere' in byAgent));
+      // Gaps inform; they do not block.
+      assert.equal(s.verdict.state, 'ready');
+
+      const text = renderDoctor(result);
+      assert.match(text, /thinking with tool use unsupported on anthropic/);
+      assert.match(text, /structured output \(outputSchema\) degraded on ollama/);
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('plan-dispatch orchestrators do not need delegation', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-dispatch-'));
+  try {
+    fs.writeFileSync(
+      path.join(dir, 'router.yaml'),
+      [
+        'syndicate_name: Router',
+        'dispatch:',
+        '  default_route: Answer',
+        'orchestrator:',
+        '  name: Triage',
+        '  model: ollama/qwen3:8b',
+        '  instruction: x',
+        'subagents:',
+        '  - name: Answer',
+        '    description: answers',
+        '    model: ollama/qwen3:8b',
+        '    instruction: x',
+      ].join('\n'),
+    );
+    withEnv({}, () => {
+      const s = runDoctor({ agentsDir: dir }).syndicates.find((x) => x.file === 'router.yaml')!;
+      assert.ok(!s.error, s.error);
+      assert.deepEqual(s.rows.flatMap((r) => r.gaps), []);
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

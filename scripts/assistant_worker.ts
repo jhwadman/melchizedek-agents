@@ -13,9 +13,11 @@
  *   and writes the result (or the error) back to the store, where
  *   `task_get` reads it in a later conversation.
  *
- *   The agent is compiled with lib/compile.ts, the same compiler the A2A
- *   server and the observatory use, so a job runs the exact agent the
- *   conversation would have called directly. Any syndicate and any
+ *   A job runs through lib/runtime/syndicateTurn.ts, the same runtime the
+ *   A2A server, the REPL and the observatory use, so it runs the exact agent
+ *   the conversation would have called directly — with the same step cap —
+ *   and the job timeout ABORTS the run (the model call in flight included)
+ *   instead of abandoning it while it keeps spending. Any syndicate and any
  *   subagent in it can serve as the worker.
  *
  * Usage:
@@ -30,12 +32,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { InMemorySessionService, LogLevel, Runner, setLogLevel } from '@google/adk';
-import type { LlmAgent } from '@google/adk';
+import { InMemorySessionService, LogLevel, setLogLevel } from '@google/adk';
 
-import { compileGraph, compileSubagent } from '../lib/compile.ts';
 import { loadEnv } from '../lib/loadEnv.ts';
 import { loadSyndicate } from '../lib/loadSyndicate.ts';
+import type { SyndicateYamlConfig } from '../lib/loadSyndicate.ts';
+import { runSyndicateTurn } from '../lib/runtime/syndicateTurn.ts';
 import {
   PROVIDERS,
   providerForModel,
@@ -89,50 +91,50 @@ if (!providerKeyPresent(provider)) {
 }
 
 const log = (message: string) => console.log(`[worker] ${message}`);
-const agent: LlmAgent = sub
-  ? await compileSubagent(sub, { log, onUnknownTool: (n) => log(`unknown tool '${n}' skipped`) })
-  : await compileGraph(config, { log, onUnknownTool: (n) => log(`unknown tool '${n}' skipped`) });
+
+/**
+ * The worker as a syndicate the runtime can run. A subagent becomes the
+ * orchestrator of a one-agent syndicate; a subagent that mounts another
+ * syndicate (`yaml_reference`) runs that syndicate whole.
+ */
+const workerConfig: SyndicateYamlConfig = !sub
+  ? config
+  : sub.yaml_reference
+    ? loadSyndicate(sub.yaml_reference)
+    : ({
+        syndicate_name: config.syndicate_name,
+        max_steps: config.max_steps,
+        orchestrator: sub,
+        subagents: [],
+      } as unknown as SyndicateYamlConfig);
+
+/** The job in hand, so a signal can cancel it. */
+let current: AbortController | undefined;
 
 // ── One job = one fresh single-turn session ─────────────────────────────────
 async function runJob(job: TaskRecord): Promise<string> {
-  const appName = 'assistant-worker';
-  const sessionService = new InMemorySessionService();
-  const runner = new Runner({ agent, appName, sessionService });
-  const session = await sessionService.createSession({
-    appName,
-    userId: 'local-user',
-    sessionId: randomUUID(),
-  });
-
-  let text = '';
-  let failure = '';
-  for await (const event of runner.runAsync({
-    userId: 'local-user',
-    sessionId: session.id,
-    newMessage: { role: 'user', parts: [{ text: job.instruction ?? job.title }] },
-  })) {
-    // An LlmResponse can carry an error without throwing; keep it.
-    const ev = event as any;
-    if ((ev.errorCode || ev.errorMessage) && ev.errorCode !== 'STOP') {
-      failure = `${ev.errorCode ?? 'ERROR'}: ${ev.errorMessage ?? ''}`.trim();
+  current = new AbortController();
+  try {
+    const result = await runSyndicateTurn({
+      config: workerConfig,
+      parts: [{ text: job.instruction ?? job.title }],
+      appName: 'assistant-worker',
+      userId: 'local-user',
+      sessionId: randomUUID(),
+      sessionService: new InMemorySessionService(),
+      compile: { log, onUnknownTool: (n) => log(`unknown tool '${n}' skipped`) },
+      signal: current.signal,
+      deadlineMs: JOB_TIMEOUT_MS,
+      events: { warn: (m) => log(`⚠ ${m}`) },
+    });
+    if (result.status !== 'completed') {
+      throw new Error(`${result.error?.code ?? 'ERROR'}: ${result.error?.message ?? ''}`.trim());
     }
-    // Only the worker's own final text is the result: skip thoughts and
-    // anything a nested agent said on the way.
-    if (ev.author && ev.author !== agent.name) continue;
-    for (const part of event.content?.parts ?? []) {
-      if (part.text && !(part as any).thought) text += part.text;
-    }
+    if (!result.text.trim()) throw new Error('the agent returned no text');
+    return result.text.trim();
+  } finally {
+    current = undefined;
   }
-  if (!text.trim()) throw new Error(failure || 'the agent returned no text');
-  return text.trim();
-}
-
-function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
-  let timer: NodeJS.Timeout;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`timed out after ${ms / 60_000} minutes`)), ms);
-  });
-  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 /** Runs queued jobs until none is left. Returns how many it ran. */
@@ -143,7 +145,7 @@ async function drain(): Promise<number> {
     const started = Date.now();
     log(`${job.id} started: ${job.title}`);
     try {
-      const result = await withTimeout(runJob(job), JOB_TIMEOUT_MS);
+      const result = await runJob(job);
       finishJob(job.id, { result });
       log(`${job.id} done in ${Math.round((Date.now() - started) / 1000)} s`);
     } catch (error: any) {
@@ -172,6 +174,13 @@ process.on('SIGINT', () => {
   if (stopping) process.exit(130);
   stopping = true;
   log('stopping after the current job (Ctrl-C again to quit now)');
+});
+// A container stop: cancel the job in hand (it is recorded as failed and the
+// store stays consistent), then exit.
+process.on('SIGTERM', () => {
+  stopping = true;
+  log('SIGTERM — canceling the current job');
+  current?.abort();
 });
 while (!stopping) {
   await drain();

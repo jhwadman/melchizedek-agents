@@ -2,13 +2,16 @@ import { FunctionTool } from '@google/adk';
 import type { Schema } from '@google/genai';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { checkHost } from '../net/addressGuard.ts';
 
 // Security (SSRF): mcp_server_url can arrive from a registry-stored syndicate
-// config. Restrict the schemes we'll dial and block private/loopback/link-local
-// hosts so a malicious config can't reach internal services or the cloud
-// metadata endpoint. Set ALLOW_PRIVATE_MCP=true to permit private hosts in
-// local development (where MCP servers commonly run on localhost).
-function assertSafeMcpUrl(raw: string): URL {
+// config. Only http(s), and the host must pass lib/net/addressGuard.ts (the
+// same guard web_extract uses): local names and non-public addresses —
+// including names that RESOLVE to one — are refused, so a malicious config
+// cannot reach internal services or the cloud metadata endpoint. Set
+// ALLOW_PRIVATE_MCP=true to permit private hosts in local development (where
+// MCP servers commonly run on localhost).
+export async function assertSafeMcpUrl(raw: string, env: NodeJS.ProcessEnv = process.env): Promise<URL> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -18,23 +21,10 @@ function assertSafeMcpUrl(raw: string): URL {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`Unsupported MCP URL scheme: ${url.protocol}`);
   }
-  if (process.env.ALLOW_PRIVATE_MCP === 'true') return url;
-
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  const isPrivate =
-    host === 'localhost' ||
-    host === '0.0.0.0' ||
-    host === '::1' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.internal') ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^169\.254\./.test(host) ||        // link-local incl. 169.254.169.254 metadata
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-    /^fc/.test(host) || /^fd/.test(host) || /^fe80:/.test(host); // IPv6 ULA/link-local
-  if (isPrivate) {
-    throw new Error(`Refusing to connect to private/loopback MCP host: ${host} (set ALLOW_PRIVATE_MCP=true for local dev)`);
+  if (env.ALLOW_PRIVATE_MCP === 'true') return url;
+  const reason = await checkHost(url.hostname);
+  if (reason) {
+    throw new Error(`Refusing to connect to MCP host ${url.hostname}: ${reason} (set ALLOW_PRIVATE_MCP=true for local dev)`);
   }
   return url;
 }
@@ -63,7 +53,7 @@ export function mcpAuthHeaders(url: URL, env: NodeJS.ProcessEnv = process.env): 
 
 export async function createMcpTools(mcpServerUrl: string): Promise<FunctionTool[]> {
   try {
-    const url = assertSafeMcpUrl(mcpServerUrl);
+    const url = await assertSafeMcpUrl(mcpServerUrl);
     const transport = new SSEClientTransport(url, {
       requestInit: { headers: mcpAuthHeaders(url) }
     });

@@ -11,7 +11,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { setLogLevel, LogLevel } from '@google/adk';
+import { setLogLevel, LogLevel, LlmAgent, AgentTool, LOAD_MEMORY } from '@google/adk';
 import type { LlmRequest, LlmResponse } from '@google/adk';
 
 import { toLowercaseJsonSchema } from '../lib/models/schemaNormalize.ts';
@@ -564,6 +564,54 @@ test('buildResponsesTools lowercases schemas and adds native web_search', () => 
   const tools = buildResponsesTools(request);
   assert.equal(tools.find((t) => t.type === 'function').parameters.properties.a.type, 'number');
   assert.ok(tools.some((t) => t.type === 'web_search')); // OpenAI-native tool
+});
+
+// ── Real ADK tool objects reach every non-Gemini adapter with their schema ───
+// The tests above use plain objects carrying a `parameters` key. Real ADK
+// AgentTool and load_memory keep their schema only in _getDeclaration(), and
+// reading `.parameters` sent `{}` — the root cause of
+// plans/gpt-agenttool-delegation.md. These use the real classes.
+
+function realToolRequest(model: string): LlmRequest {
+  const sub = new LlmAgent({ name: 'XScout', description: 'Sweeps X for a ticker', model: 'gemini-3.1-flash-lite', instruction: 'x' });
+  const request = makeRequest({ model });
+  request.toolsDict['XScout'] = new AgentTool({ agent: sub });
+  request.toolsDict['load_memory'] = LOAD_MEMORY as any;
+  return request;
+}
+
+function assertDelegationSchemas(byName: (n: string) => any) {
+  const delegate = byName('XScout');
+  assert.ok(delegate, 'AgentTool must be declared');
+  assert.equal(delegate.type, 'object');
+  assert.equal(delegate.properties.request.type, 'string');
+  assert.deepEqual(delegate.required, ['request']);
+  const memory = byName('load_memory');
+  assert.ok(memory, 'load_memory must be declared');
+  assert.ok(memory.properties.query, 'load_memory keeps its query argument');
+}
+
+test('GPT adapter declares AgentTool and load_memory arguments', () => {
+  const tools = buildResponsesTools(realToolRequest('gpt-5-mini'));
+  assertDelegationSchemas((n) => tools.find((t) => t.name === n)?.parameters);
+});
+
+test('Claude adapter declares AgentTool and load_memory arguments', () => {
+  const tools = buildAnthropicTools(realToolRequest('claude-sonnet-4-6'));
+  assertDelegationSchemas((n) => tools.find((t) => t.name === n)?.input_schema);
+});
+
+test('chat-completions adapters (Ollama, gateway) declare AgentTool and load_memory arguments', () => {
+  const llm = new OllamaLlm({ model: 'ollama/qwen3:8b' });
+  const tools = (llm as any).buildTools(realToolRequest('ollama/qwen3:8b')) as any[];
+  assertDelegationSchemas((n) => tools.find((t) => t.function.name === n)?.function.parameters);
+});
+
+test('an AgentTool whose subagent has no description is still declared', () => {
+  const sub = new LlmAgent({ name: 'Quiet', model: 'gemini-3.1-flash-lite', instruction: 'x' });
+  const request = makeRequest({ model: 'gpt-5-mini' });
+  request.toolsDict['Quiet'] = new AgentTool({ agent: sub });
+  assert.ok(buildResponsesTools(request).some((t) => t.name === 'Quiet'));
 });
 
 // ── web_search tool routing ──────────────────────────────────────────────────

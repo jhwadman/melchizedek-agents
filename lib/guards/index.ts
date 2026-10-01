@@ -2,8 +2,8 @@
  * lib/guards/index.ts — post-answer guards, resolved by NAME from a syndicate's
  * `guards:` list the way tools are resolved from `tools:`.
  *
- * A guard runs in scripts/a2a_server.ts after the answering turn and before
- * the reply is published. It receives the final text and every tool-result
+ * A guard runs after the answering turn and before the reply ships
+ * (lib/runtime/syndicateTurn.ts — the server, REPL, worker and evals alike). It receives the final text and every tool-result
  * text that turn produced, and returns the text to ship plus notes for the
  * `[STATUS]` stream. It never re-asks a model: at temperature 0 the same
  * prompt returns the same sentence, so a guard that fires annotates in place.
@@ -58,4 +58,20 @@ export function resolveGuards(names: string[] = [], onUnknown?: (name: string) =
       return guard;
     })
     .filter((g): g is Guard => g !== null);
+}
+
+/**
+ * Make a guard resolvable by name from a syndicate's `guards:` list — for
+ * package consumers, the same deliberate act as adding it to GUARD_MAP
+ * above, done in their own code. Replacing a built-in requires
+ * `{ override: true }`.
+ */
+export function registerGuard(guard: Guard, options: { override?: boolean } = {}): void {
+  if (!guard || typeof guard.run !== 'function' || !/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(guard.name ?? '')) {
+    throw new Error('registerGuard: a guard needs a valid name and a run(text, toolResultTexts) function');
+  }
+  if (Object.prototype.hasOwnProperty.call(GUARD_MAP, guard.name) && !options.override) {
+    throw new Error(`registerGuard: '${guard.name}' is already registered (pass { override: true } to replace it)`);
+  }
+  GUARD_MAP[guard.name] = guard;
 }

@@ -8,7 +8,10 @@
  *   npm run telemetry:replay                re-send the dead-letter spool, then clear it
  *   npm run telemetry:embed [-- --limit N]  embed turns that have no embedding yet (semantic search)
  *
- * All three use the service-role client from .env; none touch inference.
+ * All four use the service-role client from .env. stats, prune and replay
+ * touch no model; embed sends each stored turn's input and output to the
+ * deployment's memory embedder (lib/memory/providers.ts; Gemini unless
+ * MEMORY_EMBEDDING_PROVIDER says otherwise).
  */
 
 import { existsSync, readFileSync, renameSync } from 'node:fs';

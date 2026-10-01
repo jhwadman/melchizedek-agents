@@ -91,6 +91,10 @@ const BARE_IMPORT_RE = /(?:^|\n)\s*import\s+['"]([^'"\n]+)['"]/g;
 const DYNAMIC_IMPORT_RE = /\bimport\(\s*['"]([^'"\n]+)['"]\s*\)/g;
 const ENV_DOT_RE = /process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g;
 const ENV_INDEX_RE = /process\.env\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g;
+// An injected environment (`env: NodeJS.ProcessEnv = process.env`, the
+// testable form) is read as `env.NAME`. Upper-case names only, so an
+// ordinary object property never reads as a variable.
+const ENV_PARAM_RE = /(?<![\w.])env\.([A-Z][A-Z0-9_]{2,})\b/g;
 
 /** Resolve a relative specifier against the importing file's repo path. */
 export function resolveLocalImport(fromRelPath: string, specifier: string): string | null {
@@ -114,7 +118,7 @@ export function scanModule(text: string, relPath: string): ModuleScan {
     while ((match = re.exec(text)) !== null) specifiers.add(match[1]);
   }
   const envVars = new Set<string>();
-  for (const re of [ENV_DOT_RE, ENV_INDEX_RE]) {
+  for (const re of [ENV_DOT_RE, ENV_INDEX_RE, ENV_PARAM_RE]) {
     re.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = re.exec(text)) !== null) envVars.add(match[1]);

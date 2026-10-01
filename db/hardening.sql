@@ -50,7 +50,8 @@ REVOKE ALL ON adk_sessions     FROM anon, authenticated;
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['adk_telemetry', 'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels'] LOOP
+  FOREACH t IN ARRAY ARRAY['adk_telemetry', 'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels',
+                            'adk_session_events', 'adk_a2a_tasks'] LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
       EXECUTE format('REVOKE ALL ON %I FROM anon, authenticated', t);
@@ -63,11 +64,16 @@ BEGIN
       EXECUTE format('REVOKE ALL ON %I FROM anon, authenticated', t);
     END IF;
   END LOOP;
-  IF to_regprocedure('public.melchizedek_prune_telemetry(integer)') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION melchizedek_prune_telemetry(integer) FROM anon, authenticated';
-  END IF;
-  IF to_regprocedure('public.match_turns(vector, integer, timestamptz, text, text, boolean)') IS NOT NULL THEN
-    EXECUTE 'REVOKE ALL ON FUNCTION match_turns(vector, integer, timestamptz, text, text, boolean) FROM anon, authenticated';
+  -- Function privileges for these are handled in the FUNCTIONS block below.
+END $$;
+
+-- Schema bookkeeping (db/migrations). Nothing secret, but nothing the public
+-- API needs either.
+DO $$
+BEGIN
+  IF to_regclass('public.melchizedek_schema_version') IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE melchizedek_schema_version ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'REVOKE ALL ON melchizedek_schema_version FROM anon, authenticated';
   END IF;
 END $$;
 
@@ -82,20 +88,36 @@ BEGIN
   END IF;
 END $$;
 
--- The vector-search RPC must not be callable from the public API either
--- (it reads adk_memory_facts on behalf of whoever calls it). The revoke
--- resolves every existing overload by name, so it works on any schema
--- version (the v1 signature, memory_v2's, or both side by side).
+-- ── FUNCTIONS: no API role may execute them ──────────────────────────────
+-- Postgres grants EXECUTE on every new function to PUBLIC, and anon and
+-- authenticated inherit PUBLIC — so revoking from those two roles BY NAME
+-- (what this file did before 2026-10) left the PUBLIC grant in force. Two
+-- of these are SECURITY DEFINER (they bypass RLS): through the anon key,
+-- match_turns would read stored conversations and the prune functions would
+-- delete the ledger and sessions. Revoke from PUBLIC as well, then grant
+-- back to service_role only (the server's role; it is not a superuser and
+-- would otherwise lose access too).
+--
+-- Every overload of every melchizedek function is covered by name, so this
+-- works on any schema version.
 DO $$
-DECLARE fn regprocedure;
+DECLARE
+  fn regprocedure;
+  has_service_role boolean := EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role');
 BEGIN
   FOR fn IN
     SELECT p.oid::regprocedure
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname = 'match_memory_facts'
+    WHERE n.nspname = 'public'
+      AND p.proname IN ('match_memory_facts', 'match_turns', 'melchizedek_prune_telemetry',
+                        'melchizedek_prune_sessions', 'melchizedek_rls_status',
+                        'melchizedek_erase_scope')
   LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM anon, authenticated', fn);
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn);
+    IF has_service_role THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn);
+    END IF;
   END LOOP;
 END $$;
 
@@ -115,10 +137,21 @@ AS $$
   WHERE n.nspname = 'public'
     AND c.relname IN ('adk_memory_facts', 'adk_sessions', 'adk_telemetry',
                       'adk_turns', 'adk_payloads', 'adk_verdicts', 'adk_labels',
-                      'adk_agent_registry');
+                      'adk_agent_registry', 'adk_session_events', 'adk_a2a_tasks');
 $$;
 
-REVOKE ALL ON FUNCTION melchizedek_rls_status() FROM anon, authenticated;
+REVOKE ALL ON FUNCTION melchizedek_rls_status() FROM PUBLIC, anon, authenticated;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT EXECUTE ON FUNCTION melchizedek_rls_status() TO service_role;
+  END IF;
+END $$;
+
+-- Verify (each must return false):
+--   SELECT has_function_privilege('anon', 'match_turns(vector,integer,timestamptz,text,text,boolean)', 'EXECUTE');
+--   SELECT has_function_privilege('anon', 'melchizedek_prune_telemetry(integer)', 'EXECUTE');
+--   SELECT has_function_privilege('anon', 'melchizedek_prune_sessions()', 'EXECUTE');
 
 -- ── Tier 2 (optional, for sensitive deployments): constrain the server ───
 -- Left commented out because it requires an application change: the server

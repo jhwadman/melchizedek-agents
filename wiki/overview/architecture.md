@@ -19,10 +19,10 @@ sources:
 
 A syndicate run is four hand-offs:
 
-1. **`lib/loadSyndicate.ts`** reads a YAML from `config/agents/`, confines the path, interpolates `{{token}}` bindings (a fresh `current_date` is always injected), and returns typed config. It deliberately does not resolve tools.
+1. **`lib/loadSyndicate.ts`** reads a YAML from `config/agents/`, confines the path, interpolates `{{token}}` bindings (a fresh `current_date` is always injected), and validates the result against the zod schema in `lib/syndicateSchema.ts` (unknown keys, types and dispatch targets fail with their key path). It deliberately does not resolve tools.
 2. **`lib/toolRegistry.ts`** maps declared tool-name strings to live instances — unknown names degrade to a warning, not an error. Agents with `mcp_server_url` additionally discover remote tools at runtime ([MCP](/protocols/mcp.md)).
 3. **`lib/models/registry.ts`** routes each agent's `model:` string to a provider adapter ([provider routing](/models/provider-routing.md)); every adapter emits the same `llm.request` telemetry spans.
-4. An ADK `LlmAgent` graph is assembled — subagents wrapped as `AgentTool`s under the orchestrator — and run by an entrypoint: the REPL (`scripts/syndicate_chat.ts`), the [A2A server](/protocols/a2a.md), or a custom script.
+4. **`lib/runtime/syndicateTurn.ts`** runs the turn: `lib/compile.ts` assembles the ADK `LlmAgent` graph (subagents as `AgentTool`s, or remote [A2A](/protocols/a2a.md) agents), plan-dispatch picks a route when the syndicate declares one, guards run on the answer, and `lib/runtime/turnControl.ts` holds the turn-wide step cap, deadline and cancel. Every surface calls it — the REPL (`scripts/syndicate_chat.ts`), the [A2A server](/protocols/a2a.md), the background worker, the eval harness and any embedding application — so a syndicate behaves the same wherever it runs ([ADR 0024](/decisions/0024-adk-behind-the-runtime-seam.md)).
 
 Persistence is opt-in per syndicate (`memory_system:`): sessions in Supabase, plus [long-term memory](/memory/architecture.md) on the [canonical schema](/memory/schema.md).
 

@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # This repository is generated from an upstream source by an export
+    # script; a dependency PR here is a signal for the maintainer to apply the
+    # bump upstream (see the README), not merged as-is.
+    groups:
+      opentelemetry:
+        patterns: ['@opentelemetry/*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

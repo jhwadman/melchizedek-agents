@@ -44,6 +44,16 @@ import { GptLlm } from './gptLlm.ts';
 
 const XAI_BASE_URL = 'https://api.x.ai/v1';
 
+export const DEFAULT_GROK_TIMEOUT_MS = 600_000;
+const MIN_GROK_TIMEOUT_MS = 120_000;
+
+/** The per-attempt timeout: XAI_TIMEOUT_MS, floored at two minutes. */
+export function grokTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number.parseInt(env.XAI_TIMEOUT_MS ?? '', 10);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_GROK_TIMEOUT_MS;
+  return Math.max(MIN_GROK_TIMEOUT_MS, raw);
+}
+
 // ── GrokLlm ───────────────────────────────────────────────────────────────────
 
 export class GrokLlm extends GptLlm {
@@ -66,11 +76,17 @@ export class GrokLlm extends GptLlm {
     return 'XAI_API_KEY is not set in environment.';
   }
 
-  /** xAI's streaming docs advise a long request timeout for reasoning
-   *  models (their examples use 3600s) so slow thinking can't trip the
-   *  SDK's default mid-stream. Applied to all Grok requests. */
+  /** Per-attempt request timeout. xAI's streaming docs use 3600 s for
+   *  reasoning models, but the OpenAI SDK retries a timed-out request twice
+   *  on top, so an hour per attempt let one hung call hold a task for three
+   *  hours. Ten minutes still clears the slowest reasoning turns we have
+   *  seen with room to spare (high effort is minutes, not tens of minutes),
+   *  and caps the worst case near half an hour. XAI_TIMEOUT_MS overrides it;
+   *  values under two minutes are raised to two, because below that a
+   *  legitimate high-effort answer would be cut off and then paid for again
+   *  by the retry. The turn's own deadline (turnControl) still applies. */
   protected clientOptions(): Record<string, unknown> {
-    return { timeout: 3_600_000 };
+    return { timeout: grokTimeoutMs() };
   }
 
   /** grok-4.5 and grok-4.7 expose reasoning-effort control ('low' | 'medium'

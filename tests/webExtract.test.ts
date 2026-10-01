@@ -20,6 +20,7 @@ import {
   windowContent,
 } from '../lib/tools/webExtractTool.ts';
 import { executeContract } from '../lib/tools/toolContract.ts';
+import { setHostResolver } from '../lib/net/addressGuard.ts';
 
 // ── SSRF guard ───────────────────────────────────────────────────────────────
 
@@ -163,6 +164,9 @@ test('a redirected read names the page it landed on, so a note can cite the publ
     }
     return new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
   }) as typeof fetch;
+  // The stub hosts do not exist; resolve them to a public address so the
+  // SSRF guard's DNS check passes the way it would for a real site.
+  setHostResolver(async () => [{ address: '93.184.216.34' }]);
   try {
     const moved = await executeContract(webExtractContract, { urls: ['https://search.example/redirect/abc'] });
     assert.match(moved, /^=== https:\/\/search\.example\/redirect\/abc ===\nResolved: https:\/\/publisher\.example\/a2a-1-0\nTitle: A2A 1\.0\n\n/);
@@ -171,6 +175,23 @@ test('a redirected read names the page it landed on, so a note can cite the publ
     assert.doesNotMatch(direct, /Resolved:/);
   } finally {
     globalThis.fetch = realFetch;
+    setHostResolver();
+    clearWebExtractCache();
+  }
+});
+
+test('a redirect to a name that resolves privately is refused at the hop', async () => {
+  clearWebExtractCache();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(null, { status: 302, headers: { location: 'https://internal-dashboard.example/' } })) as typeof fetch;
+  setHostResolver(async (h) => [{ address: h === 'internal-dashboard.example' ? '10.0.0.7' : '93.184.216.34' }]);
+  try {
+    const out = await executeContract(webExtractContract, { urls: ['https://public.example/go'] });
+    assert.match(out, /refusing to fetch internal-dashboard\.example \(resolves to a private IPv4 address\)/);
+  } finally {
+    globalThis.fetch = realFetch;
+    setHostResolver();
     clearWebExtractCache();
   }
 });

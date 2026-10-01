@@ -4,6 +4,139 @@ Consumers of the package read this file; it records changes to the
 **published API surface** (the exports map in `package.json`, the bins,
 the starter pack and the templates), not the repo's full history.
 
+## 0.16.0 — 2026-10-01
+
+### Breaking — read before upgrading
+
+- **`@google/adk` peer is now `^2.2.0`** (was `^1.3.0`), and `@google/genai`
+  is `2.25.0`. Install `@google/adk@2.2.0` beside the package. ADK and genai
+  now share one genai copy, and ADK's database drivers and GCP exporters are
+  optional peers, so the install is about 40% smaller.
+- **The A2A server's key mode defaults to `server`.** The server's own
+  provider keys pay; `X-API-Key` is no longer required; sessions and memory
+  are stored under `X-User-Id` (else `default`). The old behaviour — the
+  caller's `X-API-Key` pays and its hash scopes the data — is
+  `A2A_KEY_MODE=byok` (`keyMode: 'byok'`). **A deployment holding data
+  written by an earlier version must set `byok`, or that data is no longer
+  found.**
+- **A bare agent id is a file.** `/<agentId>/…` loads `<agentId>.yaml` from
+  your agents directory. The registry answers only `registry:<id>`, or bare
+  ids listed in `A2A_REGISTRY_AGENTS`; a registry miss is a 404 and a
+  registry failure a 503, never a silent fallback to the file. The shipped
+  `examples/` and `templates/` answer only ids listed in `A2A_SERVED_AGENTS`.
+- **Syndicate YAML is validated at load.** Unknown keys, a missing
+  `subagents:` (write `subagents: []`), an invalid `memory_system`, a
+  `dispatch.default_route` naming no subagent, and similar mistakes now
+  throw one error listing every problem with its key path and a did-you-mean
+  suggestion. They used to load and fail later, or silently.
+- **The agent card is A2A 1.0** (`supportedInterfaces`), served to 0.3
+  clients in the 0.3 shape; requests in either version work
+  (`@a2a-js/sdk` 1.3 with 0.3 compatibility). File parts are rejected
+  (`rejected` state) instead of arriving as empty text.
+- **Without `A2A_SERVER_SECRET` the server binds 127.0.0.1.** Binding another
+  `HOST` needs the secret or `ALLOW_UNAUTHENTICATED=true`; the `.env.example`
+  placeholder is refused as a secret.
+- **The server no longer prints conversation content** (`[OTEL_SPAN_JSON]`
+  lines) unless `OTEL_CONSOLE_SPANS=true`.
+- **Node `>=22.6`** (type stripping); production runs the compiled bins.
+
+### The engine as a library
+
+- **`runSyndicateTurn(options)`** — the one turn runner. The server, the
+  CLI, the worker and the eval harness all call it, so plan-dispatch,
+  delegation, nested syndicates, guards and the step cap behave the same
+  everywhere (the CLI used to run dispatch syndicates in delegate mode).
+  Plain data in and out; also `ingestTurnMemory`, `compileGraph`,
+  `compileSubagent`.
+- **`createA2AApp(options)`** — the A2A server as a mountable Express app,
+  with plug points: `resolveRequest` (your identity system returns the
+  scope key), `keyMode`, `credentials` (a provider key per request from your
+  secret manager), `storage` (sessions, memory, task store, erase),
+  `memory` (extractor, embedder), `routes`, limits. `melchizedek-serve` is a
+  thin bin over it.
+- **`registerTool(name, tool)` and `registerGuard(guard)`** — extend what a
+  YAML can name, from your own code.
+- **Root exports** now include the capability and gateway helpers the 0.12.0
+  entry listed (`describeCapabilities`, `capabilitySummary`, `planTransport`,
+  `gatewayConfig`, `gatewayProblem`, `gatewayUsable`, `GATEWAYS`,
+  `GatewayLlm`), `validateSyndicateConfig`, `syndicateJsonSchema`, the
+  memory providers, `eraseScope` and `namespacedMemoryService`. New subpaths:
+  `./compile`, `./runtime`, `./runtime/turnControl`, `./a2a`, `./a2a/remote`,
+  `./guards`.
+
+### Fixed — behaviour the docs promised
+
+- **Non-Gemini orchestrators delegate.** Claude, GPT, Grok, Ollama and
+  gateway adapters sent every subagent (and `load_memory`) an empty
+  parameter schema; they now send the tool's real declaration.
+- **`max_steps` is enforced**, across the whole turn — orchestrator,
+  subagents and nested syndicates share one budget — and exceeding it fails
+  the turn with `STEP_LIMIT`. It was passed to a parameter ADK does not have.
+- **`includeContents`, `outputKey`, `globalInstruction`,
+  `disallowTransferToParent`, `disallowTransferToPeers`** reach ADK; they
+  were parsed and dropped.
+- **`tasks/cancel` cancels**, including the model call in flight; every task
+  has a deadline (`A2A_TASK_TIMEOUT_MS`, default 15 minutes).
+- **Per-agent cards advertise their own URLs**, declare their security
+  schemes, and are readable without a model key; without `PUBLIC_URL` the
+  card uses the host the request reached.
+- **`memory_system: internal-only` keeps transcripts in process memory on the
+  server**, as documented.
+- **Memory ingestion is at-least-once**: a failed extraction, embedding or
+  insert leaves the turns pending for the next task instead of dropping them.
+- **`.env.example` ships no placeholder values**, and the loader ignores
+  `your_..._here` values: copying the template no longer crashes the
+  quickstart, funds no provider in the doctor, and cannot become a live
+  secret. Installed bins read `.env` from the directory you run them in.
+- **SSRF guard** (`web_extract`, MCP clients, remote A2A agents): one
+  implementation that parses every IP encoding the URL parser emits
+  (IPv4-mapped, NAT64, 6to4, trailing-dot names) and resolves names, refusing
+  any that resolve to a non-public address.
+- **Transient provider failures are retried** on Gemini and the
+  chat-completions path (Ollama, gateways): 408/409/425/429/5xx and connection
+  resets, jittered backoff, `Retry-After` honoured, never after output has
+  started (`MODEL_RETRY_MAX_ATTEMPTS`). Grok's per-attempt timeout is 10
+  minutes (`XAI_TIMEOUT_MS`).
+- **`db/hardening.sql` revokes function execution from `PUBLIC`**, so the
+  anon key cannot call `SECURITY DEFINER` functions. **Re-run it.**
+
+### New
+
+- **Remote agents: `a2a_agent_url:` on a subagent** — an agent served over
+  A2A (1.0 or 0.3) becomes a delegation tool or a plan-dispatch route.
+  Credentials from `A2A_AGENT_TOKENS`; `ALLOW_PRIVATE_A2A` for local hosts.
+- **`melchizedek-init`**: start a project from any template or example in one
+  command — writes `config/agents/<name>.yaml` (and what it nests) with a
+  schema modeline, gives a long-term syndicate its own `memory_namespace`,
+  creates `.env` from the template, and prints the next commands.
+  `--list` shows what ships.
+- **Database tooling: `melchizedek-db print | apply | status |
+  prune-sessions`** over numbered, idempotent migrations in
+  `db/migrations/` (base schema, nightly session expiry, scope erasure), then
+  `hardening.sql`.
+- **`DELETE /memory` erases everything stored for the calling scope** —
+  facts, sessions with their subagent rows, ledger rows — with per-store
+  counts; `?all=1` covers every memory namespace.
+- **`memory_namespace`** (YAML): where a syndicate's long-term memory lives;
+  memory tools on subagents read the root syndicate's facts.
+- **Memory providers**: extraction on any model id
+  (`MEMORY_EXTRACTION_MODEL`), embeddings from Gemini, OpenAI, Ollama or any
+  OpenAI-compatible endpoint (`MEMORY_EMBEDDING_*`).
+- **Capability matrix** (`lib/models/capabilities.ts`): provider × delegation,
+  memory tools, structured output, thinking with tools, streaming, vision,
+  native search — each cell backed by a request-shape test;
+  `melchizedek-doctor --matrix` prints it and flags gaps per agent.
+- **Server operations**: `/healthz`, `/readyz`, SIGTERM drain
+  (`A2A_SHUTDOWN_GRACE_MS`), a concurrency cap, configurable rate limits,
+  trust-proxy and body limit, a failed-login limiter, a boot summary.
+- **Published JSON Schema** for syndicate YAML:
+  `config/agents/syndicate.schema.json` (editor modeline in
+  `syndicateSchema.yaml`).
+- **Deploy artefacts**: `Dockerfile`, `compose.yaml` (optional Ollama and
+  Phoenix), CI, `SECURITY.md`.
+- The package now ships `db/`, `demo/`, `.env.example` and this changelog,
+  and `package.json` names the repository.
+
 ## 0.15.0 — 2026-09-27
 
 - **Production templates: `config/agents/templates/`.** Ten job-shaped

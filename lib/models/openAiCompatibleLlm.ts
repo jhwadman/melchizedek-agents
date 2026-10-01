@@ -23,6 +23,8 @@
  *     surfaced as a { text, thought: true } part in a partial response —
  *     printers display it dimmed; it never enters session history.
  *   - A per-request `llm.request` OpenTelemetry span (lib/observability).
+ *   - Retries of transient failures (lib/models/retry.ts) before any byte
+ *     is yielded, and HTTP errors carrying `status` + `retryable`.
  *   - web_search handling: subclasses with native search return its body
  *     fields from webSearchBodyFields(); those without return null and the
  *     base omits the tool with a one-time warning + span attribute.
@@ -40,7 +42,9 @@ import {
   wantsWebSearch,
   isWebSearchSentinel,
 } from '../tools/webSearchTool.ts';
-import { toLowercaseJsonSchema, toStrictJsonSchema } from './schemaNormalize.ts';
+import { currentTurnSignal } from '../runtime/turnControl.ts';
+import { toLowercaseJsonSchema, toStrictJsonSchema, toolDeclarationFor } from './schemaNormalize.ts';
+import { fetchWithRetry, isRetryableStatus } from './retry.ts';
 
 // ── OpenAI-compatible wire types (the subset these providers implement) ──────
 
@@ -354,15 +358,27 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
     }
 
     try {
-      const res = await fetch(this.endpointUrl(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...this.headers() },
-        body: JSON.stringify(body),
-      });
+      // Transient failures (429/5xx, connection resets) are retried here, on
+      // the REQUEST only — the body is read after, so a stream that dies
+      // half-way is reported, never replayed (lib/models/retry.ts).
+      const signal = currentTurnSignal();
+      const { response: res } = await fetchWithRetry(
+        this.endpointUrl(),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...this.headers() },
+          body: JSON.stringify(body),
+          signal,
+        },
+        {
+          signal,
+          onRetry: ({ retries }) => setLlmSpanAttribute('llm.retries', retries),
+        },
+      );
 
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
-        yield this.httpError(res.status, detail);
+        yield withHttpStatus(this.httpError(res.status, detail), res.status);
         return;
       }
 
@@ -624,16 +640,14 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
     const openAiTools: unknown[] = [];
     for (const [, tool] of Object.entries(llmRequest.toolsDict ?? {})) {
       if (isWebSearchSentinel(tool)) continue; // handled via body fields
-      const t = tool as any;
-      if (t.name && t.description) {
+      const decl = toolDeclarationFor(tool);
+      if (decl) {
         openAiTools.push({
           type: 'function',
           function: {
-            name: t.name,
-            description: t.description,
-            parameters: toLowercaseJsonSchema(
-              t.parameters ?? { type: 'object', properties: {} },
-            ),
+            name: decl.name,
+            description: decl.description,
+            parameters: decl.parameters,
           },
         });
       }
@@ -651,6 +665,19 @@ export abstract class OpenAiCompatibleLlm extends BaseLlm {
         'Use a Gemini model for live/streaming sessions.',
     );
   }
+}
+
+/**
+ * Stamps an HTTP error response with its numeric status and whether that
+ * status is transient, so callers above (and the ledger, via the tracer's
+ * llm.payload.response) can tell a rate limit from a bad request without
+ * parsing the message. Applied in the base so a subclass's httpError
+ * override (Ollama's hint, the gateway's GATEWAY_HTTP_ERROR) keeps its
+ * errorCode and wording and still gets the fields.
+ */
+export function withHttpStatus(resp: LlmResponse, status: number): LlmResponse {
+  setLlmSpanAttribute('llm.http_status', status);
+  return { ...resp, status, retryable: isRetryableStatus(status) } as LlmResponse;
 }
 
 /** OpenAI-style usage → GenAI usageMetadata (undefined when absent). */

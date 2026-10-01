@@ -66,8 +66,9 @@ the A2A server) after every completed task:
    with `FACT_EXTRACTION_PROMPT`, which distills structured records in the
    format above (discarding filler, converting dates, preserving units,
    attributing sources). Malformed lines are dropped, never stored.
-3. **Embedding** — each record line is embedded individually by
-   `gemini-embedding-001` at **768 dimensions** (embedding whole
+3. **Embedding** — each record line is embedded individually by the
+   configured embedder (default `gemini-embedding-001` at **768
+   dimensions**; see `lib/memory/providers.ts`) (embedding whole
    transcripts produces "muddy" averaged vectors; single records produce
    sharp semantic clusters).
 4. **Storage** — record + vector + parsed columns are inserted into
@@ -238,9 +239,9 @@ tier. It belongs to the server environment only.
 ## 5. Gotchas
 
 - **Embedding dimensionality is a hard coupling.** `embedding vector(768)`
-  in the table schema must match `EMBEDDING_DIMENSIONS` in `lib/config.ts`.
-  Changing the embedding model means dropping and recreating the table and
-  index.
+  in the table schema must match `MEMORY_EMBEDDING_DIMENSIONS` (default
+  768). The embedder refuses a vector of any other length. Changing the
+  embedding model needs every stored row re-embedded.
 - **Structured columns require the v2 schema.** Inserts write `tag`,
   `fact_date`, `source`, `status`, `keys` — a database still on the v1
   table shape will reject them. Run `db/memory_v2.sql` (or the v2 create
@@ -249,6 +250,9 @@ tier. It belongs to the server environment only.
   extractor discards is gone; what it stores wrong persists wrong. On the
   A2A server, ingestion runs after the reply is delivered so it never adds
   user-visible latency.
-- **Memory bills the operator.** Extraction and embeddings use the server's
-  `GOOGLE_GENAI_API_KEY`, not the caller's BYOK key — memory is
-  infrastructure, like tools.
+- **Memory bills the operator.** Extraction and embeddings run on the
+  server's keys, never the caller's BYOK key; memory is infrastructure,
+  like tools. Which provider they use is the deployment's choice
+  (`MEMORY_EXTRACTION_MODEL`, `MEMORY_EMBEDDING_PROVIDER`; see
+  `lib/memory/providers.ts`). By default both are Gemini on
+  `GOOGLE_GENAI_API_KEY`.

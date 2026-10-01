@@ -1,6 +1,7 @@
 import { trace, context } from '@opentelemetry/api';
 import { createRequire } from 'node:module';
 import { TELEMETRY_SCHEMA_VERSION, engineVersion } from './lineage.ts';
+import { chargeLlmCall } from '../runtime/turnControl.ts';
 
 import sdkNode from '@opentelemetry/sdk-trace-node';
 const { NodeTracerProvider } = sdkNode;
@@ -118,7 +119,12 @@ class JsonConsoleExporter implements SpanExporter {
         startTime: span.startTime,
         endTime: span.endTime,
         durationMs: span.duration[0] * 1000 + span.duration[1] / 1000000,
-        attributes: span.attributes,
+        // Never the payload capture: a failed call carries its whole prompt
+        // in llm.payload.request, and stdout is a log drain with its own
+        // retention, outside every prune and erasure path.
+        attributes: Object.fromEntries(
+          Object.entries(span.attributes).filter(([k]) => !k.startsWith('llm.payload.')),
+        ),
         events: span.events.map(e => ({
           name: e.name,
           time: e.time,
@@ -630,6 +636,16 @@ export async function* traceLlmGeneration(
   inner: AsyncGenerator<LlmResponse, void>,
 ): AsyncGenerator<LlmResponse, void> {
   initializeTracing();
+
+  // Every model call on every provider passes here, so this is where the
+  // turn's step budget and cancellation are enforced (lib/runtime/
+  // turnControl.ts). A refused call never reaches the provider.
+  const charge = chargeLlmCall();
+  if (!charge.ok) {
+    await inner.return?.(undefined);
+    yield { errorCode: charge.code, errorMessage: charge.message } as LlmResponse;
+    return;
+  }
 
   const span = tracer.startSpan('llm.request');
   span.setAttribute('llm.provider', meta.provider);

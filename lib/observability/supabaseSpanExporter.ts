@@ -269,10 +269,20 @@ function spanJson(span: ReadableSpan): Record<string, unknown> {
     spanId: span.spanContext().spanId,
     name: span.name,
     durationMs: durationMs(span),
-    attributes: attrsOf(span),
+    // The full request/response of a failed call (llm.payload.*) belongs only
+    // in adk_payloads, which honours TELEMETRY_PAYLOADS and expires; copying
+    // it into this indefinitely-kept row bypassed both.
+    attributes: withoutPayloadAttributes(attrsOf(span)),
     events: span.events.map((e) => ({ name: e.name, attributes: e.attributes ?? {} })),
     status: span.status,
   };
+}
+
+/** Span attributes minus the payload capture (`llm.payload.*`). */
+export function withoutPayloadAttributes(attrs: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(attrs)) if (!k.startsWith('llm.payload.')) out[k] = v;
+  return out;
 }
 
 /** Flatten an llm.request or root span into one adk_telemetry row. */

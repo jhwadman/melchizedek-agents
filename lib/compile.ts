@@ -37,6 +37,7 @@ import type { SubagentYamlConfig, SyndicateYamlConfig } from './loadSyndicate.ts
 import { resolveTools as resolveNamedTools } from './toolRegistry.ts';
 import { createMcpTools } from './tools/mcpToolFactory.ts';
 import { capabilitySummary, describeCapabilities } from './models/capabilities.ts';
+import { remoteAgentTool } from './a2a/remoteAgent.ts';
 
 export interface CompileOptions {
   /**
@@ -70,6 +71,31 @@ function withServerSideToolInvocations(
       includeServerSideToolInvocations: true,
     },
   };
+}
+
+/**
+ * The LlmAgent fields a YAML agent may set beyond model, instruction, tools
+ * and schemas. The schema reference (config/agents/syndicateSchema.yaml)
+ * documents each as mapping 1:1 to its ADK counterpart; before this they
+ * were parsed and silently dropped, so `includeContents: none` — which the
+ * intake template relies on so that a document never sees an earlier one —
+ * changed nothing. Only fields the YAML sets are passed, so ADK's defaults
+ * stay in force otherwise.
+ */
+function passthroughFields(cfg: {
+  includeContents?: 'default' | 'none';
+  outputKey?: string;
+  globalInstruction?: string;
+  disallowTransferToParent?: boolean;
+  disallowTransferToPeers?: boolean;
+}): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (cfg.includeContents !== undefined) out.includeContents = cfg.includeContents;
+  if (cfg.outputKey !== undefined) out.outputKey = cfg.outputKey;
+  if (cfg.globalInstruction !== undefined) out.globalInstruction = cfg.globalInstruction;
+  if (cfg.disallowTransferToParent !== undefined) out.disallowTransferToParent = cfg.disallowTransferToParent;
+  if (cfg.disallowTransferToPeers !== undefined) out.disallowTransferToPeers = cfg.disallowTransferToPeers;
+  return out;
 }
 
 /**
@@ -116,6 +142,12 @@ export async function compileSubagent(
   subCfg: SubagentYamlConfig,
   opts: CompileOptions = {},
 ): Promise<LlmAgent> {
+  if (subCfg.a2a_agent_url) {
+    // A remote agent has its own model and prompt on its own server; there
+    // is no local agent to build. It is reached as a delegation tool
+    // (compileGraph) or a dispatch route (lib/runtime/syndicateTurn.ts).
+    throw new Error(`'${subCfg.name}' is a remote A2A agent (a2a_agent_url) and has no local agent to compile.`);
+  }
   if (subCfg.yaml_reference) {
     opts.log?.(`Loading nested syndicate: ${subCfg.yaml_reference}`);
     const nested = (opts.loadNested ?? loadSyndicate)(subCfg.yaml_reference);
@@ -136,6 +168,7 @@ export async function compileSubagent(
     generateContentConfig: withServerSideToolInvocations(
       subCfg.generateContentConfig as Record<string, unknown> | undefined,
     ) as any,
+    ...passthroughFields(subCfg),
   });
 }
 
@@ -154,9 +187,13 @@ export async function compileGraph(
   const compiledTools: unknown[] = isDispatchSyndicate(config)
     ? []
     : await Promise.all(
-        (config.subagents ?? []).map(
-          async (subCfg) => new AgentTool({ agent: await compileSubagent(subCfg, opts) }),
-        ),
+        (config.subagents ?? []).map(async (subCfg) => {
+          if (subCfg.a2a_agent_url) {
+            opts.log?.(`Remote A2A agent: ${subCfg.name} → ${subCfg.a2a_agent_url}`);
+            return remoteAgentTool({ name: subCfg.name, description: subCfg.description, url: subCfg.a2a_agent_url });
+          }
+          return new AgentTool({ agent: await compileSubagent(subCfg, opts) });
+        }),
       );
 
   // Orchestrator tools are registry names only — no entrypoint has ever
@@ -181,5 +218,6 @@ export async function compileGraph(
     generateContentConfig: withServerSideToolInvocations(
       config.orchestrator.generateContentConfig as Record<string, unknown> | undefined,
     ) as any,
+    ...passthroughFields(config.orchestrator),
   });
 }

@@ -1,34 +1,26 @@
-# Melchizedek A2A (Agent-to-Agent) Protocol Setup
+# Calling a Melchizedek syndicate over A2A
 
-This folder contains a standalone demonstration of how external clients or agents can converse with a Melchizedek Syndicate via the official A2A JSON-RPC Protocol.
+This folder holds a zero-dependency client for the A2A (Agent-to-Agent) server. Any HTTP client can talk to a syndicate: requests are JSON-RPC 2.0 over a plain `POST`.
 
-## Architecture
+## 1. Start the server
 
-Melchizedek supports exposing any syndicate as a stateless API using the A2A Protocol. This integration operates with a strict **Bring-Your-Own-Key (BYOK)** middleware. Instead of keeping a stateful global API key, the server dynamically spins up the ADK Agent Graph on a per-request basis using the credentials you pass in the headers (`X-API-Key` and `X-Provider`). 
-
-Because we use native JSON-RPC 2.0 over standard HTTP POST, external apps do not need heavy SDKs to talk to Melchizedek. A simple `fetch` command is all you need.
-
-## 1. Start the A2A Server
-
-From the root of the `melchizedek` repository, start the A2A exposer server. This will launch a Node Express wrapper on port 4000.
+From the project root:
 
 ```bash
 npm run start:a2a
 ```
 
-*(You will see `[A2A] Exposer server boot complete on port 4000` when it is ready).*
+In a project that installed the package, run `npx melchizedek-serve <file>.yaml` instead. The boot log prints the card URL, the endpoints, the auth mode and whether sessions are durable.
 
-## 2. Run the Demo Client
-
-We've provided a simple, zero-dependency Node.js script that sends a standard A2A payload to the server.
+## 2. Run the client
 
 ```bash
-node a2a_demo.mjs
+node demo/a2a_demo.mjs
 ```
 
-### What happens under the hood?
+It reads the agent card, then sends two messages in one conversation, so the second answer shows the session carrying over. Set `A2A_URL` to point it elsewhere, `A2A_SERVER_SECRET` when the server has one, and `GOOGLE_GENAI_API_KEY` for the model key.
 
-The `a2a_demo.mjs` script sends the following JSON-RPC payload to `http://localhost:4000/a2a/jsonrpc`:
+## The request
 
 ```json
 {
@@ -37,29 +29,49 @@ The `a2a_demo.mjs` script sends the following JSON-RPC payload to `http://localh
   "method": "message/send",
   "params": {
     "message": {
+      "kind": "message",
       "messageId": "<uuid>",
       "role": "user",
-      "parts": [{"kind": "text", "text": "Hello! Please tell me a brief joke."}]
-    },
-    "contextId": "demo-session-001"
+      "contextId": "<conversation id>",
+      "parts": [{ "kind": "text", "text": "Hello!" }]
+    }
   }
 }
 ```
 
-The server intercepts this, validates the `X-API-Key` and `X-Provider: google` headers, launches the Google ADK runner bound to `demo-session-001`, and pipes the agent's textual or thought responses back as standard A2A `message` events in the `result` block.
+Headers: `Content-Type: application/json`, `X-User-Id: <your app's user id>`, and `Authorization: Bearer <A2A_SERVER_SECRET>` when the server has a secret. A server in BYOK mode (`A2A_KEY_MODE=byok`) also needs `X-API-Key: <your model key>`; its card says so.
 
-## Using the Official SDK
+`contextId` goes **inside** `message`. Every call with the same value continues one conversation (one session). A `contextId` placed beside `message` is ignored by the protocol, and each call then starts a new session.
 
-While this raw fetch script demonstrates the underlying protocol gracefully, you can also use the official `@a2a-js/sdk` for production clients.
+The reply is a task. `result.status.state` is `completed`, `failed`, `canceled` or `rejected`, and `result.status.message.parts[0].text` is the answer. For long runs, send with `"configuration": { "blocking": false }`, poll `tasks/get` with the task id, or use `message/stream` for progress events; `tasks/cancel` stops a running task.
+
+## With the official SDK
+
+`@a2a-js/sdk` 1.x speaks A2A 1.0 and, with `legacyCompat`, 0.3. The server
+serves both, so either works:
 
 ```typescript
-import { ClientFactory, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
+import { Role } from '@a2a-js/sdk';
+import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
 
-const factory = new ClientFactory({
-  transports: [new JsonRpcTransportFactory()]
+const auth = (url: string | URL | Request, init?: RequestInit) =>
+  fetch(url, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), Authorization: `Bearer ${process.env.A2A_SERVER_SECRET}`, 'X-User-Id': 'user-1' } });
+const legacyCompat = { enabled: true };
+const card = await new DefaultAgentCardResolver({ fetchImpl: auth, legacyCompat }).resolve('http://localhost:4000');
+const client = await new ClientFactory({ transports: [new JsonRpcTransportFactory({ fetchImpl: auth, legacyCompat })] }).createFromAgentCard(card);
+
+const result = await client.sendMessage({
+  tenant: '',
+  message: {
+    messageId: crypto.randomUUID(), contextId: 'conv-1', taskId: '', role: Role.ROLE_USER,
+    parts: [{ content: { $case: 'text', value: 'Hello!' }, metadata: undefined, filename: '', mediaType: 'text/plain' }],
+    metadata: undefined, extensions: [], referenceTaskIds: [],
+  },
+  configuration: undefined,
+  metadata: undefined,
 });
-const client = await factory.createFromUrl('http://localhost:4000/a2a/jsonrpc');
-
-// Be sure to pass a custom fetch implementation if your setup requires auth headers globally!
-const response = await client.sendMessage({ ... });
 ```
+
+`lib/a2a/remoteAgent.ts` is a complete client built this way (it adds the
+SSRF guard and per-host credentials), and `tests/a2aServer.test.ts` exercises
+both protocol versions against a live server.

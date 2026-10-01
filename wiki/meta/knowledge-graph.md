@@ -7,7 +7,7 @@ tags:
   - graph
 generated:
   by: process:wiki-build
-  at: 2026-09-27
+  at: 2026-10-01
 sources:
   - resource: lib/wiki/entities.ts
   - resource: lib/wiki/extract.ts
@@ -29,15 +29,15 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 | Kind | Id form | Now | What it is |
 |---|---|---|---|
 | `agent` | `agent:<name>` | 109 | one orchestrator or subagent inside a syndicate |
-| `module` | `module:<name>` | 90 | one source module |
-| `doc` | `/dir/doc.md` | 80 | a concept document in the bundle — identity is its bundle path |
-| `file` | `file:<name>` | 59 | a repo file that is not a source module (DDL, config, prose) |
-| `env` | `env:<name>` | 51 | an environment variable the code reads |
-| `script` | `script:<name>` | 47 | an npm script entrypoint |
+| `module` | `module:<name>` | 109 | one source module |
+| `doc` | `/dir/doc.md` | 88 | a concept document in the bundle — identity is its bundle path |
+| `env` | `env:<name>` | 76 | an environment variable the code reads |
+| `file` | `file:<name>` | 64 | a repo file that is not a source module (DDL, config, prose) |
+| `script` | `script:<name>` | 51 | an npm script entrypoint |
 | `tool` | `tool:<name>` | 40 | a tool an agent may declare by name |
 | `syndicate` | `syndicate:<name>` | 39 | one agent-team definition (a YAML) |
+| `table` | `table:<name>` | 11 | a database table |
 | `model` | `model:<name>` | 8 | a model id exactly as written in configuration |
-| `table` | `table:<name>` | 8 | a database table |
 | `mcp-server` | `mcp-server:<name>` | 6 | a remote MCP endpoint an agent dials at runtime |
 | `provider` | `provider:<name>` | 5 | a provider adapter the model registry routes to |
 | `external` | `external:<name>` | 2 | a resource outside the repo, named by URL |
@@ -50,17 +50,17 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 
 | Relation | Tier | Reads as | Now | Meaning |
 |---|---|---|---|---|
-| `imports` | extracted | A imports B | 266 | a static import edge between source files |
-| `links_to` | extracted | A links to B | 153 | a resolved markdown link between documents |
+| `imports` | extracted | A imports B | 314 | a static import edge between source files |
+| `links_to` | extracted | A links to B | 179 | a resolved markdown link between documents |
+| `derives_from` | extracted | A derives from B | 157 | declared in the document’s `sources:` frontmatter |
+| `requires_env` | extracted | A requires B | 129 | this environment variable must be set for the node to work |
 | `uses_tool` | extracted | A calls B | 129 | the agent declares this tool by name |
-| `derives_from` | extracted | A derives from B | 125 | declared in the document’s `sources:` frontmatter |
 | `contains` | extracted | A contains B | 109 | the first is composed of the second |
 | `uses_model` | extracted | A runs on B | 109 | the agent is configured with this model id |
-| `requires_env` | extracted | A requires B | 89 | this environment variable must be set for the node to work |
-| `defined_in` | extracted | A is defined in B | 81 | where the thing is declared in source |
+| `defined_in` | extracted | A is defined in B | 86 | where the thing is declared in source |
 | `documents` | extracted | A documents B | 72 | the document derives from, and describes, this entity |
-| `runs` | extracted | A runs B | 65 | an entrypoint — a script, a process, a dyno — executes this |
-| `reads_table` | extracted | A reads or writes B | 18 | the module names this table |
+| `runs` | extracted | A runs B | 69 | an entrypoint — a script, a process, a dyno — executes this |
+| `reads_table` | extracted | A reads or writes B | 21 | the module names this table |
 | `routes_to` | extracted | A routes to B | 8 | the model id resolves to this provider adapter |
 | `connects_mcp` | extracted | A dials B | 6 | the agent discovers tools from this MCP server at runtime |
 | `delegates_to` | extracted | A delegates to B | 4 | the agent is a reference to another syndicate, resolved at load time |

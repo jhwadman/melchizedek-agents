@@ -22,31 +22,36 @@ Run without arguments to serve `syndicate.yaml`. The server exposes an A2A JSON-
 - `GET /.well-known/agent-card.json`: returns the agent card describing the served agent.
 - `POST /a2a/jsonrpc`: receives JSON-RPC 2.0 requests.
 - `/a2a/rest`: receives REST calls.
+- `GET /healthz` and `GET /readyz`: answer without credentials, for load-balancer and Kubernetes probes.
 
-The server is stateless. The runtime compiles the agent graph per request. The loader evaluates `{{token}}` bindings once per agent load; pass per-request data such as dates and user context in the message text. Rate limiting is active on the server.
+The runtime compiles the agent graph per request. Sessions and long-term memory are durable when Supabase is configured; A2A task state, the per-agent config cache, and rate-limit counters live in the process, so run one replica or route each conversation to one replica. The loader evaluates `{{token}}` bindings once per agent load; pass per-request data such as dates and user context in the message text.
+
+Limits are environment settings: `A2A_RATE_LIMIT_MAX` task submissions per `A2A_RATE_LIMIT_WINDOW_MS` per client IP (default 60 per 15 minutes), `A2A_TASK_TIMEOUT_MS` per task (default 15 minutes), and `A2A_MAX_CONCURRENT_TASKS`. A syndicate's `max_steps` caps model calls across the whole turn, subagents included. `tasks/cancel` stops a running task, including the model call in flight. On SIGTERM the server stops admitting tasks and waits up to `A2A_SHUTDOWN_GRACE_MS` for running ones.
 
 ## Secure it
 
-Set `A2A_SERVER_SECRET` in `.env` to require authorization. When set, every incoming request must supply the header `Authorization: Bearer <A2A_SERVER_SECRET>`. When unset, the server logs a warning and accepts unauthenticated calls for local development. When `PUBLIC_URL` is set and `A2A_SERVER_SECRET` is unset, the server refuses to start.
+Set `A2A_SERVER_SECRET` in `.env` to require authorization; generate a value with `openssl rand -hex 32`. When set, every incoming request must supply the header `Authorization: Bearer <A2A_SERVER_SECRET>`. When unset, the server runs unauthenticated and binds `127.0.0.1` only; binding another `HOST` without a secret requires `ALLOW_UNAUTHENTICATED=true`. When `PUBLIC_URL` is set and `A2A_SERVER_SECRET` is unset, or the secret is still the `.env.example` placeholder, the server refuses to start. Repeated failed authentications from one IP are blocked.
 
-The caller passes their own model key in the `X-API-Key` header. Inference bills to the caller. This key funds only the caller's provider; other providers in the graph resolve keys from the server environment. The header never selects the gateway fallback. The server holds no global model key of its own on behalf of callers.
+By default (`A2A_KEY_MODE=server`) the server's own provider keys pay for inference, and sessions and memory are stored under the `X-User-Id` header (else `default`). With `A2A_KEY_MODE=byok` the caller's `X-API-Key` funds agents on the provider named by `X-Provider` (default `google`) and its hash scopes the caller's data; tool calls and long-term memory extraction still run on the server's keys, and the header never selects the gateway fallback. A deployment with data from before version 0.16 keeps `byok` until that data is re-keyed. `createA2AApp({ resolveRequest })` plugs in another identity system.
+
+Set `A2A_SERVED_AGENTS` to a comma list to restrict which agent ids the per-agent routes serve.
 
 ## Call it
 
 In a repository clone, run the test client `demo/a2a_demo.mjs`, which uses native fetch and points to `http://localhost:4000/a2a/jsonrpc` by default.
 
-A client sends a `POST` request with headers `Content-Type: application/json`, `X-API-Key: <caller's key>`, and `Authorization: Bearer <A2A_SERVER_SECRET>` when the secret is set. The parameter `contextId` names the session; repeated calls with the same value continue one conversation.
+A client sends a `POST` request with headers `Content-Type: application/json`, `X-User-Id: <your app's user id>`, `Authorization: Bearer <A2A_SERVER_SECRET>` when the secret is set, and `X-API-Key: <caller's key>` in BYOK mode. `contextId` goes inside `message` and names the session; repeated calls with the same value continue one conversation. A `contextId` placed beside `message` is ignored, and every call then starts a new session.
 
 The JSON-RPC request body uses this shape:
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"messageId":"<uuid>","role":"user","parts":[{"kind":"text","text":"Hello"}]},"contextId":"<session id>"}}
+{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"messageId":"<uuid>","role":"user","contextId":"<session id>","parts":[{"kind":"text","text":"Hello"}]}}}
 ```
 
 To call the server with `curl`:
 
 ```bash
-curl -s http://localhost:4000/a2a/jsonrpc -H 'Content-Type: application/json' -H "Authorization: Bearer $A2A_SERVER_SECRET" -H "X-API-Key: $GOOGLE_GENAI_API_KEY" -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"messageId":"m1","role":"user","parts":[{"kind":"text","text":"Hello"}]},"contextId":"s1"}}'
+curl -s http://localhost:4000/a2a/jsonrpc -H 'Content-Type: application/json' -H "Authorization: Bearer $A2A_SERVER_SECRET" -H "X-User-Id: user-1" -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"messageId":"m1","role":"user","contextId":"s1","parts":[{"kind":"text","text":"Hello"}]}}}'
 ```
 
 ## Per-agent routes
@@ -59,7 +64,7 @@ One server serves every syndicate the loader can see under `config/agents/` (roo
 
 The identifier `registry:<id>` boots a definition from the Supabase `adk_agent_registry` table instead of a file.
 
-The runtime compiles each per-agent configuration on the first request and caches it for the life of the process. Restart the server after editing a file.
+The runtime compiles each per-agent configuration on the first request and caches it for the life of the process. Restart the server after editing a file. Each per-agent card advertises that agent's own `/<agentId>/a2a/...` URLs.
 
 ## Give a subagent MCP tools
 
@@ -67,7 +72,7 @@ In the syndicate YAML, a subagent declares `mcp_server_url: "http://host:port/ss
 
 If the remote MCP server is unreachable, the runtime logs a console warning, assigns an empty tool list, and still runs the syndicate.
 
-The SSRF guard refuses non-http(s) schemes and private, loopback, and link-local hosts unless `ALLOW_PRIVATE_MCP=true` is set in `.env` for local development.
+The SSRF guard refuses non-http(s) schemes, local names, private, loopback, and link-local addresses, and names that resolve to one, unless `ALLOW_PRIVATE_MCP=true` is set in `.env` for local development.
 
 A remote MCP server is an untrusted tool vendor: its results are data for the agent, never instructions.
 

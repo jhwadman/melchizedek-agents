@@ -17,7 +17,9 @@ sources:
 # Web tools
 
 <!-- wiki:fill slot="overview" -->
-_TODO(fill): why search (server-side, provider-chosen snippets) and extract (client-side, agent-chosen URLs) are complements — search to find, extract to read past the headline_
+Search and extract are complements. `web_search` runs on the provider's side and returns the snippets the provider chose — it finds. `web_extract` runs here, fetches the URLs the agent chose, and returns the whole page as clean text — it reads past the headline. A research agent searches to find sources and extracts to read them.
+
+Because the agent picks the URL, `web_extract` is the framework's main outbound surface. Every hop, redirects included, passes `lib/net/addressGuard.ts`: only http(s); local names and private, loopback and link-local addresses in every encoding the URL parser emits are refused; and the host name is resolved and refused when any address it resolves to is non-public. The same guard covers MCP servers and remote A2A agents. DNS rebinding between the check and the connection is the stated remaining limit.
 <!-- /wiki:fill -->
 
 <!-- wiki:generated section="contracts" source="lib/tools/webExtractTool.ts" -->

@@ -18,11 +18,11 @@ sources:
 
 Three layers, applied in order:
 
-1. **Allowlist** — a flat array of file paths in the script. Publishing a file = adding its path there: a deliberate act, reviewable as one diff line. Five private syndicates, the private market-data tool layer, and this bundle's `/private/` subtree are simply never listed.
-2. **Patches** — surgical text rewrites, hard-failing on drift or ambiguity: if upstream changes under a patch, the export dies rather than silently shipping the wrong text.
-3. **Overlay** — public-only files (README, QUICKSTART, DOCUMENTATION, AGENT_SETUP, package.json, the public tool registry) copied last, overwriting anything allowlisted. The overlay package.json is its own contract: an allowlisted file's dependencies must exist there too.
+1. **Allowlist** — a flat array of file paths in the script. Publishing a file = adding its path there: a deliberate act, reviewable as one diff line. A new module a shipped file imports must be listed too, or the destination build fails. The private syndicates, the private market-data tool layer, and this bundle's `/private/` subtree are simply never listed.
+2. **Patches** — surgical text rewrites, hard-failing on drift or ambiguity: if upstream changes under a patch, the export dies rather than silently shipping the wrong text. The mechanism stays; no shared source needs a patch at present.
+3. **Overlay** — public-only files (README, QUICKSTART, DOCUMENTATION, AGENT_SETUP, CHANGELOG, SECURITY.md, package.json, the public tool and guard registries, the package barrel, the Dockerfile and compose file, CI under `.github/`) copied last, overwriting anything allowlisted. The overlay package.json is its own contract: an allowlisted file's dependencies must exist there too.
 
-Then the gates: a forbidden-term scan (names of private systems must not appear anywhere in the destination), a secret scan (key-shaped strings, stray `.env`), `npm install && npm test` **in the destination**, and finally a commit tagged with the source short-SHA. **The script never pushes — publishing stays a human act.**
+Then the gates: a forbidden-term scan (names of private systems must not appear anywhere in the destination), a secret scan (key-shaped strings, stray `.env`), `npm install`, `npm audit fix` within the declared ranges (the lockfile exists only in the destination), `npm test` **in the destination**, a build, a pack-and-consume smoke test that installs the tarball and checks the run API, the server factory and the shipped migrations, and finally a commit tagged with the source short-SHA. **The script never pushes — publishing stays a human act.**
 
 ## The wiki subtree
 

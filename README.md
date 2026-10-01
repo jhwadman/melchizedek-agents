@@ -55,11 +55,31 @@ npm install melchizedek-agents
 ```
 
 ```typescript
-import { loadSyndicate, registerAvailableProviders } from 'melchizedek-agents';
+import { InMemorySessionService } from '@google/adk';
+import { loadSyndicate, registerAvailableProviders, runSyndicateTurn } from 'melchizedek-agents';
 
 registerAvailableProviders();
-const config = loadSyndicate('mine.yaml'); // reads <your-repo>/config/agents/
+const config = loadSyndicate('mine.yaml'); // reads <your-repo>/config/agents/, validated
+
+const result = await runSyndicateTurn({
+  config,
+  parts: [{ text: 'What changed in the A2A 1.0 spec?' }],
+  appName: 'my-app',
+  userId: 'user-42',
+  sessionId: 'conversation-7',          // same id → same conversation
+  sessionService: new InMemorySessionService(),
+  events: { onProgress: (line) => console.log('…', line) },
+});
+console.log(result.status, result.text);
 ```
+
+`runSyndicateTurn` is the same runtime the server, the CLI and the eval
+harness use: plan-dispatch, delegation, guards and the `max_steps` cap behave
+identically everywhere. To serve over HTTP inside your own Express app, mount
+`(await createA2AApp({ defaultSyndicate: 'mine.yaml', serverSecret })).app`.
+To add your own tools or guards, call `registerTool(name, defineTool({...}))`
+or `registerGuard(guard)` before loading — YAML can only name what your code
+registered.
 
 The starter pack ships inside the package (`node_modules/melchizedek-agents/config/agents/examples/`)
 — copy any example out as your starting point. `npx melchizedek-serve`
