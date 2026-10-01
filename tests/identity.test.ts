@@ -82,6 +82,7 @@ test('callerTokens: the scope is the caller’s, an end user nests beneath it', 
     scopeKey: SILO,
     caller: 'penguin',
     ownsNested: true,
+    operator: true,
   });
   const nested = await auth.resolveRequest(req({ Authorization: `Bearer ${PENGUIN}`, 'X-User-Id': 'u1' }));
   assert.equal(nested?.scopeKey, `${SILO}/u1`);
@@ -226,6 +227,13 @@ test('a caller token on the old silo reaches the conversation the shared secret 
     const ymir = { Authorization: `Bearer ${YMIR}`, 'X-API-Key': MODEL_KEY };
     assert.doesNotMatch((await send(url, ymir, 'ymir here', ctx)).answer ?? '', /first, over the shared secret/);
 
+    // x-packet is an operator route: caller tokens and the shared secret pass
+    // the gate (400 here: no tickers), and are not refused with 403.
+    const xp = (h: Record<string, string>) =>
+      fetch(`${url}/v1/x-packet`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{"tickers":[]}' }).then((r) => r.status);
+    assert.equal(await xp(penguin), 400);
+    assert.equal(await xp(legacy), 400);
+
     // Erasure follows the authenticated scope.
     assert.deepEqual(await erasedScope(url, penguin), { scopeKey: SILO, includeNested: true });
     assert.deepEqual(await erasedScope(url, { ...penguin, 'X-User-Id': 'u1' }), { scopeKey: `${SILO}/u1`, includeNested: false });
@@ -257,6 +265,8 @@ test('a JWT caller runs in server key mode with the token as the user', async ()
     assert.equal((await send(url, bearer, 'hi', 'c1')).status, 200);
     assert.deepEqual(await erasedScope(url, { ...bearer, 'X-User-Id': 'someone-else' }), { scopeKey: 'user-9', includeNested: false });
     assert.equal((await send(url, { Authorization: `Bearer ${await token({ sub: 'u' }, { exp: '-10m' })}` }, 'hi', 'c1')).status, 401);
+    const xp = await fetch(`${url}/v1/x-packet`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...bearer }, body: '{"tickers":["AAPL"]}' });
+    assert.equal(xp.status, 403, 'an end user’s JWT may not spend the operator’s X budget');
     assert.equal((await fetch(`${url}/.well-known/agent-card.json`)).status, 401, 'a card is not public');
     const card = (await (await fetch(`${url}/.well-known/agent-card.json`, { headers: bearer })).json()) as any;
     assert.match(JSON.stringify(card.securitySchemes?.bearer ?? {}), /JWT/);
@@ -277,5 +287,19 @@ test('a trusted header needs the server secret, and is read only behind it', asy
     assert.equal(card.securitySchemes?.identity?.name ?? card.securitySchemes?.identity?.apiKeySecurityScheme?.name, 'X-Authenticated-User');
   } finally {
     srv.close();
+  }
+});
+
+test('x-packet in plain secret mode: served behind the secret, refused without one', async () => {
+  const xp = (url: string, h: Record<string, string>) =>
+    fetch(`${url}/v1/x-packet`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{"tickers":[]}' }).then((r) => r.status);
+  const gated = await serve({ serverSecret: SECRET, keyMode: 'server' });
+  const open = await serve({ keyMode: 'server' });
+  try {
+    assert.equal(await xp(gated.url, { Authorization: `Bearer ${SECRET}` }), 400);
+    assert.equal(await xp(open.url, {}), 403);
+  } finally {
+    gated.srv.close();
+    open.srv.close();
   }
 });

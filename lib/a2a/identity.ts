@@ -137,6 +137,7 @@ export function callerTokens(callers: CallerEntry[]): Authenticator {
         scopeKey: user ? `${found.scope}/${user}` : found.scope,
         caller: found.name,
         ownsNested: !user,
+        operator: true,
       };
     },
   };
@@ -253,9 +254,10 @@ export function sharedSecret(opts: { secret: string; keyMode: 'server' | 'byok' 
           scopeKey: deriveUserId({ apiKey, siteUserId: user }),
           caller: 'shared-secret',
           ownsNested: !user,
+          operator: true,
         };
       }
-      return { scopeKey: user ?? 'default', caller: 'shared-secret', ownsNested: false };
+      return { scopeKey: user ?? 'default', caller: 'shared-secret', ownsNested: false, operator: true };
     },
   };
 }

@@ -123,6 +123,10 @@ the starter pack and the templates), not the repo's full history.
     only together with the server secret.
   - In code: `createA2AApp({ ...callerTokens(parseCallers(spec)) })`, or
     `jwtIdentity`, `trustedHeader`, `sharedSecret`, `firstOf`.
+  - `RequestIdentity.operator` marks an operator-issued credential (a caller
+    token, the server secret). Operator routes such as `POST /v1/x-packet`
+    require it, so an end user's JWT or gateway identity cannot spend the
+    operator's X budget.
 - **`keyMode: 'byok'` now holds under any authenticator**: the caller's
   `X-API-Key` pays whoever the caller is. A `resolveRequest` used to switch
   BYOK billing off. The key-hash scope applies only without an authenticator.

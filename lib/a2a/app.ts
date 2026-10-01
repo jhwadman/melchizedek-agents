@@ -176,6 +176,9 @@ export interface RequestIdentity {
   /** The scope owns `<scopeKey>/…` beneath it (a caller's end users), so an
    *  erasure with no end user removes those too. */
   ownsNested?: boolean;
+  /** An operator-issued credential (a backend), not an end user: may use
+   *  operator routes such as /v1/x-packet. */
+  operator?: boolean;
 }
 
 const legacyCompat = { enabled: true };
@@ -597,6 +600,7 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
           surface,
           caller: identity.caller,
           ownsNested: identity.ownsNested ?? false,
+          operator: identity.operator ?? false,
         },
         () => next(),
       );
@@ -626,7 +630,7 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
       // so no key holder can reach another's data.
       const scopeKey = deriveUserId({ apiKey, siteUserId });
       requestContextStorage.run(
-        { apiKey, provider, siteUserId, scopeKey, surface, caller: 'shared-secret', ownsNested: !siteUserId },
+        { apiKey, provider, siteUserId, scopeKey, surface, caller: 'shared-secret', ownsNested: !siteUserId, operator: !!options.serverSecret },
         () => next(),
       );
       return;
@@ -638,7 +642,7 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
       warn('A caller sent X-API-Key, which server key mode ignores. Set A2A_KEY_MODE=byok (keyMode: \'byok\') if callers fund their own inference — and to keep reaching sessions and memory stored under key-hash silos.');
     }
     requestContextStorage.run(
-      { apiKey: '', provider, siteUserId, scopeKey: siteUserId ?? 'default', surface },
+      { apiKey: '', provider, siteUserId, scopeKey: siteUserId ?? 'default', surface, operator: !!options.serverSecret },
       () => next(),
     );
   });
@@ -698,10 +702,11 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
 
   // POST /v1/x-packet — a deterministic cashtag chatter packet for an
   // operator pipeline. It spends the operator's X_BEARER_TOKEN, so it is
-  // served only behind the bearer secret.
+  // served only to operator credentials (the server secret, a caller
+  // token), never to an end user's JWT or gateway identity.
   app.post('/v1/x-packet', async (req, res) => {
-    if (!options.serverSecret) {
-      res.status(403).json({ error: 'x-packet requires A2A_SERVER_SECRET on this server.' });
+    if (!requestContextStorage.getStore()?.operator) {
+      res.status(403).json({ error: 'x-packet is for operator callers: the server secret or a caller token.' });
       return;
     }
     const { ok, refused } = normalizeTickers(req.body?.tickers);

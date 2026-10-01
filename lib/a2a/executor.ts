@@ -46,6 +46,10 @@ export interface A2AContext {
   /** The scope owns the scopes nested beneath it (`<scope>/<user>`): an
    *  erasure with no end user then removes those too. */
   ownsNested?: boolean;
+  /** A backend the operator issued a credential to (a caller token, the
+   *  server secret), as opposed to an end user (a JWT, a gateway header).
+   *  Operator-only routes (/v1/x-packet) check it. */
+  operator?: boolean;
 }
 
 export interface SurfaceContext {
