@@ -1,3 +1,9 @@
+> **This repository is archived.** The engine, its tests, its wiki and the
+> source of the `melchizedek-agents` npm package now live at
+> **[github.com/jhwadman/melch-ai](https://github.com/jhwadman/melch-ai)**.
+> Open issues and pull requests there. This repository was a generated mirror;
+> its history is kept read-only for the commits that still pin it.
+
 # melchizedek-agents
 
 **A multi-model, multi-agent orchestration framework built on the Google
