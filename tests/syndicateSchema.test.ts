@@ -78,11 +78,18 @@ test('the minimal fixture is valid', () => {
   assert.deepEqual(problemsOf(base()), []);
 });
 
-test('no subagents key: a pointed error, not a TypeError on .map', () => {
+test('no subagents key: a single-agent syndicate, normalized to an empty team', () => {
+  // Registry rows written before the schema omit the key; they must still load.
   const raw = base();
   delete raw.subagents;
-  const problems = problemsOf(raw);
-  assert.deepEqual(problems, ['config/agents/x.yaml: subagents — required']);
+  const cfg = validateSyndicateConfig(raw, 'config/agents/x.yaml');
+  assert.deepEqual(cfg.subagents, []);
+});
+
+test('subagents of the wrong type is still an error', () => {
+  const raw = base();
+  raw.subagents = 'Helper';
+  assertProblem(problemsOf(raw), /^config\/agents\/x\.yaml: subagents — /);
 });
 
 test('orchestator typo: the unknown key, its suggestion, then the missing key', () => {
@@ -246,11 +253,11 @@ test('the loader runs the validator and names the file', () => {
   try {
     fs.writeFileSync(
       path.join(dir, 'broken.yaml'),
-      'syndicate_name: Broken\norchestrator:\n  name: Lead\n  model: gemini-x\n  instruction: hi\n',
+      'syndicate_name: Broken\norchestrator:\n  name: Lead\n  modle: gemini-x\n  instruction: hi\n',
     );
     assert.throws(
       () => loadSyndicate('broken.yaml', { agentsDir: dir }),
-      (err: Error) => err instanceof SyndicateValidationError && /broken\.yaml: subagents — required/.test(err.message),
+      (err: Error) => err instanceof SyndicateValidationError && /broken\.yaml: orchestrator\.modle — unknown key/.test(err.message),
     );
     // A full-token binding is validated as the value it resolved to.
     fs.writeFileSync(
@@ -300,7 +307,7 @@ test('config/agents/syndicate.schema.json is the generated schema (npm run schem
 test('the JSON Schema is strict where the validator is', () => {
   const schema = syndicateJsonSchema() as any;
   assert.equal(schema.additionalProperties, false);
-  assert.deepEqual(schema.required.sort(), ['orchestrator', 'subagents', 'syndicate_name']);
+  assert.deepEqual(schema.required.sort(), ['orchestrator', 'syndicate_name']);
   assert.equal(schema.properties.orchestrator.additionalProperties, false);
   assert.deepEqual(schema.properties.memory_system.enum, ['internal-only', 'session-only', 'long-term']);
   const sub = schema.properties.subagents.items;

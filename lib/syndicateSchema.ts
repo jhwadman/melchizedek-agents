@@ -182,7 +182,8 @@ export const syndicateSchema = z
     orchestrator: agentSchema,
     subagents: z
       .array(subagentSchema)
-      .describe('The orchestrator\'s team. Use `subagents: []` for a single-agent syndicate.'),
+      .optional()
+      .describe('The orchestrator\'s team. Omit it (or write `subagents: []`) for a single-agent syndicate.'),
     dispatch: dispatchSchema.optional(),
     variables: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
@@ -494,6 +495,8 @@ export function validateSyndicateConfig(raw: unknown, file?: string): SyndicateY
       file,
     );
   }
+  // A single-agent syndicate may omit `subagents`; callers always get a list.
+  if (raw.subagents === undefined) raw.subagents = [];
   return raw as unknown as SyndicateYamlConfig;
 }
 

@@ -26,7 +26,7 @@ The keys (top level):
 - `variables:` defaults for `{{token}}` placeholders used anywhere in the file; overridden at run time with `--bind key=value` or `--bindings '{"key":"value"}'`. Never hardcode `current_date`; `{{current_date}}` is injected fresh on every load.
 - `memory_extraction_rules:` (long-term only): domain rules appended to the shared fact-extraction prompt for this syndicate alone, such as what never to store and what always to store.
 - `dispatch:` switches the syndicate from delegate mode (the default: subagents become tools the orchestrator calls, and it re-emits the chosen answer) to plan-dispatch (a classifier picks a route). Keys: `default_route` (required inside the block; a declared subagent that can answer any message), `route_key`, `route_overrides` (a list of `{route, pattern, flags, reason}`; a regex match pins the route and the classifier never runs), `reason_key`.
-- `orchestrator:` (required) and `subagents:` (required; may be `[]`).
+- `orchestrator:` (required) and `subagents:` (optional; omit or `[]` for a single agent).
 Agent block keys (orchestrator and each subagent):
 - `name` (required): a valid JavaScript identifier, unique in the tree, never `user`.
 - `description`: one line. For a subagent this is the routing API: the orchestrator decides whom to call by reading descriptions, so say exactly what to pass and when to call.

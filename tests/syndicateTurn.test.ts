@@ -216,3 +216,28 @@ test('includeContents: none keeps earlier turns out of the model request', async
   assert.doesNotMatch(history, /SECRET-A/);
   assert.match(history, /second document/);
 });
+
+test('a caller with no model resolver still gets the framework adapters (step cap, cancel)', async () => {
+  const { LLMRegistry } = await import('@google/adk');
+  const { TracedGemini } = await import('../lib/models/registry.ts');
+  const aborted = new AbortController();
+  aborted.abort();
+  const r = await runSyndicateTurn({
+    config: {
+      syndicate_name: 'Plain',
+      memory_system: 'internal-only',
+      orchestrator: { name: 'Lead', model: 'gemini-3.1-flash-lite', instruction: 'Lead.' },
+      subagents: [],
+    } as SyndicateYamlConfig,
+    parts: [{ text: 'hi' }],
+    appName: 'test',
+    userId: 'u',
+    sessionId: 's-plain',
+    sessionService: new InMemorySessionService(),
+    signal: aborted.signal,
+    trace: false,
+  });
+  assert.equal(LLMRegistry.resolve('gemini-3.1-flash-lite'), TracedGemini);
+  assert.notEqual(r.status, 'completed');
+  assert.equal(r.llmCalls, 0);
+});

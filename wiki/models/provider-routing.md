@@ -17,7 +17,7 @@ sources:
 # Provider routing
 
 <!-- wiki:fill slot="overview" -->
-Model string routing relies on a single prefix table in `lib/models/providerMap.ts` across two distinct resolution paths. Standard entrypoints passing model names as strings rely on `registerAvailableProviders()`, which registers adapter classes into the ADK `LLMRegistry` to match string patterns such as `claude-*`, `gpt-*`, or `ollama/<model>`. In contrast, per-request paths like the [A2A server](/protocols/a2a.md) use `resolveModel()`, an instance factory that injects custom header credentials directly into new adapter instances.
+Model string routing relies on a single prefix table in `lib/models/providerMap.ts` across two distinct resolution paths. Standard entrypoints passing model names as strings rely on `registerAvailableProviders()`, which registers adapter classes into the ADK `LLMRegistry` to match string patterns such as `claude-*`, `gpt-*`, or `ollama/<model>`. In contrast, per-request paths like the [A2A server](/protocols/a2a.md) use `resolveModel()`, an instance factory that injects custom header credentials directly into new adapter instances. `runSyndicateTurn` calls `registerAvailableProviders()` itself whenever its caller passes no `compile.resolveModel`, so a string id never reaches ADK's own Gemini class, which would bypass the turn's step cap and cancellation.
 
 All provider registration must occur before constructing agents. The `LLMRegistry` maintains an internal cache for model-to-class resolutions, meaning late registration can lead to stale cache hits that fail to resolve newly available providers.
 <!-- /wiki:fill -->

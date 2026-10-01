@@ -32,7 +32,7 @@ Top-level keys:
 - `memory_extraction_rules:`: domain rules appended to the shared fact-extraction prompt in `long-term` mode, such as what to store and what to skip.
 - `dispatch:`: switches the syndicate from delegate mode to plan-dispatch routing where a classifier picks a route. In delegate mode, subagents act as tools the orchestrator calls, and the orchestrator re-emits the chosen answer. The `dispatch:` block requires `default_route` naming a declared subagent that can answer any message. It accepts `route_key`, `reason_key`, and `route_overrides` (a list of `{route, pattern, flags, reason}`). A regex match in `route_overrides` pins the route and skips the classifier.
 - `orchestrator:`: required orchestrator block.
-- `subagents:`: required list of subagent blocks; pass `[]` when no subagents exist.
+- `subagents:`: list of subagent blocks; omit it (or pass `[]`) for a single-agent syndicate.
 
 Agent block keys for the orchestrator and each subagent:
 - `name`: required valid JavaScript identifier, unique in the tree. Do not use `user`.

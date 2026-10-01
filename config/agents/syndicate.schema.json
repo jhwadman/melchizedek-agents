@@ -182,6 +182,7 @@
       "description": "The root agent (ADK LlmAgentConfig)."
     },
     "subagents": {
+      "description": "The orchestrator's team. Omit it (or write `subagents: []`) for a single-agent syndicate.",
       "type": "array",
       "items": {
         "type": "object",
@@ -389,8 +390,7 @@
             "a2a_agent_url"
           ]
         }
-      },
-      "description": "The orchestrator's team. Use `subagents: []` for a single-agent syndicate."
+      }
     },
     "dispatch": {
       "type": "object",
@@ -495,8 +495,7 @@
   },
   "required": [
     "syndicate_name",
-    "orchestrator",
-    "subagents"
+    "orchestrator"
   ],
   "additionalProperties": false,
   "description": "A Melchizedek syndicate definition (lib/loadSyndicate.ts).",

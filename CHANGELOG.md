@@ -24,11 +24,15 @@ the starter pack and the templates), not the repo's full history.
   ids listed in `A2A_REGISTRY_AGENTS`; a registry miss is a 404 and a
   registry failure a 503, never a silent fallback to the file. The shipped
   `examples/` and `templates/` answer only ids listed in `A2A_SERVED_AGENTS`.
-- **Syndicate YAML is validated at load.** Unknown keys, a missing
-  `subagents:` (write `subagents: []`), an invalid `memory_system`, a
+- **Syndicate YAML is validated at load.** Unknown keys, an invalid
+  `memory_system`, a
   `dispatch.default_route` naming no subagent, and similar mistakes now
   throw one error listing every problem with its key path and a did-you-mean
-  suggestion. They used to load and fail later, or silently.
+  suggestion. They used to load and fail later, or silently. `subagents:`
+  may be omitted for a single-agent syndicate; it reads as `[]`.
+- **`runSyndicateTurn` registers the framework's model adapters** when the
+  caller passes no `compile.resolveModel`, so `max_steps` and cancellation
+  hold for a string model id too (ADK's own Gemini class bypassed both).
 - **The agent card is A2A 1.0** (`supportedInterfaces`), served to 0.3
   clients in the 0.3 shape; requests in either version work
   (`@a2a-js/sdk` 1.3 with 0.3 compatibility). File parts are rejected

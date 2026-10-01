@@ -38,6 +38,7 @@ import { collectGrounding, describeGrounding, newGroundingState, webSourcesLine 
 import { resolveGuards } from '../guards/index.ts';
 import { collectGuards } from '../loadSyndicate.ts';
 import type { SubagentYamlConfig, SyndicateYamlConfig } from '../loadSyndicate.ts';
+import { registerAvailableProviders } from '../models/registry.ts';
 import { traceAgentRun } from '../observability/tracer.ts';
 import { ProjectedSessionService, renderTranscriptDigest } from '../session/transcript.ts';
 import { RemoteA2AAgent, remoteContextId, remoteToolOutput } from '../a2a/remoteAgent.ts';
@@ -329,6 +330,11 @@ export function echoesToolName(text: string, toolNames: Iterable<string>): boole
  */
 export async function runSyndicateTurn(opts: SyndicateTurnOptions): Promise<SyndicateTurnResult> {
   const { config } = opts;
+  // A model id given as a string resolves through ADK's LLMRegistry. Without
+  // the framework's adapters registered there, Gemini would be ADK's own
+  // class, which bypasses traceLlmGeneration: no max_steps, no cancel. A
+  // caller that resolves models itself (the A2A server) is left alone.
+  if (!opts.compile?.resolveModel) registerAvailableProviders();
   const control = createTurnControl({
     maxLlmCalls: opts.maxLlmCalls ?? config.max_steps,
     deadlineMs: opts.deadlineMs,
