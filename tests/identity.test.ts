@@ -22,7 +22,7 @@ import type { Server } from 'node:http';
 import { InMemorySessionService, setLogLevel, LogLevel } from '@google/adk';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 
-import { createA2AApp } from '../lib/a2a/app.ts';
+import { createA2AApp, currentRequestContext } from '../lib/a2a/app.ts';
 import { deriveUserId } from '../lib/a2a/executor.ts';
 import {
   callerTokens,
@@ -177,6 +177,10 @@ async function serve(options: Record<string, unknown>) {
       },
     },
     resolveModel: () => echo(),
+    // An operator-only adopter route, the way a deployment mounts its own.
+    routes: (app: any) =>
+      app.post('/v1/operator-only', (_req: any, res: any) =>
+        res.status(currentRequestContext()?.operator ? 200 : 403).json({ caller: currentRequestContext()?.caller })),
     log: () => {},
     warn: () => {},
     ...options,
@@ -227,12 +231,11 @@ test('a caller token on the old silo reaches the conversation the shared secret 
     const ymir = { Authorization: `Bearer ${YMIR}`, 'X-API-Key': MODEL_KEY };
     assert.doesNotMatch((await send(url, ymir, 'ymir here', ctx)).answer ?? '', /first, over the shared secret/);
 
-    // x-packet is an operator route: caller tokens and the shared secret pass
-    // the gate (400 here: no tickers), and are not refused with 403.
-    const xp = (h: Record<string, string>) =>
-      fetch(`${url}/v1/x-packet`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{"tickers":[]}' }).then((r) => r.status);
-    assert.equal(await xp(penguin), 400);
-    assert.equal(await xp(legacy), 400);
+    // Caller tokens and the shared secret are operator credentials.
+    const op = (h: Record<string, string>) =>
+      fetch(`${url}/v1/operator-only`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{}' }).then((r) => r.status);
+    assert.equal(await op(penguin), 200);
+    assert.equal(await op(legacy), 200);
 
     // Erasure follows the authenticated scope.
     assert.deepEqual(await erasedScope(url, penguin), { scopeKey: SILO, includeNested: true });
@@ -265,8 +268,8 @@ test('a JWT caller runs in server key mode with the token as the user', async ()
     assert.equal((await send(url, bearer, 'hi', 'c1')).status, 200);
     assert.deepEqual(await erasedScope(url, { ...bearer, 'X-User-Id': 'someone-else' }), { scopeKey: 'user-9', includeNested: false });
     assert.equal((await send(url, { Authorization: `Bearer ${await token({ sub: 'u' }, { exp: '-10m' })}` }, 'hi', 'c1')).status, 401);
-    const xp = await fetch(`${url}/v1/x-packet`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...bearer }, body: '{"tickers":["AAPL"]}' });
-    assert.equal(xp.status, 403, 'an end user’s JWT may not spend the operator’s X budget');
+    const op = await fetch(`${url}/v1/operator-only`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...bearer }, body: '{}' });
+    assert.equal(op.status, 403, 'an end user’s JWT is not an operator credential');
     assert.equal((await fetch(`${url}/.well-known/agent-card.json`)).status, 401, 'a card is not public');
     const card = (await (await fetch(`${url}/.well-known/agent-card.json`, { headers: bearer })).json()) as any;
     assert.match(JSON.stringify(card.securitySchemes?.bearer ?? {}), /JWT/);
@@ -290,13 +293,13 @@ test('a trusted header needs the server secret, and is read only behind it', asy
   }
 });
 
-test('x-packet in plain secret mode: served behind the secret, refused without one', async () => {
+test('plain secret mode: the secret is an operator credential; no secret, no operator', async () => {
   const xp = (url: string, h: Record<string, string>) =>
-    fetch(`${url}/v1/x-packet`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{"tickers":[]}' }).then((r) => r.status);
+    fetch(`${url}/v1/operator-only`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{}' }).then((r) => r.status);
   const gated = await serve({ serverSecret: SECRET, keyMode: 'server' });
   const open = await serve({ keyMode: 'server' });
   try {
-    assert.equal(await xp(gated.url, { Authorization: `Bearer ${SECRET}` }), 400);
+    assert.equal(await xp(gated.url, { Authorization: `Bearer ${SECRET}` }), 200);
     assert.equal(await xp(open.url, {}), 403);
   } finally {
     gated.srv.close();

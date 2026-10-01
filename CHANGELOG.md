@@ -43,6 +43,9 @@ the starter pack and the templates), not the repo's full history.
 - **The server no longer prints conversation content** (`[OTEL_SPAN_JSON]`
   lines) unless `OTEL_CONSOLE_SPANS=true`.
 - **Node `>=22.6`** (type stripping); production runs the compiled bins.
+- **`POST /v1/x-packet` and `lib/tools/xPacket.ts` left the engine.** They
+  were one deployment's route. Mount your own routes with `routes`, or with
+  `startServer(name, { routes })` from the new `melchizedek-agents/server`.
 
 ### The engine as a library
 
@@ -124,9 +127,8 @@ the starter pack and the templates), not the repo's full history.
   - In code: `createA2AApp({ ...callerTokens(parseCallers(spec)) })`, or
     `jwtIdentity`, `trustedHeader`, `sharedSecret`, `firstOf`.
   - `RequestIdentity.operator` marks an operator-issued credential (a caller
-    token, the server secret). Operator routes such as `POST /v1/x-packet`
-    require it, so an end user's JWT or gateway identity cannot spend the
-    operator's X budget.
+    token, the server secret); an adopter route reads it through
+    `currentRequestContext()` to refuse end users (a JWT, a gateway identity).
 - **Governance** (ADR 0026):
   - `runSyndicateTurn` returns `usage`: model calls plus input, output and
     thinking tokens, summed over every agent in the turn.

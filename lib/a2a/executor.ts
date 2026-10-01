@@ -50,7 +50,7 @@ export interface A2AContext {
   ownsNested?: boolean;
   /** A backend the operator issued a credential to (a caller token, the
    *  server secret), as opposed to an end user (a JWT, a gateway header).
-   *  Operator-only routes (/v1/x-packet) check it. */
+   *  Operator-only adopter routes check it. */
   operator?: boolean;
 }
 

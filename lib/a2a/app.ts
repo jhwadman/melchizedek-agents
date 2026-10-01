@@ -15,8 +15,8 @@
  *   5. BYOK headers → per-request AsyncLocalStorage context. Agent-card GETs
  *      are exempt from X-API-Key: discovery must not require a model key.
  *   6. Task rate limiter (POSTs only; polling GETs are exempt).
- *   7. Routes: DELETE /memory, POST /v1/x-packet, the default syndicate at
- *      /a2a/*, and every other syndicate at /:agentId/a2a/*.
+ *   7. Routes: the adopter's own (`routes`), DELETE /memory, the default
+ *      syndicate at /a2a/*, and every other syndicate at /:agentId/a2a/*.
  *
  * State that is per-process (documented, not hidden): the A2A task store,
  * the handler cache, the rate-limiter counters. Sessions and memory are
@@ -42,7 +42,6 @@ import type { SyndicateYamlConfig } from '../loadSyndicate.ts';
 import { providerForModel, resolveModel } from '../models/registry.ts';
 import type { ProviderId } from '../models/registry.ts';
 import { createSupabaseServices, hasSupabaseCredentials } from '../persistence/supabaseProvider.ts';
-import { buildXPacket, normalizeTickers } from '../tools/xPacket.ts';
 import { eraseScope } from '../memory/erase.ts';
 import type { EraseCounts } from '../memory/erase.ts';
 import { namespacedMemoryService } from '../memory/namespace.ts';
@@ -189,8 +188,8 @@ export interface RequestIdentity {
   /** The scope owns `<scopeKey>/…` beneath it (a caller's end users), so an
    *  erasure with no end user removes those too. */
   ownsNested?: boolean;
-  /** An operator-issued credential (a backend), not an end user: may use
-   *  operator routes such as /v1/x-packet. */
+  /** An operator-issued credential (a backend), not an end user: what an
+   *  operator-only adopter route checks (`currentRequestContext().operator`). */
   operator?: boolean;
 }
 
@@ -759,29 +758,6 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       warn(`Erasure failed: ${msg}`);
-      res.status(503).json({ error: msg });
-    }
-  });
-
-  // POST /v1/x-packet — a deterministic cashtag chatter packet for an
-  // operator pipeline. It spends the operator's X_BEARER_TOKEN, so it is
-  // served only to operator credentials (the server secret, a caller
-  // token), never to an end user's JWT or gateway identity.
-  app.post('/v1/x-packet', async (req, res) => {
-    if (!requestContextStorage.getStore()?.operator) {
-      res.status(403).json({ error: 'x-packet is for operator callers: the server secret or a caller token.' });
-      return;
-    }
-    const { ok, refused } = normalizeTickers(req.body?.tickers);
-    if (ok.length === 0) {
-      res.status(400).json({ error: 'Body must be {"tickers": ["SYM", ...]} with cashtag-shaped symbols.', refused });
-      return;
-    }
-    try {
-      res.json({ ...(await buildXPacket(ok)), ...(refused.length ? { refused } : {}) });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      warn(`x-packet failed: ${msg}`);
       res.status(503).json({ error: msg });
     }
   });

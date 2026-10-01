@@ -28,10 +28,10 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 
 | Kind | Id form | Now | What it is |
 |---|---|---|---|
-| `module` | `module:<name>` | 113 | one source module |
+| `module` | `module:<name>` | 112 | one source module |
 | `agent` | `agent:<name>` | 109 | one orchestrator or subagent inside a syndicate |
 | `doc` | `/dir/doc.md` | 90 | a concept document in the bundle — identity is its bundle path |
-| `env` | `env:<name>` | 87 | an environment variable the code reads |
+| `env` | `env:<name>` | 86 | an environment variable the code reads |
 | `file` | `file:<name>` | 67 | a repo file that is not a source module (DDL, config, prose) |
 | `script` | `script:<name>` | 51 | an npm script entrypoint |
 | `tool` | `tool:<name>` | 40 | a tool an agent may declare by name |
@@ -50,10 +50,10 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 
 | Relation | Tier | Reads as | Now | Meaning |
 |---|---|---|---|---|
-| `imports` | extracted | A imports B | 327 | a static import edge between source files |
+| `imports` | extracted | A imports B | 325 | a static import edge between source files |
 | `links_to` | extracted | A links to B | 186 | a resolved markdown link between documents |
 | `derives_from` | extracted | A derives from B | 169 | declared in the document’s `sources:` frontmatter |
-| `requires_env` | extracted | A requires B | 142 | this environment variable must be set for the node to work |
+| `requires_env` | extracted | A requires B | 141 | this environment variable must be set for the node to work |
 | `uses_tool` | extracted | A calls B | 129 | the agent declares this tool by name |
 | `contains` | extracted | A contains B | 109 | the first is composed of the second |
 | `uses_model` | extracted | A runs on B | 109 | the agent is configured with this model id |
