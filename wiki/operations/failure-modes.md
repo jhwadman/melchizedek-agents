@@ -10,17 +10,20 @@ generated:
   at: 2026-07-26
 sources:
   - resource: QUICKSTART.md
-    title: 'Common Errors & Fixes'
+    title: 'Common first-run errors'
   - resource: lib/config.ts
+  - resource: lib/models/retry.ts
+  - resource: lib/a2a/app.ts
+  - resource: lib/a2a/executor.ts
 ---
 
 # Failure modes
 
 ## `503 ServiceUnavailable` on inference
 
-The model id doesn't exist on the AI Studio endpoint or the account tier lacks access. Use `gemini-3.8-flash` or `gemini-3.1-flash-lite`; identifiers are case-sensitive and must match the AI Studio model list exactly. A 503 whose message says "high demand" on a VALID model id is different: Google's capacity spike, transient — and the framework now retries it for you. Every provider gets the same policy (`lib/models/retry.ts`): 3 attempts in total (`MODEL_RETRY_MAX_ATTEMPTS`, 1 disables), full-jitter backoff from 500 ms to an 8 s ceiling, on 408/409/425/429/500/502/503/504 and connection resets — never on any other 4xx, and never on a refused connection (a stopped Ollama is reported at once). A `Retry-After` (or Gemini's `retryDelay`) is waited out up to 60 s; longer than that means a quota waiting won't fix, so the call fails immediately. A cancel or deadline wakes the backoff and stops the retries, and nothing is retried once the reply has started streaming, so a retry never repeats text. Gemini and the chat-completions path (Ollama, gateways) use the shared helper; Claude and GPT/Grok keep their SDKs' equivalent two retries. Each `llm.request` span records `llm.retries` and `llm.http_status`, so a ledger row shows whether a turn survived a 503 or died of one. If a 503 still surfaces after all that, the spike outlasted every attempt: retry later.
+The model id doesn't exist on the AI Studio endpoint or the account tier lacks access. Use `gemini-3.8-flash` or `gemini-3.1-flash-lite`; identifiers are case-sensitive and must match the AI Studio model list exactly. A 503 whose message says "high demand" on a VALID model id is different: Google's capacity spike, transient — and the framework retries it for you. Every provider gets the same policy (`lib/models/retry.ts`): 3 attempts in total (`MODEL_RETRY_MAX_ATTEMPTS`, 1 disables), full-jitter backoff from 500 ms to an 8 s ceiling, on 408/409/425/429/500/502/503/504 and connection resets — never on any other 4xx, and never on a refused connection (a stopped Ollama is reported at once). A `Retry-After` (or Gemini's `retryDelay`) is waited out up to 60 s; longer than that means a quota waiting won't fix, so the call fails immediately. A cancel or deadline wakes the backoff and stops the retries, and nothing is retried once the reply has started streaming, so a retry never repeats text. Gemini and the chat-completions path (Ollama, gateways) use the shared helper; Claude and GPT/Grok keep their SDKs' equivalent two retries. Each `llm.request` span records `llm.retries` and `llm.http_status`, so a ledger row shows whether a turn survived a 503 or died of one. If a 503 still surfaces after all that, the spike outlasted every attempt: retry later.
 
-A failed turn's reason now reaches the surface: `failTask` embeds the upstream provider message via `describeTurnError` (`scripts/a2a_server.ts` — JSON ApiError blobs unwrapped, 300-char cap) in the task's `status.message`, and the Discord client renders it. Before 2026-08-27 the user saw `Agent task TASK_STATE_FAILED: Unknown error` for every failure, whatever the cause.
+A failed turn's reason reaches the caller: the [A2A server](/protocols/a2a.md) publishes the failed task with a status message of the form `Error: [<code>] The agent run failed — <reason>`, built by `describeFailedTurn` and `describeTurnError` in `lib/a2a/executor.ts` (the upstream provider message, JSON ApiError blobs unwrapped, capped at 300 characters), so a client can show the cause verbatim.
 
 ## `400` — "tool call context circulation not enabled"
 
@@ -36,7 +39,7 @@ The [A2A server](/protocols/a2a.md) is in BYOK mode (`A2A_KEY_MODE=byok`), where
 
 ## `Unauthorized: Missing or invalid Authorization Bearer token`
 
-The request carries no bearer, or one the configured `A2A_AUTH` does not accept: the server secret, this caller's token from `A2A_CALLERS` (stored as its SHA-256, so compare hashes, not tokens), or a JWT whose issuer, audience or expiry fails. A refused JWT logs its reason as `resolveRequest refused …`. Send `Authorization: Bearer <credential>`. Unsetting it makes the server bind `127.0.0.1` only. Thirty failed attempts from one IP in 15 minutes block that IP for the window (`A2A_AUTH_FAILURE_MAX`).
+The request carries no bearer, or one the configured `A2A_AUTH` does not accept: the server secret, this caller's token from `A2A_CALLERS` (stored as its SHA-256, so compare hashes, not tokens), or a JWT whose issuer, audience or expiry fails. A refused JWT logs its reason as `resolveRequest refused …`. Send `Authorization: Bearer <credential>`. A server with no credential configured has authentication off and binds `127.0.0.1` only. Thirty failed attempts from one IP in 15 minutes block that IP for the window (`A2A_AUTH_FAILURE_MAX`).
 
 ## `STEP_LIMIT`, `DEADLINE_EXCEEDED`, `CANCELED`
 

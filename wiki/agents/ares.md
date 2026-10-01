@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-20
+  at: 2026-10-01
 sources:
   - resource: config/agents/examples/ares.yaml
 ---
@@ -14,10 +14,10 @@ sources:
 # Ares Data Extractor
 
 <!-- wiki:fill slot="charter" -->
-The Ares Data Extractor syndicate exists to exercise the long-term memory pipeline end to end: session events are distilled into dated, sourced records in Supabase (pgvector), and recalled on the next session through `preload_memory` and `load_memory`. Ares is a strategist for one user that answers from those records under a memory doctrine: records are the truth, an empty recall is said out loud ("I have nothing saved about that yet."), and newer records supersede older ones. Research it cannot answer from memory goes to the WarScribe subagent, which returns a capped, sourced briefing. Run it twice, telling it something in the first session and asking in the second, to watch a fact survive the process.
+The Ares Data Extractor syndicate exists to exercise the long-term memory pipeline end to end: session events are distilled into dated, sourced records in Supabase (pgvector), and recalled on the next session through `preload_memory` and `load_memory`. Ares is a strategist for one user that answers from those records under a memory doctrine: records are the truth, an empty recall is said out loud ("I have nothing saved about that yet."), and newer records supersede older ones. Anything that must be current or sourced goes to the WarScribe subagent, which answers from `google_search` alone and returns a dated, sourced briefing of at most 150 words. Run it twice, telling it something in the first session and asking in the second, to watch a fact survive the process.
 <!-- /wiki:fill -->
 
-<!-- wiki:generated section="composition" source="config/agents/ares.yaml" -->
+<!-- wiki:generated section="composition" source="config/agents/examples/ares.yaml" -->
 Run: `npm run syndicate:ares`
 
 - memory: `long-term`

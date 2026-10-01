@@ -13,7 +13,7 @@ generated:
 sources:
   - resource: lib/loadSyndicate.ts
   - resource: lib/a2a/app.ts
-  - resource: scripts/deploy_agent.ts
+  - resource: scripts/a2a_server.ts
 ---
 
 # ADR 0018: Agent files are the source of truth; the registry is opt-in, explicit, versioned and loud
@@ -41,6 +41,8 @@ The public package shipped the registry preference but neither the table definit
 5. **Validation happens at publish** with the same schema the loader uses, and again at load.
 6. **A syndicate is versioned as a unit.** Nested references from a registry-loaded syndicate resolve from the registry version that named them.
 7. **The registry is a storage plug point** ([ADR 0021](/decisions/0021-postgres-first-storage.md)), off unless configured. Its table ships in the migrations, and the publishing tool ships with it.
+
+> **Note (2026-10-01):** Items 1 to 3 and the load-time validation are implemented. Items 4, 6 and 7 are not yet: `loadSyndicateFromRegistry` reads one `yaml_content` row per id through supabase-js, with no versions, author or active pointer; nested references still load from files; the table is not in `db/migrations/` (only `db/hardening.sql` locks it down), and no publishing tool ships in this repository, see [ADR 0021](/decisions/0021-postgres-first-storage.md).
 
 ## Alternatives considered
 

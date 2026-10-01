@@ -11,10 +11,8 @@ generated:
   by: claude-code/claude-fable-5
   at: 2026-08-22
 sources:
-  - resource: observatory/calibration.py
-  - resource: observatory/gate.py
-  - resource: observatory/judges/pairwise.py
-  - resource: lib/evals/toolReplay.ts
+  - resource: db/telemetry.sql
+  - resource: lib/runtime/syndicateTurn.ts
 ---
 
 # ADR 0010: A judgment is evidence only with a confidence interval, a human check, and a hash
@@ -26,6 +24,8 @@ sources:
 ## Decision
 
 Five rules, each implemented as code rather than as advice.
+
+> **Note (2026-10-01):** The code that implements these rules (labelling, `calibrate`, pairwise judges, tool replay and `observatory gate`) lives in a separate evaluation repository, and the registry publish script that consults the gate is not part of this repository. This repository ships the tables they write (`adk_verdicts`, `adk_labels` in `db/telemetry.sql`) and the turn runner's hook for injected tool responses, see [ADR 0022](/decisions/0022-public-source-of-truth.md).
 
 **Every number carries its uncertainty.** Pass rates and mean scores report a seeded bootstrap confidence interval; variant comparisons are paired by case with a CI on the difference and an explicit `significant` flag. Three cases will almost never be significant, and the report says so.
 

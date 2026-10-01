@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-09-02
+  at: 2026-10-01
 sources:
   - resource: config/agents/examples/scriptorium.yaml
 ---
@@ -19,7 +19,7 @@ The Scriptorium maintains the framework's knowledge bundle (see [/meta/wiki-syst
 Run `npm run syndicate:scriptorium` when visitors need to query what the house knows or record new framework concepts, editorial revisions, or architectural decisions into the knowledge graph.
 <!-- /wiki:fill -->
 
-<!-- wiki:generated section="composition" source="config/agents/scriptorium.yaml" -->
+<!-- wiki:generated section="composition" source="config/agents/examples/scriptorium.yaml" -->
 Run: `npm run syndicate:scriptorium`
 
 - memory: `internal-only`

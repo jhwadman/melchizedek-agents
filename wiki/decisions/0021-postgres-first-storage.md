@@ -48,11 +48,17 @@ There was no plain-Postgres path and no migrations; the base schema existed only
 | Limits and budgets | Counters table |
 | Agent registry | Versioned rows ([ADR 0018](/decisions/0018-files-are-the-source-of-truth.md)) |
 
+> **Note (2026-10-01):** `postgresStorage({ connectionString })` holds sessions (an append-only events table, appended under a row lock), memory, owner-scoped A2A tasks and erasure, and budget counters live in `melchizedek_usage`. Not yet on it: the job queue (the task tools keep a local JSON store), task leases, a per-conversation turn lock, and the agent registry, see [ADR 0018](/decisions/0018-files-are-the-source-of-truth.md).
+
 2. **It works on any Postgres:** Supabase through its connection string, RDS, Cloud SQL, AlloyDB, or on-premises. Tables live in a configurable private schema (default `melchizedek`), so no anon REST path exists.
 3. **Schema changes are numbered, idempotent migrations** in `db/migrations/`, shipped in the package and applied by `melchizedek db migrate`. A version table lets the server refuse a schema it does not match. The Markdown copies of the schema are generated from these files.
+
+> **Note (2026-10-01):** The migrations create their tables in the `public` schema, so the configurable private schema is not built yet and `db/hardening.sql` still applies. They are applied with `melchizedek-db apply` (`npm run db -- apply`), and the server does not yet check `melchizedek_schema_version`, see [ADR 0026](/decisions/0026-governance-policy-and-visibility.md).
 4. **Topology follows configuration.** With in-memory defaults the supported deployment is one instance. With Postgres storage plugged in, multiple instances are supported. Health and readiness routes and a draining shutdown exist in both.
 5. **Redis is an optional adapter for the limits plug point only,** for request rates Postgres counters do not suit. An adopter may also set limits off and let an API gateway enforce them.
 6. **`supabase-js` storage is deprecated.** It stays for one transition period, then is removed.
+
+> **Note (2026-10-01):** No Redis adapter exists yet, and supabase-js storage is still the server's default whenever Supabase credentials are set and `DATABASE_URL` is not, see [ADR 0017](/decisions/0017-plug-points.md).
 
 ## Alternatives considered
 

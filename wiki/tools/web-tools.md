@@ -29,6 +29,8 @@ Because the agent picks the URL, `web_extract` is the framework's main outbound 
 | `x_api_search` | `query?`, `post?`, `days?`, `sort?`, `max_results?`, `read_images?` | Search X (Twitter) posts from the last 7 days through the X API and read the pictures. |
 <!-- /wiki:generated -->
 
-`web_search`, `x_search`, and `collections_search` are not contracts — they are sentinels that enable each provider's native server-side search (see [provider routing](/models/provider-routing.md)). Only `web_extract` executes client-side, which is why it alone runs keyless on local models.
+`x_api_search` reads X through the X API v2 recent search: one page of the last seven days per call, each post verbatim with handle, date, metrics and URL. It is a boolean keyword match, not a semantic search. Passing an x.com status link or id as `post` reads that one post. Each attached photo is fetched only from the API's media host and transcribed beneath its post by a Gemini vision pass; `read_images: false` turns that off. It needs `X_BEARER_TOKEN` in the server environment, and `X_API_MAX_RESULTS` can lower the page size. Without the token it returns an UNAVAILABLE line instead of throwing.
+
+`web_search`, `x_search`, and `collections_search` are not contracts — they are sentinels that enable each provider's native server-side search (see [provider routing](/models/provider-routing.md)). `web_extract` and `x_api_search` execute client-side, so they work on any provider; `web_extract` alone needs no key and runs on local models.
 
 A route no agent calls (a deployment's own HTTP endpoint over the same X API, say) does not belong in the engine: a deployment mounts it through `createA2AApp`'s `routes` option, or `startServer(name, { routes })` from `melchizedek-agents/server`, and checks `currentRequestContext().operator` when only operator credentials may spend the quota behind it.

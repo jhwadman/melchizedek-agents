@@ -414,11 +414,21 @@ export function setSlotContent(raw: string, slotId: string, content: string): st
 }
 
 /** Splice `content` between a generated block's markers. Null when absent. */
-export function setGeneratedContent(raw: string, blockId: string, content: string): string | null {
+export function setGeneratedContent(
+  raw: string,
+  blockId: string,
+  content: string,
+  source?: string,
+): string | null {
   const doc = parseDoc(raw);
   const block = doc.generated.find((b) => b.id === blockId);
   if (!block) return null;
   const lines = raw.split('\n');
+  // A source that moved (a file relocated in the repo) rewrites the opening
+  // marker too, so the attribution never outlives the file it names.
+  if (source !== undefined && block.source !== source) {
+    lines[block.startLine - 1] = generatedBlock(blockId, source, '').split('\n')[0];
+  }
   return [
     ...lines.slice(0, block.startLine),
     content.trim(),

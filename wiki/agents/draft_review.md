@@ -14,7 +14,11 @@ sources:
 # Draft Review
 
 <!-- wiki:fill slot="charter" -->
-_TODO(fill): why this syndicate exists, what it does well, and when to run it — from the YAML header comment and the orchestrator instruction_
+Draft Review is the template for outbound writing that must follow rules: a customer reply, a release announcement, a policy notice, a product description. A Drafter writes from the brief, a Reviewer checks the draft against the `policy` variable rule by rule, and the Editor runs the loop. The Editor never writes, edits or reviews text itself.
+
+The loop is bounded. The Reviewer's reply begins with a fixed token, APPROVED or REVISE, so the stop condition is read from text. Each Reviewer call opens with "Round n of N", so the Editor reads the count from the transcript. The cap is `max_rounds` (2 as shipped) in the Editor's prompt, and `max_steps: 14` enforces it in code. When the cap is reached without approval, the reply starts "NOT APPROVED: open issues below" and lists the Reviewer's open items. A brief that lacks a fact gets a `[NEEDS: …]` placeholder from the Drafter. The Reviewer fails any draft that holds one, and the Editor stops early, because a revision cannot supply the fact.
+
+Memory is `internal-only`: each piece of writing is one sitting. Copy it, put your style guide, legal lines and banned claims in `policy` as checkable rules, and consider a different provider for the Reviewer so the two agents do not share blind spots. [Critic Review](/agents/critic.md) teaches the same loop with a numeric confidence score instead of a checklist.
 <!-- /wiki:fill -->
 
 <!-- wiki:generated section="composition" source="config/agents/templates/draft_review.yaml" -->

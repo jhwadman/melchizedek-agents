@@ -483,9 +483,13 @@ JSON); `file` parts are refused.
 
 #### What is per-process
 
-Tasks, the per-agent config cache (a config change needs a restart) and the
-rate-limit counters live in the process. Run one replica, or route each
-conversation to one replica, until the task store is durable.
+The per-agent config cache (a config change needs a restart), the
+rate-limit counters, the concurrency count and the memory high-water mark
+always live in the process. Tasks do too unless `DATABASE_URL` is set: then
+Postgres holds sessions, memory, A2A tasks and budget counters, and several
+replicas are safe behind one load balancer (rate limits and the concurrency
+cap then apply per replica). With Supabase only, or no store, run one
+replica.
 
 #### Posture at boot
 

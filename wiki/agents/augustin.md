@@ -14,12 +14,12 @@ sources:
 # Augustin
 
 <!-- wiki:fill slot="charter" -->
-Augustin is the fact-checking arbiter of world events: the user brings an event, a controversy or a claim, and the syndicate returns the true narrative as far as the record supports one — a conversational lead, then the load-bearing facts as sourced bullets. It is melch-research's daily bias-arbiter pattern (X sweep → web validation → tool-free arbitration) folded into one live DELEGATE syndicate. The Arbiter MUST consult both researchers on every substantive question and builds the answer from their two reports alone; the collectors never interpret and the Arbiter never collects.
+Augustin is a fact-checking arbiter of world events. The user brings an event, a controversy or a claim, and the syndicate returns the narrative as far as the record supports one: a conversational lead, then the load-bearing facts as sourced bullets. Its shape is an arbiter pattern (X sweep, then web validation, then tool-free arbitration) in one DELEGATE syndicate. The Arbiter must consult both researchers on every substantive question, X first and the web second, and builds the answer from their two reports alone. The researchers collect and never interpret; the Arbiter never collects. A claim stands as bare fact only when both channels support it or a primary source confirms it.
 
-XResearcher reads X through `x_api_search` — the X API v2 recent search called directly, one dated page per query, every attached photo transcribed beneath its post by a Gemini vision pass — so the X channel runs on Gemini and needs `X_BEARER_TOKEN` in the server environment rather than a grok-* model and an XAI key (2026-09-20). What a picture says enters the record as the image's word: single-source until WebResearcher confirms it. This page is built from the starter-pack copy, `config/agents/examples/augustin.yaml`; a deployment may serve its own edited copy from the agent registry as `registry:augustin` ([ADR 0018](/decisions/0018-files-are-the-source-of-truth.md)).
+XResearcher reads X through `x_api_search`, a client-side tool over the X API v2 recent search: one page of the last seven days per query, with every attached photo transcribed beneath its post by a Gemini vision pass. The X channel therefore runs on any provider; it needs `X_BEARER_TOKEN` in the server environment. Text read from a picture enters the record as the image's word, single-source until WebResearcher confirms it. WebResearcher validates with `web_search` and `web_extract`. Callers prefix each message with the current date and keep one `contextId` per conversation. A deployment may serve its own edited copy from the agent registry as `registry:augustin` ([ADR 0018](/decisions/0018-files-are-the-source-of-truth.md)).
 <!-- /wiki:fill -->
 
-<!-- wiki:generated section="composition" source="config/agents/augustin.yaml" -->
+<!-- wiki:generated section="composition" source="config/agents/examples/augustin.yaml" -->
 Run: `npm run syndicate:augustin`
 
 - memory: `session-only`

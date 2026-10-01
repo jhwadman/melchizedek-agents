@@ -125,11 +125,24 @@ export function refreshDoc(
     raw = replaceFrontmatterBlock(raw, merged);
   }
 
-  // Machine-owned regions: rewrite interiors; append blocks the doc lacks.
+  // Machine-owned regions: rewrite interiors; a block the doc lacks goes
+  // after the spec's previous generated block when the doc has it (so a new
+  // migration lands beside its siblings), else at the end.
+  let prevGenerated: string | null = null;
   for (const part of spec.body) {
     if (part.kind === 'generated') {
-      const next = setGeneratedContent(raw, part.id, part.markdown);
-      raw = next ?? `${raw.trimEnd()}\n\n${generatedBlock(part.id, part.source, part.markdown)}\n`;
+      const next = setGeneratedContent(raw, part.id, part.markdown, part.source);
+      const block = generatedBlock(part.id, part.source, part.markdown);
+      const anchor = prevGenerated === null ? undefined : parseDoc(raw).generated.find((b) => b.id === prevGenerated);
+      if (next !== null) {
+        raw = next;
+      } else if (anchor) {
+        const lines = raw.split('\n');
+        raw = [...lines.slice(0, anchor.endLine), '', block, ...lines.slice(anchor.endLine)].join('\n');
+      } else {
+        raw = `${raw.trimEnd()}\n\n${block}\n`;
+      }
+      prevGenerated = part.id;
     }
     if (part.kind === 'fill') {
       const present = parseDoc(raw).slots.some((s) => s.id === part.id);

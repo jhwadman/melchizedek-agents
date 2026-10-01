@@ -22,13 +22,13 @@ Search first — `wiki_search`, then `wiki_read` the near-misses. Revising an ex
 
 ## Planting
 
-Placement: overviews in `/overview/`, per-system docs in their subsystem directory, procedures in `/operations/`, judgments as ADRs in `/decisions/` (next number, `status: stable`, supersede by adding a new ADR — never rewrite history), never-exported knowledge under `/private/`.
+Placement: overviews in `/overview/`, per-system docs in their subsystem directory, procedures in `/operations/`, judgments as ADRs in `/decisions/` (next number, `status: stable`, supersede by adding a new ADR — never rewrite history), knowledge that must never be published under `/private/` (a published copy leaves that annex out).
 
 A concept document is: frontmatter (`type` from the [profile vocabulary](/meta/wiki-system.md), `title`, `description`, `tags`, `sources` naming what it derives from), an H1, short sections, and **generous bundle-absolute links to documents you confirmed exist** — an unlinked doc is flagged as an orphan.
 
 ## The gate
 
-Every write goes through `wiki_save` (directly, over MCP, or via an agent). It rejects on lint errors — missing/invalid frontmatter, wikilink syntax, links escaping the bundle, public→`/private/` links — and reports advisories (broken links, orphaning) it will accept. On success it refreshes the directory index and appends to `/log.md` with your actor id (`human:<your name>`, or `<producer>/<model>` for agents). Indexes and `log.md` are never written by hand.
+Every write goes through `wiki_save` (directly, over MCP, or via an agent). It rejects on lint errors — missing/invalid frontmatter, wikilink syntax, links escaping the bundle, public→`/private/` links — and reports advisories (broken links, orphaning) it will accept. On success it refreshes the directory index and appends to `/log.md` (or `/private/log.md` for a document under `/private/`) with your actor id (`human:<id>`, `process:<id>`, or `<producer>/<model>` for agents). Indexes and `log.md` are never written by hand.
 
 ## Delegating
 

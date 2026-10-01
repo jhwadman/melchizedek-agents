@@ -11,7 +11,7 @@ generated:
   at: 2026-07-26
 sources:
   - resource: lib/wiki/lint.ts
-  - resource: scripts/export-public/export.sh
+  - resource: scripts/wiki/build.ts
 ---
 
 # ADR 0003: Path-based visibility with a link-closure lint
@@ -29,6 +29,8 @@ Visibility is the **path**: everything under `/private/` stays with its owner; w
 3. **No root advertisement:** the root index does not list `/private/`; locally, `wiki_map` still shows it. The public bundle contains no evidence of what was withheld.
 
 Indexes are regenerated per-directory from same-visibility siblings, so a public index can never enumerate private docs.
+
+> **Note (2026-10-01):** The public repository has no `/private/` subtree and no export scan; a deployment keeps its private knowledge in its own repository. The closure rule still runs in `lib/wiki/lint.ts`, and the build applies forbidden patterns only when a deployment supplies its own `scripts/wiki/build.private.ts`, see [ADR 0022](/decisions/0022-public-source-of-truth.md).
 
 ## Consequences
 

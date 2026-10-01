@@ -1,7 +1,7 @@
 ---
 type: schema
 title: Memory & telemetry schema
-description: "The canonical Postgres DDL, verbatim from db/: the numbered migrations (sessions, memory facts, erase, the direct-Postgres tables), the telemetry ledger, and the row-level-security hardening."
+description: "The Postgres DDL shipped in db/, verbatim and in install order: the numbered migrations (sessions, memory facts, erase, the direct-Postgres tables, usage counters), the telemetry ledger, the row-level-security hardening and the memory_v2 upgrade."
 tags:
   - schema
   - postgres
@@ -22,7 +22,9 @@ sources:
 
 # Memory & telemetry schema
 
-The generated sections below are the db/ files verbatim, in install order. `npm run db -- apply` runs the numbered migrations, then the hardening; with the ledger enabled, telemetry.sql and the hardening again. Every migration is idempotent and records itself in `melchizedek_schema_version`. The same SQL runs on Supabase or on any Postgres with pgvector ([ADR 0021](/decisions/0021-postgres-first-storage.md)).
+The generated sections below are the db/ files verbatim: the numbered migrations in `db/migrations/`, the optional telemetry ledger, the hardening, and a legacy upgrade script. `npm run db -- apply` (the `melchizedek-db` bin; `print` emits the same SQL for the Supabase SQL Editor) runs the migrations in order, then `db/hardening.sql`; with `--telemetry`, `db/telemetry.sql` and the hardening again. Every migration is idempotent and records itself in `melchizedek_schema_version`. The same SQL runs on Supabase or on any Postgres with pgvector ([ADR 0021](/decisions/0021-postgres-first-storage.md)).
+
+One table the server can read is not created here: `adk_agent_registry`, which `registry:<id>` and `A2A_REGISTRY_AGENTS` load agent configs from. db/ ships no DDL for it; the hardening locks it down when it exists.
 
 <!-- wiki:generated section="migration-0001_base" source="db/migrations/0001_base.sql" -->
 ## Migration 0001_base
@@ -442,6 +444,107 @@ ON CONFLICT (version) DO NOTHING;
 ```
 <!-- /wiki:generated -->
 
+<!-- wiki:generated section="migration-0004_usage" source="db/migrations/0004_usage.sql" -->
+## Migration 0004_usage
+
+```sql
+-- ============================================================================
+-- 0004_usage — per-day usage counters for budgets (ADR 0026)
+-- ============================================================================
+-- One row per (UTC day, subject). A subject is 'caller:<name>' or
+-- 'scope:<SHA-256 prefix of the scope key>': no user identifier is stored.
+-- The server adds each finished task's spend with melchizedek_usage_add, one
+-- atomic upsert, so several instances share the same counts. Rows hold
+-- numbers only: no user text, no credentials.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS melchizedek_usage (
+  day             DATE        NOT NULL,
+  subject         TEXT        NOT NULL,
+  tasks           BIGINT      NOT NULL DEFAULT 0,
+  llm_calls       BIGINT      NOT NULL DEFAULT 0,
+  input_tokens    BIGINT      NOT NULL DEFAULT 0,
+  output_tokens   BIGINT      NOT NULL DEFAULT 0,
+  thinking_tokens BIGINT      NOT NULL DEFAULT 0,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (day, subject)
+);
+
+-- Adds to a subject's counters for one day and returns the new totals.
+CREATE OR REPLACE FUNCTION melchizedek_usage_add(
+  p_day      date,
+  p_subject  text,
+  p_tasks    bigint,
+  p_calls    bigint,
+  p_input    bigint,
+  p_output   bigint,
+  p_thinking bigint
+) RETURNS TABLE(tasks bigint, llm_calls bigint, input_tokens bigint, output_tokens bigint, thinking_tokens bigint)
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+  INSERT INTO melchizedek_usage AS u (day, subject, tasks, llm_calls, input_tokens, output_tokens, thinking_tokens)
+  VALUES (p_day, p_subject, p_tasks, p_calls, p_input, p_output, p_thinking)
+  ON CONFLICT (day, subject) DO UPDATE SET
+    tasks           = u.tasks + EXCLUDED.tasks,
+    llm_calls       = u.llm_calls + EXCLUDED.llm_calls,
+    input_tokens    = u.input_tokens + EXCLUDED.input_tokens,
+    output_tokens   = u.output_tokens + EXCLUDED.output_tokens,
+    thinking_tokens = u.thinking_tokens + EXCLUDED.thinking_tokens,
+    updated_at      = NOW()
+  RETURNING u.tasks, u.llm_calls, u.input_tokens, u.output_tokens, u.thinking_tokens;
+$$;
+
+-- Old days are history, not budget: keep 90 days.
+CREATE OR REPLACE FUNCTION melchizedek_prune_usage()
+RETURNS BIGINT
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+  WITH gone AS (DELETE FROM melchizedek_usage WHERE day < CURRENT_DATE - 90 RETURNING 1)
+  SELECT count(*) FROM gone;
+$$;
+
+ALTER TABLE melchizedek_usage ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON FUNCTION melchizedek_usage_add(date, text, bigint, bigint, bigint, bigint, bigint) FROM PUBLIC;
+REVOKE ALL ON FUNCTION melchizedek_prune_usage() FROM PUBLIC;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE ALL ON melchizedek_usage FROM anon;
+    REVOKE ALL ON FUNCTION melchizedek_usage_add(date, text, bigint, bigint, bigint, bigint, bigint) FROM anon;
+    REVOKE ALL ON FUNCTION melchizedek_prune_usage() FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON melchizedek_usage FROM authenticated;
+    REVOKE ALL ON FUNCTION melchizedek_usage_add(date, text, bigint, bigint, bigint, bigint, bigint) FROM authenticated;
+    REVOKE ALL ON FUNCTION melchizedek_prune_usage() FROM authenticated;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT EXECUTE ON FUNCTION melchizedek_usage_add(date, text, bigint, bigint, bigint, bigint, bigint) TO service_role;
+    GRANT EXECUTE ON FUNCTION melchizedek_prune_usage() TO service_role;
+  END IF;
+END $$;
+
+-- Nightly with the session prune, when pg_cron is available.
+DO $cron$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    PERFORM cron.schedule('melchizedek-prune-usage', '29 3 * * *', 'SELECT melchizedek_prune_usage()');
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_cron schedule skipped: %', SQLERRM;
+END
+$cron$;
+
+INSERT INTO melchizedek_schema_version (version, name)
+VALUES (4, '0004_usage')
+ON CONFLICT (version) DO NOTHING;
+```
+<!-- /wiki:generated -->
+
 <!-- wiki:generated section="telemetry-ddl" source="db/telemetry.sql" -->
 ## Telemetry ledger (optional)
 
@@ -590,7 +693,7 @@ CREATE INDEX IF NOT EXISTS idx_adk_turns_search    ON adk_turns USING gin (searc
 --
 -- Deliberately additive and deliberately NOT tied to memory: the X-User-Id
 -- header silos long-term memory, so using it to carry a Discord author id
--- would give every human their own memory silo and change what the desk
+-- would give every human their own memory silo and change what the agent
 -- remembers. Observability must not change behavior, so this is a separate
 -- channel that only ever reaches telemetry.
 --
@@ -681,7 +784,7 @@ CREATE OR REPLACE VIEW adk_turns_production AS
   SELECT * FROM adk_turns
   WHERE eval_run IS NULL AND stage IN ('delegate', 'dispatch');
 
--- ── adk_verdicts: the observatory's judgments, persisted (Phase 2) ────────
+-- ── adk_verdicts: eval-judge verdicts, persisted ─────────────────────────
 -- One row per (turn, judge, run). A re-judge with a new rubric is a new
 -- run_id beside the old one, never an overwrite: judge_hash and
 -- dataset_hash say exactly what graded what. `ref` is the turn's trace_id
@@ -718,8 +821,8 @@ CREATE INDEX IF NOT EXISTS idx_adk_verdicts_trace ON adk_verdicts (trace_id);
 CREATE INDEX IF NOT EXISTS idx_adk_verdicts_run   ON adk_verdicts (run_id);
 CREATE INDEX IF NOT EXISTS idx_adk_verdicts_judge ON adk_verdicts (suite, judge, ts DESC);
 
--- ── adk_labels: human judgments, the calibration ground truth (Phase 2) ───
--- `observatory label` writes here. A label outlives every re-judge of the
+-- ── adk_labels: human judgments, the calibration ground truth ─────────────
+-- An eval harness's labelling tool writes here. A label outlives every re-judge of the
 -- same turn; judge-versus-human agreement (Cohen's kappa) is computed by
 -- joining on ref.
 CREATE TABLE IF NOT EXISTS adk_labels (
@@ -742,11 +845,11 @@ CREATE TABLE IF NOT EXISTS adk_labels (
 );
 CREATE INDEX IF NOT EXISTS idx_adk_labels_ref ON adk_labels (ref);
 
--- ── Semantic search over turns (Phase 3) ─────────────────────────────────
+-- ── Semantic search over turns ───────────────────────────────────────────
 -- The same embedding model and dimensions as long-term memory
 -- (lib/config.ts EMBEDDING_MODEL / EMBEDDING_DIMENSIONS). Rows are embedded
 -- by `npm run telemetry:embed` (a job, not the exporter — inference stays
--- off the export path); `observatory search --semantic` queries them.
+-- off the export path); match_turns queries them.
 ALTER TABLE adk_turns ADD COLUMN IF NOT EXISTS embedding vector(768);
 DO $idx$
 BEGIN
@@ -790,7 +893,7 @@ AS $$
   LIMIT match_count;
 $$;
 
--- ── KPI views (Phase 5) ───────────────────────────────────────────────────
+-- ── KPI views ─────────────────────────────────────────────────────────────
 -- Standing daily aggregates over production turns and persisted verdicts,
 -- for dashboards (Supabase charts, Metabase, Grafana) and the alert job.
 CREATE OR REPLACE VIEW adk_kpi_daily AS
@@ -855,10 +958,10 @@ CREATE OR REPLACE VIEW adk_kpi_hourly AS
 
 ```sql
 -- ============================================================
--- Melchizedek — Database Hardening (run AFTER the schema SQL in README.md
--- and, if upgrading, after db/memory_v2.sql — order with memory_v2 does
--- not matter; the function revoke below handles either signature).
--- Paste into the Supabase SQL Editor and run once per project.
+-- Melchizedek — Database Hardening (run AFTER the numbered migrations in
+-- db/migrations/ and, if upgrading, after db/memory_v2.sql — order with
+-- memory_v2 does not matter; the function revoke below handles either
+-- signature). `npm run db -- apply` runs it last; it is idempotent.
 -- ============================================================
 --
 -- WHY THIS EXISTS
@@ -933,7 +1036,7 @@ BEGIN
   END IF;
 END $$;
 
--- Agent registry (DOCUMENTATION.md step 6). Guarded the same way: the table
+-- Agent registry (adk_agent_registry). Guarded the same way: the table
 -- only exists in deployments that boot syndicates with `registry:<id>`.
 -- Read exposure leaks every system prompt; write exposure is agent takeover.
 DO $$
@@ -947,7 +1050,7 @@ END $$;
 -- ── FUNCTIONS: no API role may execute them ──────────────────────────────
 -- Postgres grants EXECUTE on every new function to PUBLIC, and anon and
 -- authenticated inherit PUBLIC — so revoking from those two roles BY NAME
--- (what this file did before 2026-10) left the PUBLIC grant in force. Two
+-- alone would leave the PUBLIC grant in force. Two
 -- of these are SECURITY DEFINER (they bypass RLS): through the anon key,
 -- match_turns would read stored conversations and the prune functions would
 -- delete the ledger and sessions. Revoke from PUBLIC as well, then grant
@@ -1044,8 +1147,9 @@ END $$;
 -- ============================================================================
 -- memory_v2.sql — structured memory records for adk_memory_facts
 --
--- Run in the Supabase SQL Editor AFTER the base schema (README §Supabase
--- setup). Idempotent; safe to re-run. Existing rows survive: old facts get
+-- An upgrade for a database created before the numbered migrations in
+-- db/migrations/ (a fresh install gets these columns from them). Idempotent;
+-- safe to re-run. Existing rows survive: old facts get
 -- status 'active', empty keys, and NULL tag/date/source — they keep working
 -- as plain semantic memories.
 --
@@ -1121,104 +1225,3 @@ $$;
 <!-- /wiki:generated -->
 
 How the pipeline uses these tables: [memory architecture](/memory/architecture.md).
-
-<!-- wiki:generated section="migration-0004_usage" source="db/migrations/0004_usage.sql" -->
-## Migration 0004_usage
-
-```sql
--- ============================================================================
--- 0004_usage — per-day usage counters for budgets (ADR 0026)
--- ============================================================================
--- One row per (UTC day, subject). A subject is 'caller:<name>' or
--- 'scope:<SHA-256 prefix of the scope key>': no user identifier is stored.
--- The server adds each finished task's spend with melchizedek_usage_add, one
--- atomic upsert, so several instances share the same counts. Rows hold
--- numbers only: no user text, no credentials.
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS melchizedek_usage (
-  day             DATE        NOT NULL,
-  subject         TEXT        NOT NULL,
-  tasks           BIGINT      NOT NULL DEFAULT 0,
-  llm_calls       BIGINT      NOT NULL DEFAULT 0,
-  input_tokens    BIGINT      NOT NULL DEFAULT 0,
-  output_tokens   BIGINT      NOT NULL DEFAULT 0,
-  thinking_tokens BIGINT      NOT NULL DEFAULT 0,
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (day, subject)
-);
-
--- Adds to a subject's counters for one day and returns the new totals.
-CREATE OR REPLACE FUNCTION melchizedek_usage_add(
-  p_day      date,
-  p_subject  text,
-  p_tasks    bigint,
-  p_calls    bigint,
-  p_input    bigint,
-  p_output   bigint,
-  p_thinking bigint
-) RETURNS TABLE(tasks bigint, llm_calls bigint, input_tokens bigint, output_tokens bigint, thinking_tokens bigint)
-LANGUAGE sql
-SECURITY INVOKER
-SET search_path = public
-AS $$
-  INSERT INTO melchizedek_usage AS u (day, subject, tasks, llm_calls, input_tokens, output_tokens, thinking_tokens)
-  VALUES (p_day, p_subject, p_tasks, p_calls, p_input, p_output, p_thinking)
-  ON CONFLICT (day, subject) DO UPDATE SET
-    tasks           = u.tasks + EXCLUDED.tasks,
-    llm_calls       = u.llm_calls + EXCLUDED.llm_calls,
-    input_tokens    = u.input_tokens + EXCLUDED.input_tokens,
-    output_tokens   = u.output_tokens + EXCLUDED.output_tokens,
-    thinking_tokens = u.thinking_tokens + EXCLUDED.thinking_tokens,
-    updated_at      = NOW()
-  RETURNING u.tasks, u.llm_calls, u.input_tokens, u.output_tokens, u.thinking_tokens;
-$$;
-
--- Old days are history, not budget: keep 90 days.
-CREATE OR REPLACE FUNCTION melchizedek_prune_usage()
-RETURNS BIGINT
-LANGUAGE sql
-SECURITY INVOKER
-SET search_path = public
-AS $$
-  WITH gone AS (DELETE FROM melchizedek_usage WHERE day < CURRENT_DATE - 90 RETURNING 1)
-  SELECT count(*) FROM gone;
-$$;
-
-ALTER TABLE melchizedek_usage ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON FUNCTION melchizedek_usage_add(date, text, bigint, bigint, bigint, bigint, bigint) FROM PUBLIC;
-REVOKE ALL ON FUNCTION melchizedek_prune_usage() FROM PUBLIC;
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-    REVOKE ALL ON melchizedek_usage FROM anon;
-    REVOKE ALL ON FUNCTION melchizedek_usage_add(date, text, bigint, bigint, bigint, bigint, bigint) FROM anon;
-    REVOKE ALL ON FUNCTION melchizedek_prune_usage() FROM anon;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-    REVOKE ALL ON melchizedek_usage FROM authenticated;
-    REVOKE ALL ON FUNCTION melchizedek_usage_add(date, text, bigint, bigint, bigint, bigint, bigint) FROM authenticated;
-    REVOKE ALL ON FUNCTION melchizedek_prune_usage() FROM authenticated;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-    GRANT EXECUTE ON FUNCTION melchizedek_usage_add(date, text, bigint, bigint, bigint, bigint, bigint) TO service_role;
-    GRANT EXECUTE ON FUNCTION melchizedek_prune_usage() TO service_role;
-  END IF;
-END $$;
-
--- Nightly with the session prune, when pg_cron is available.
-DO $cron$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
-    PERFORM cron.schedule('melchizedek-prune-usage', '29 3 * * *', 'SELECT melchizedek_prune_usage()');
-  END IF;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE 'pg_cron schedule skipped: %', SQLERRM;
-END
-$cron$;
-
-INSERT INTO melchizedek_schema_version (version, name)
-VALUES (4, '0004_usage')
-ON CONFLICT (version) DO NOTHING;
-```
-<!-- /wiki:generated -->

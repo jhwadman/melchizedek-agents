@@ -156,15 +156,22 @@ Rules of the header:
 
 ```bash
 curl -X DELETE https://your-server/memory \
-  -H "Authorization: Bearer $A2A_SERVER_SECRET" \
-  -H "X-API-Key: $BACKEND_GEMINI_KEY" \
+  -H "Authorization: Bearer $CALLER_TOKEN" \
   -H "X-User-Id: user-8f3a2c"
-# → { "deleted": 12 }
+# → { "deleted": { "memory_facts": 12, "sessions": 3, "turns": 9, "spans": 40,
+#                  "payloads": 0, "verdicts": 0, "labels": 0, "tasks": 3 } }
 ```
 
-Deletes every fact in the calling silo (key hash + `X-User-Id`). Omitting
-the header erases the key-level bucket instead. Programmatic equivalent:
-`SupabaseVectorMemoryService.deleteUserMemory(userKey)`.
+Erases the calling scope (the scope the authenticator resolved, with
+`X-User-Id` nested beneath it) from every store in one transaction: memory
+facts, sessions, the telemetry ledger's turns, spans, payloads, verdicts and
+labels, and durable A2A tasks. It covers the server's memory namespace;
+`?all=1` covers every namespace. A server with no durable storage answers
+501. A caller whose scope owns nested end-user scopes and sends no
+`X-User-Id` erases its scope and every one beneath it. Budget counters hold
+numbers only and are not erased. Programmatic
+equivalent: `eraseScope(client, scopeKey)` in `lib/memory/erase.ts`;
+`SupabaseVectorMemoryService.deleteUserMemory(userKey)` deletes facts only.
 
 **Scope caveat:** this clears `adk_memory_facts` only. Session transcripts
 in `adk_sessions` are a separate store; full erasure of a user requires

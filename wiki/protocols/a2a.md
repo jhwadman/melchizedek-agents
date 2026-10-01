@@ -13,6 +13,8 @@ sources:
   - resource: lib/a2a/app.ts
   - resource: lib/a2a/remoteAgent.ts
   - resource: lib/a2a/identity.ts
+  - resource: lib/a2a/executor.ts
+  - resource: lib/a2a/policy.ts
 ---
 
 # A2A
@@ -37,11 +39,13 @@ Two separate questions, each a plug point ([ADR 0017](/decisions/0017-plug-point
 Billing is `A2A_KEY_MODE`, whatever the authenticator:
 
 - `server` (default) — the server's own provider keys pay.
-- `byok` — the caller's `X-API-Key` funds agents on the provider named by `X-Provider`, and a request without one is refused. Under `A2A_AUTH=secret` only, the key's hash also prefixes the stored scope (`a2a-<hash>[/<user>]`), which is where data written before the plug points lives.
+- `byok` — the caller's `X-API-Key` pays, and a task request without one is refused (unless the authenticator supplies a key itself). `X-Provider` (default `google`) names the provider that key belongs to; the key reaches only agents whose model is on that provider. Agents on any other provider, tools that call a model, and memory extraction and embeddings run on the server's own environment keys. Under the shared secret only (`A2A_AUTH=secret`, or `A2A_SERVER_SECRET` still accepted beside caller tokens), the key's hash also prefixes the stored scope (`a2a-<hash>[/<user>]`).
+
+In `server` mode `X-API-Key` and `X-Provider` are ignored.
 
 The agent card declares the schemes the configured authenticator enforces.
 
-Data is stored under the syndicate's `memory_namespace` when it declares one, else `melchizedek-a2a` ([ADR 0020](/decisions/0020-memory-contract.md)). `DELETE /memory` erases everything held for the calling scope: facts, sessions with their subagent rows, and ledger rows. A caller-token or key-hash scope that sends no `X-User-Id` also erases its end users' scopes beneath it.
+Data is stored under the syndicate's `memory_namespace` when it declares one, else `melchizedek-a2a` ([ADR 0020](/decisions/0020-memory-contract.md)). `DELETE /memory` erases everything held for the calling scope in the default syndicate's namespace (`?all=1`: every namespace), in one transaction (`melchizedek_erase_scope`, migration 0002): memory facts, sessions with their subagent rows, the ledger's turns, spans, payloads, verdicts and labels for those conversations, and the scope's stored A2A tasks. It answers with a count per store, and 501 when the server has no durable storage. A caller-token or key-hash scope that sends no `X-User-Id` also erases its end users' scopes beneath it. The budget counters hold only a hash of the scope and are not erased.
 
 ## Which agents are served
 
@@ -49,7 +53,9 @@ A bare `/<agentId>/` is `<agentId>.yaml` in the deployment's agents directory. T
 
 ## Limits and lifecycle
 
-Each task has a deadline (`A2A_TASK_TIMEOUT_MS`, default 15 minutes) and a turn-wide model-call cap (the YAML's `max_steps`); `tasks/cancel` aborts the provider call in flight. The rate limit (`A2A_RATE_LIMIT_MAX` per `A2A_RATE_LIMIT_WINDOW_MS`: per caller or per end-user scope when an authenticator is configured, per IP under the shared secret), the failed-login limit, the concurrency cap, trust-proxy and body limit are environment settings. Tasks, the config cache and the limiter counters are per process. The server prints no conversation content unless `OTEL_CONSOLE_SPANS=true`.
+Each task has a deadline (`A2A_TASK_TIMEOUT_MS`, default 15 minutes) and a turn-wide model-call cap (the YAML's `max_steps`); `tasks/cancel` aborts the provider call in flight. The task rate limit counts submissions only, not polling GETs (`A2A_RATE_LIMIT_MAX`, default 60, per `A2A_RATE_LIMIT_WINDOW_MS`, default 15 minutes): per caller or per end-user scope when an authenticator is configured, per IP under the shared secret. The failed-login limit (`A2A_AUTH_FAILURE_MAX`, default 30 per 15 minutes per IP), the concurrency cap (`A2A_MAX_CONCURRENT_TASKS`, default unlimited), trust-proxy (`A2A_TRUST_PROXY`, default 1 hop) and body limit (`A2A_BODY_LIMIT`, default `1mb`) are environment settings too.
+
+The server is not stateless. The config cache, the rate-limiter counters, the concurrency count and the memory-ingestion high-water mark are always per process. A2A tasks are per process too unless `DATABASE_URL` plugs in the Postgres storage, whose task store (`adk_a2a_tasks`) every instance shares; with Supabase alone, sessions and memory are durable but tasks are not, so run one replica or route a conversation's requests to one instance. The server prints no conversation content unless `OTEL_CONSOLE_SPANS=true`.
 
 Governance ([ADR 0026](/decisions/0026-governance-policy-and-visibility.md)) runs on the `policy` plug point:
 
@@ -59,6 +65,6 @@ Governance ([ADR 0026](/decisions/0026-governance-policy-and-visibility.md)) run
 
 ## The bindings trap
 
-`{{token}}` bindings evaluate **once per agent load** — at boot for the boot syndicate, at first request for `/<agentId>/` ones. Long-lived deployments must therefore never pass per-request data through bindings: prepend it to the message instead (production practice: a `[System Context: Current Date is …]` line the prompts treat as authoritative over the frozen `{{current_date}}`). Message parts may be text or `data` (sent to the model as JSON); file parts are rejected.
+`{{token}}` bindings evaluate **once per agent load** — at boot for the boot syndicate, at first request for `/<agentId>/` ones. Long-lived deployments must therefore never pass per-request data through bindings: prepend it to the message instead, for example a `[System Context: Current Date is …]` line the prompt treats as authoritative over the frozen `{{current_date}}` (the shipped `research.yaml` does this; memory extraction strips such lines). Message parts may be text or `data` (sent to the model as JSON). A message with a file part ends `rejected`, as does one with no text.
 
 Auth failures and their fixes are catalogued in [failure modes](/operations/failure-modes.md).

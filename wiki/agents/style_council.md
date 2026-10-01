@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-09-02
+  at: 2026-10-01
 sources:
   - resource: config/agents/examples/style_council.yaml
 ---
@@ -14,14 +14,16 @@ sources:
 # Style Council
 
 <!-- wiki:fill slot="charter" -->
-The Style Council is a teaching syndicate created for module 1.05 of the lyceumagents.com curriculum (Agent workflows & conversation styles). It proves that an agent's voice is authored through system instructions rather than emergent from the model itself.
+The Style Council is a teaching syndicate about workflows and conversation styles. It shows that an agent's voice is authored in its instruction, not emergent from the model. Every stylist line outside the four REGISTER LAWS is identical across the three stylists, so those laws are the only variable between them.
 
 Led by the Router orchestrator, the syndicate conducts three stylists—Analyst, Peer, and Mentor—who share identical factual knowledge but follow strictly different communication styles. It excels at delivering unedited answers tailored to specific registers, ranging from telegraphic analyst briefings to scannable peer advice and reflective mentor guidance.
 
 Run this syndicate to observe how prompt instructions shape output style, to request answers in a targeted persona, or to compare all three registers side-by-side on a single question.
 <!-- /wiki:fill -->
 
-<!-- wiki:generated section="composition" source="config/agents/style_council.yaml" -->
+<!-- wiki:generated section="composition" source="config/agents/examples/style_council.yaml" -->
+Run: `npm run syndicate:style`
+
 - memory: `session-only`
 - orchestrator: **Router** (`gemini-3.8-flash`)
 

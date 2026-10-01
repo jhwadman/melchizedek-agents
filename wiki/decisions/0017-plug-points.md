@@ -48,6 +48,8 @@ The package also exported no way to run a syndicate. The turn logic lived inside
 | `policy` | Rate limits, budgets, tool approvals | Configurable limiter; no budgets |
 | `registerTool`, `registerGuard`, custom routes | Adopter-owned tools, guards and HTTP routes | The built-in registries |
 
+> **Note (2026-10-01):** The factory's `storage` default is Supabase through supabase-js when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set, and in-memory otherwise; the `melchizedek-serve` bin plugs in `postgresStorage` when `DATABASE_URL` is set, see [ADR 0021](/decisions/0021-postgres-first-storage.md).
+
 3. **The scope key is opaque and supplied, never derived from a credential.** The framework stores data under it and never interprets it. "User", "tenant" and "organisation" are the adopter's concepts. The identity system that authenticated the request decides the string.
 4. **Bring-your-own-key is a mode, not the default.** With `keyMode: 'byok'` the caller's `X-API-Key` funds its declared provider, and the key hash prefixes the scope key so key holders stay isolated from one another. Outside that mode `X-API-Key` is not required, and callers never handle provider keys.
 

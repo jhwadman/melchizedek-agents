@@ -28,6 +28,8 @@ Two shapes were considered. The first was to upgrade the starter-pack files in p
 
 A separate set, in `config/agents/templates/`: `conversational`, `support_triage`, `research_brief` (which nests `research_desk`), `review_panel`, `draft_review`, `intake_extractor`, `case_desk`, `account_memory` and `systems_operator`. Each one names its job, shape, memory tier, reach, how to serve it, and what to change first. They use public tools only and ship in the package and the mirror.
 
+> **Note (2026-10-01):** There is no mirror any more; the templates ship in this repository and its package, see [ADR 0022](/decisions/0022-public-source-of-truth.md).
+
 Rewriting the examples would have broken the course, which quotes them, and would have made one file do two jobs: teach a mechanism in its smallest form, and serve as a production starting point. Those two pull in opposite directions.
 
 The loader resolves a bare name at the root, then `examples/`, then `templates/`, still inside the jail. So an A2A route (one path segment) and a nested `yaml_reference` reach a template without a path. `npm run doctor` lists the directory.

@@ -12,8 +12,8 @@
 #
 # The relay guardrail is a fixed failure: a lite-model run once
 # replied "the task has been completed by CodeExpert" with no code in
-# the reply. The observatory's llm_judge suite (module 2.07) keeps
-# that case as the test that the guardrail holds.
+# the reply. An llm-judge eval case keeps that reply as the test that
+# the guardrail holds.
 #
 # The relay turn itself is the cost of delegation: `research.yaml` and
 # `templates/support_triage.yaml` show the `dispatch:` version, where

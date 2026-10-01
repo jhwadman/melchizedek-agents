@@ -107,7 +107,7 @@ export const RELATIONS: Record<string, RelationSpec> = {
   // that is not a table). The generic structural relations below are left
   // open, because what "contains" or "runs" what differs per repo — a
   // syndicate contains agents here, a collection contains entries on a
-  // site, a dyno runs a script on a worker.
+  // site, a worker process runs a script on a host.
   contains: {
     tier: 'extracted',
     phrase: 'contains',
@@ -172,7 +172,7 @@ export const RELATIONS: Record<string, RelationSpec> = {
   runs: {
     tier: 'extracted',
     phrase: 'runs',
-    gloss: 'an entrypoint — a script, a process, a dyno — executes this',
+    gloss: 'an entrypoint — a script, a process, a worker — executes this',
   },
   documents: {
     tier: 'extracted',

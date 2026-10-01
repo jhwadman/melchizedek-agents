@@ -50,6 +50,8 @@ The memory record model is sound: dated, source-attributed facts, corrections th
 
    It returns per-store counts. Session expiry is enforced by a scheduled prune, and facts may carry an optional retention window per namespace.
 
+> **Note (2026-10-01):** Built: namespaces and `--fix-namespaces`, the root-namespace wrapper, configurable extraction and embeddings (`MEMORY_EXTRACTION_MODEL`, `MEMORY_EMBEDDING_*`), save-before-advance ingestion, `eraseScope`, and the session prune (`melchizedek_prune_sessions()`, nightly under pg_cron or `npm run sessions:prune`). Not yet: the processed marker still lives in process memory, insert and supersession are separate statements, the embedding dimension is checked per vector rather than against the stored column at boot, extraction is not overridable per syndicate, and facts have no per-namespace retention window, see [ADR 0021](/decisions/0021-postgres-first-storage.md).
+
 ## Alternatives considered
 
 - **The syndicate name alone as the namespace.** Rejected: a rename orphans memory, and two different syndicates with the same name in one database collide.
@@ -59,6 +61,8 @@ The memory record model is sound: dated, source-attributed facts, corrections th
 ## Consequences
 
 - Existing rows keyed `melchizedek-a2a/<user>` are re-keyed once to `<namespace>/<scopeKey>` by a migration script, per syndicate.
+
+> **Note (2026-10-01):** No re-keying script ships; an existing silo is kept reachable by mapping callers onto its scope instead of moving data, see [ADR 0025](/decisions/0025-built-in-authenticators.md).
 - `memory_namespace` and the extraction model join the syndicate schema.
 - Sessions stay keyed by syndicate name, scope key and context id. They are short-lived and expire, so a rename costing a session's continuity is acceptable where it would not be for memory.
 - Any memory service implementing the interface can replace the built-in one, for example a managed memory product.

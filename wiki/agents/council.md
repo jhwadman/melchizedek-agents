@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-08-20
+  at: 2026-10-01
 sources:
   - resource: config/agents/examples/council.yaml
 ---
@@ -19,7 +19,7 @@ The Council exists as a local multi-agent specimen that runs entirely on open-we
 Run the Council when evaluating a proposed claim or decision. The Moderator delegates the user's proposal verbatim to the Advocate to build the strongest honest case for it, and then to the Skeptic to identify risks and failure modes. Once both subagents report, the Moderator weighs both perspectives to output a structured report detailing the case for, the case against, and a final verdict.
 <!-- /wiki:fill -->
 
-<!-- wiki:generated section="composition" source="config/agents/council.yaml" -->
+<!-- wiki:generated section="composition" source="config/agents/examples/council.yaml" -->
 Run: `npm run syndicate:council`
 
 - memory: `internal-only`

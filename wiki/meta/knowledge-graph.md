@@ -32,8 +32,8 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 | `agent` | `agent:<name>` | 109 | one orchestrator or subagent inside a syndicate |
 | `doc` | `/dir/doc.md` | 90 | a concept document in the bundle — identity is its bundle path |
 | `env` | `env:<name>` | 86 | an environment variable the code reads |
-| `file` | `file:<name>` | 66 | a repo file that is not a source module (DDL, config, prose) |
-| `script` | `script:<name>` | 51 | an npm script entrypoint |
+| `file` | `file:<name>` | 65 | a repo file that is not a source module (DDL, config, prose) |
+| `script` | `script:<name>` | 52 | an npm script entrypoint |
 | `tool` | `tool:<name>` | 40 | a tool an agent may declare by name |
 | `syndicate` | `syndicate:<name>` | 39 | one agent-team definition (a YAML) |
 | `table` | `table:<name>` | 12 | a database table |
@@ -51,15 +51,15 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 | Relation | Tier | Reads as | Now | Meaning |
 |---|---|---|---|---|
 | `imports` | extracted | A imports B | 327 | a static import edge between source files |
-| `links_to` | extracted | A links to B | 176 | a resolved markdown link between documents |
-| `derives_from` | extracted | A derives from B | 169 | declared in the document’s `sources:` frontmatter |
+| `links_to` | extracted | A links to B | 209 | a resolved markdown link between documents |
+| `derives_from` | extracted | A derives from B | 183 | declared in the document’s `sources:` frontmatter |
 | `requires_env` | extracted | A requires B | 141 | this environment variable must be set for the node to work |
 | `uses_tool` | extracted | A calls B | 129 | the agent declares this tool by name |
 | `contains` | extracted | A contains B | 109 | the first is composed of the second |
 | `uses_model` | extracted | A runs on B | 109 | the agent is configured with this model id |
 | `defined_in` | extracted | A is defined in B | 86 | where the thing is declared in source |
 | `documents` | extracted | A documents B | 72 | the document derives from, and describes, this entity |
-| `runs` | extracted | A runs B | 69 | an entrypoint — a script, a process, a dyno — executes this |
+| `runs` | extracted | A runs B | 71 | an entrypoint — a script, a process, a worker — executes this |
 | `reads_table` | extracted | A reads or writes B | 22 | the module names this table |
 | `routes_to` | extracted | A routes to B | 8 | the model id resolves to this provider adapter |
 | `connects_mcp` | extracted | A dials B | 6 | the agent discovers tools from this MCP server at runtime |
@@ -81,12 +81,12 @@ Both stores sit in `.graph/` inside the bundle — a dot-directory, so the vault
 - `.graph/graph.json` — the derived snapshot: every node, every extracted relation, stamped with the build that produced it. Regenerate with `npm run wiki:build`; never edit it.
 - `.graph/relations.json` — the asserted relations: `from`, `to`, `rel`, `evidence`, `by`, `at`. Written only through the gate.
 
-A bundle is published as markdown only, so a derived map of PRIVATE structure never rides along: whoever receives it rebuilds the graph from what it actually holds ([ADR 0003](/decisions/0003-path-based-visibility.md)).
+A published copy of the bundle carries a snapshot rebuilt from what that copy actually holds, never one derived over `/private/`, so a map of private structure never rides along ([ADR 0003](/decisions/0003-path-based-visibility.md)).
 
 ## Working it
 
 [`wiki_graph`](/tools/wiki-tools.md) is the read path: no arguments for the census, `find` to locate a node, `node` to see everything attached to one, `path_to` for the chain joining two, `kind` to list a population. It reports its own staleness — documents added since the last build are named, not hidden.
 
-`wiki_relate` is the only write path, and it refuses more than it accepts: an extracted relation (the build owns those), a missing endpoint, a public document pointing into the private annex, a duplicate, or an assertion without evidence. Accepted edges append to `log.md` under the `relate` op with the actor who made them.
+`wiki_relate` is the only write path, and it refuses more than it accepts: an extracted relation (the build owns those), a missing endpoint, a public document pointing into the private annex, a duplicate, or an assertion without evidence. Accepted edges append to `log.md` under the `relate` op with the actor who made them (to `/private/log.md` when an endpoint is private).
 
 The [Cartographers](/agents/cartographers.md) do this conversationally — the Surveyor reads and proposes with quotations, the Registrar records through the gate. [Gardening](/meta/gardening.md) covers the prose side of the same discipline, and [how this bundle works](/meta/wiki-system.md) the format underneath both.

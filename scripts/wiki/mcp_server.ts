@@ -13,11 +13,13 @@
  *       guard refuses loopback hosts unless explicitly allowed).
  *
  * DESIGN NOTES:
- *   - EXPOSED is the deliberate act of exposure. It includes the write path
- *     (wiki_save, wiki_garden): a knowledge bundle you cannot write to is a
- *     brochure, and every write is gated by lint, jailed to the bundle, and
- *     logged in log.md — with git as the undo. Serve WIKI_AGENT_TOOL_CONTRACTS
- *     instead if a deployment wants a read-only wiki.
+ *   - The `contracts` list below is the deliberate act of exposure. It
+ *     includes the write path (wiki_save, wiki_relate, wiki_garden): a
+ *     knowledge bundle you cannot write to is a brochure, and every write is
+ *     gated by lint, jailed to the bundle, and logged in log.md — with git as
+ *     the undo. WIKI_AGENT_TOOL_CONTRACTS drops only the agentic composites
+ *     (wiki_query, wiki_garden); a read-only wiki serves the navigation
+ *     contracts alone.
  *   - wiki_query / wiki_garden run a model IN THIS PROCESS: they need a
  *     provider key in the server's environment (see WIKI_AGENT_MODEL in
  *     lib/config.ts) and return a clear error string when none is set. The

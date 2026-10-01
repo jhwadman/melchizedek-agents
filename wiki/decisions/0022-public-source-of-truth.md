@@ -50,3 +50,5 @@ An enterprise adopter expects to read, test and contribute to the source it runs
 - A deployment's registry-only live copy of a shipped syndicate lives with that deployment, in its private repository.
 - [ADR 0003](/decisions/0003-path-based-visibility.md)'s private subtree moves out. The public wiki has no private section.
 - The migration order, including the prerequisite plug points, is specified in `plans/public-takeover.md`.
+
+> **Note (2026-10-01):** That plan names private infrastructure and stays with the private deployment, since the public repository ships no historical plans; the prerequisite plug points are recorded as a decision, see [ADR 0017](/decisions/0017-plug-points.md).

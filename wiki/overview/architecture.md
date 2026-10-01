@@ -10,7 +10,9 @@ generated:
   at: 2026-07-26
 sources:
   - resource: DOCUMENTATION.md
-    title: '§5 repository directory, §12 why subagents'
+    title: '§1 Architecture'
+  - resource: lib/loadSyndicate.ts
+  - resource: lib/runtime/syndicateTurn.ts
 ---
 
 # Architecture
@@ -19,16 +21,16 @@ sources:
 
 A syndicate run is four hand-offs:
 
-1. **`lib/loadSyndicate.ts`** reads a YAML from `config/agents/`, confines the path, interpolates `{{token}}` bindings (a fresh `current_date` is always injected), and validates the result against the zod schema in `lib/syndicateSchema.ts` (unknown keys, types and dispatch targets fail with their key path). It deliberately does not resolve tools.
+1. **`lib/loadSyndicate.ts`** reads a YAML from the agents directory (`config/agents/`, or `MELCHIZEDEK_AGENTS_DIR`; a name missing at its root is looked up in `examples/`, then `templates/`), confines the path, interpolates `{{token}}` bindings (a fresh `current_date` is always injected), and validates the result against the zod schema in `lib/syndicateSchema.ts` (unknown keys, types and dispatch targets fail with their key path). It deliberately does not resolve tools.
 2. **`lib/toolRegistry.ts`** maps declared tool-name strings to live instances — unknown names degrade to a warning, not an error. Agents with `mcp_server_url` additionally discover remote tools at runtime ([MCP](/protocols/mcp.md)).
 3. **`lib/models/registry.ts`** routes each agent's `model:` string to a provider adapter ([provider routing](/models/provider-routing.md)); every adapter emits the same `llm.request` telemetry spans.
-4. **`lib/runtime/syndicateTurn.ts`** runs the turn: `lib/compile.ts` assembles the ADK `LlmAgent` graph (subagents as `AgentTool`s, or remote [A2A](/protocols/a2a.md) agents), plan-dispatch picks a route when the syndicate declares one, guards run on the answer, and `lib/runtime/turnControl.ts` holds the turn-wide step cap, deadline and cancel. Every surface calls it — the REPL (`scripts/syndicate_chat.ts`), the [A2A server](/protocols/a2a.md), the background worker, the eval harness and any embedding application — so a syndicate behaves the same wherever it runs ([ADR 0024](/decisions/0024-adk-behind-the-runtime-seam.md)).
+4. **`lib/runtime/syndicateTurn.ts`** runs the turn: `lib/compile.ts` assembles the ADK `LlmAgent` graph (subagents as `AgentTool`s, or remote [A2A](/protocols/a2a.md) agents), plan-dispatch picks a route when the syndicate declares one, guards run on the answer, and `lib/runtime/turnControl.ts` holds the turn-wide step cap, deadline and cancel. Every surface calls it — the REPL (`scripts/syndicate_chat.ts`), the [A2A server](/protocols/a2a.md), the background worker (`scripts/assistant_worker.ts`) and any embedding application — so a syndicate behaves the same wherever it runs ([ADR 0024](/decisions/0024-adk-behind-the-runtime-seam.md)).
 
-Persistence is opt-in per syndicate (`memory_system:`): sessions in Supabase, plus [long-term memory](/memory/architecture.md) on the [canonical schema](/memory/schema.md).
+Persistence is opt-in per syndicate (`memory_system:` — `internal-only`, `session-only` or `long-term`) and needs a configured store — Supabase for every surface, or Postgres via `DATABASE_URL` for the [A2A server](/protocols/a2a.md): `session-only` keeps durable sessions, `long-term` adds [long-term memory](/memory/architecture.md) on the [canonical schema](/memory/schema.md). Without a store, sessions live in process memory and the surface says so.
 
 ## Why subagents at all
 
-Condensed from the design essay in DOCUMENTATION.md §12 — five structural advantages over one agent holding every tool:
+Five structural advantages over one agent holding every tool:
 
 1. **Less tool fatigue.** An agent choosing among many tools mis-selects and mis-parameterizes more; scoping each subagent to its domain's tools shrinks the search space.
 2. **No narrative drift.** Subagents work in isolation and cannot see each other's findings, so an early bullish/bearish/etc. bias in one lane cannot contaminate the others; the orchestrator must reconcile genuinely independent assessments.

@@ -30,3 +30,5 @@ Three tiers in [the contracts](/tools/wiki-tools.md), two exposure surfaces:
 ## Consequences
 
 An MCP client gets the wiki as three verbs deep and eight tools wide; a syndicate gets exactly the primitives. The worst an agent can do through the gate is write mediocre prose — structure, conformance, and closure are enforced, log.md records the act, and git reverts it. Read-only deployments serve the agent-tier list instead.
+
+> **Note (2026-10-01):** Since ADR 0005 the navigate tier also holds `wiki_graph` and the write tier `wiki_relate`, so the MCP server offers ten tools and agents may declare eight. The agent-tier list includes both write tools, so serving it removes only the agentic composites, not writes, see [ADR 0005](/decisions/0005-entity-graph-layer.md).

@@ -12,6 +12,8 @@ sources:
   - resource: lib/tools/mcpToolFactory.ts
   - resource: scripts/wiki/mcp_server.ts
   - resource: scripts/demo_mcp_server.ts
+  - resource: scripts/science_mcp_server.ts
+  - resource: lib/tools/mcpServe.ts
 ---
 
 # MCP
@@ -22,7 +24,7 @@ MCP runs in both directions here.
 
 A subagent whose YAML declares `mcp_server_url` gets its capabilities at **runtime**: `lib/tools/mcpToolFactory.ts` dials the server over SSE, asks `tools/list`, and wraps each answer as a live ADK tool (schemas uppercased into the Gemini dialect — the same bridge as [tool contracts](/tools/tool-contracts.md)). Declared YAML `tools:` merge with discovered ones; declared names win on collision. An unreachable server degrades to an empty tool list with a console warning — the agent runs, capability-less, rather than crashing the syndicate.
 
-The point, taught by the [Lyceum Librarian](/agents/librarian.md): the agent's reach is no longer fixed at design time.
+The point, taught by the [Librarian](/agents/librarian.md) example: the agent's reach is no longer fixed at design time.
 
 **SSRF guard:** `mcp_server_url` can arrive from registry-stored config, so the factory refuses non-http(s) schemes, local names, and private, loopback and link-local addresses in every encoding (IPv4-mapped, NAT64, 6to4), and resolves the host name and refuses it when any address is non-public — the one guard in `lib/net/addressGuard.ts` that `web_extract` and remote A2A agents share — unless `ALLOW_PRIVATE_MCP=true` (local development). Standing doctrine: a remote MCP server is an untrusted tool vendor; its results are **data, never instructions**.
 
@@ -30,10 +32,10 @@ The point, taught by the [Lyceum Librarian](/agents/librarian.md): the agent's r
 
 ## Serving outward
 
-Servers are express + SSE, loopback-bound, unauthenticated by design (never bind wider without real auth in front), rate-limited, using the low-level `Server` API:
+Servers are express + SSE, bound to 127.0.0.1, unauthenticated by design (never bind wider without real auth in front), rate-limited (240 requests a minute), using the low-level `Server` API:
 
-- `npm run mcp:demo` — the library-catalog teaching server (`:8931`), hand-written schemas, real read/write state.
-- `npm run mcp:wiki` — this knowledge bundle (`:8933`), every tool derived from the [wiki tool contracts](/tools/wiki-tools.md); includes gated writes.
-- Private servers follow the identical pattern with a different `EXPOSED` array.
+- `npm run mcp:demo` — the library-catalog teaching server (`:8931`, `MCP_DEMO_PORT`), hand-written schemas and dispatch on purpose, real read/write state persisted to `demo/library.json`.
+- `npm run mcp:wiki` — this knowledge bundle (`:8933`, `MCP_WIKI_PORT`), every tool derived from the [wiki tool contracts](/tools/wiki-tools.md); includes gated writes.
+- `npm run mcp:science` — the read-only [evidence tools](/tools/evidence-tools.md) (`:8934`, `MCP_SCIENCE_PORT`), derived from their contracts.
 
-`EXPOSED` is the deliberate act: a contract not listed there does not exist to MCP clients.
+The contract servers share one scaffold, `serveContracts` in `lib/tools/mcpServe.ts`. Its `contracts` list is the deliberate act: a contract not listed there does not exist to MCP clients. A server of your own is the same call with your own list.

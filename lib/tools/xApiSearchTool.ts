@@ -5,10 +5,10 @@
  * WHY this file exists:
  *   `x_search` is a Grok-side sentinel: it runs only on grok-* models, it is
  *   a fuzzy relevance ranker with no completeness guarantee, and it hands the
- *   agent post TEXT alone. melch-research's daily instrument moved its X
- *   collection onto the X API for the first two reasons (pipeline/xapi/
- *   client.ts there: a boolean match with a countable result set, priced per
- *   post, dated, with URLs), and then measured the third — on 2026-09-20,
+ *   agent post TEXT alone. A daily collection pipeline moved its X
+ *   collection onto the X API for the first two reasons (a boolean match
+ *   with a countable result set, priced per post, dated, with URLs), and
+ *   then measured the third — on 2026-09-20,
  *   58% of a day's judged posts carried a picture, and on a hand-checked
  *   sample the pictures that mattered were primary sources: a screenshot of
  *   an official's post, a strike map, an article's headline, a chart. To an
@@ -24,7 +24,7 @@
  *   READ-ONLY app token — this file has no write path and never will) and
  *   the Gemini key the server already holds.
  *
- * WHAT IT COSTS (docs.x.com pricing, read by melch-research 2026-08-25;
+ * WHAT IT COSTS (docs.x.com pricing, read 2026-08-25;
  *   re-verify at console.x.com before trusting a plan):
  *     Posts: Read   $0.005 per post RETURNED — `max_results` is the dial,
  *                   so a 20-post page is a dime at the ceiling.

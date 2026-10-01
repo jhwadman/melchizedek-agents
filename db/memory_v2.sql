@@ -1,8 +1,9 @@
 -- ============================================================================
 -- memory_v2.sql — structured memory records for adk_memory_facts
 --
--- Run in the Supabase SQL Editor AFTER the base schema (README §Supabase
--- setup). Idempotent; safe to re-run. Existing rows survive: old facts get
+-- An upgrade for a database created before the numbered migrations in
+-- db/migrations/ (a fresh install gets these columns from them). Idempotent;
+-- safe to re-run. Existing rows survive: old facts get
 -- status 'active', empty keys, and NULL tag/date/source — they keep working
 -- as plain semantic memories.
 --

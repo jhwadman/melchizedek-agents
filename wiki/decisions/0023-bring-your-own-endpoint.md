@@ -47,6 +47,8 @@ Every path assumed an API key against the vendor's public endpoint: key presence
 4. **The doctor checks each configured endpoint** and reports per agent which capabilities that endpoint keeps or drops. Each endpoint gets its own row in the capability matrix ([ADR 0019](/decisions/0019-multi-model-parity-matrix.md)).
 5. **Memory extraction and embeddings resolve credentials the same way** ([ADR 0020](/decisions/0020-memory-contract.md)), so a deployment never needs a key it did not choose.
 
+> **Note (2026-10-01):** Only part of this is built. The `credentials` option returns an API key per provider (no base URL or credential chain), and endpoints are configurable only for the gateway (`MODEL_GATEWAY_BASE_URL`), Ollama (`OLLAMA_BASE_URL`) and memory embeddings (`MEMORY_EMBEDDING_BASE_URL`); the Vertex AI, Bedrock and Azure OpenAI clients and per-endpoint doctor rows are not implemented yet, see [ADR 0017](/decisions/0017-plug-points.md).
+
 ## Alternatives considered
 
 - **Document SDK environment overrides only.** Rejected: unchecked by the doctor, untested, and silent about which server-side tools are lost.

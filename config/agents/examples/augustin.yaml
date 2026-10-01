@@ -28,7 +28,7 @@
 #     post is transcribed by a vision pass and pasted under the post,
 #     so what a picture says reaches the record — as the IMAGE's word,
 #     single-source until the web check confirms it. Proven first in
-#     the sibling melch-research repo (its collector and its image
+#     a separate collection pipeline (its collector and its image
 #     measurement), ported here as one tool.
 #
 # Callers prefix every message with `[System Context: Current Date

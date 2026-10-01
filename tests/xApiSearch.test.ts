@@ -5,7 +5,7 @@
  * and its environment through `XApiDeps`, so every path — the token guard,
  * the query hygiene, the page parser, the image gate and the rendered block
  * — runs against fixtures. The live shape of the API response was captured
- * from melch-research's collector, which has read it daily since 2026-08-25.
+ * from a collector that has read it daily since 2026-08-25.
  */
 
 import { test } from 'node:test';

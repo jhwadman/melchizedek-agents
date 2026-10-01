@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-09-02
+  at: 2026-10-01
 sources:
   - resource: config/agents/examples/patient_advocate.yaml
 ---
@@ -17,7 +17,7 @@ sources:
 The Patient Advocate syndicate exists to assist patients and caregivers in navigating complex medical situations and communicating effectively with care teams. Led by the Asclepius orchestrator, it pairs in-depth scientific research with plain-language translations of test results, medical events, and doctor's orders. The syndicate excels at coaching bedside advocacy by providing actionable scripts, tracking health trends, separating normal symptoms from emergency red flags, and maintaining a persistent long-term health record across sessions so patient history is never lost. Run this syndicate when users need real-time support during active care, help interpreting lab trends or clinical records, research on treatment guidelines and drug interactions via MedScribe, or structured preparation for clinician visits.
 <!-- /wiki:fill -->
 
-<!-- wiki:generated section="composition" source="config/agents/patient_advocate.yaml" -->
+<!-- wiki:generated section="composition" source="config/agents/examples/patient_advocate.yaml" -->
 Run: `npm run syndicate:advocate`
 
 - memory: `long-term`

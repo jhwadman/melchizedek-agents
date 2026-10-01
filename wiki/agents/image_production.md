@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-09-02
+  at: 2026-10-01
 sources:
   - resource: config/agents/examples/image_production.yaml
 ---
@@ -17,7 +17,7 @@ sources:
 The Multi-Modal Image Production Workflow translates user concepts into comprehensive, structured JSON payloads to execute precise, high-fidelity image generation and specification auditing. It excels at enforcing strict multi-phase workflows that separate design, generation, perception, and review to eliminate expectation bias. During design phases, it formulates deep visual and technical specifications for user confirmation before invoking image generation tools. Upon explicit approval, it generates the artwork, and upon request, performs a blind visual inventory paired with a text-only auditor to evaluate conformance against the original payload. Run this syndicate when creating complex images requiring user-approved prompts, iterating on visual designs, or auditing generated images against detailed specifications.
 <!-- /wiki:fill -->
 
-<!-- wiki:generated section="composition" source="config/agents/image_production.yaml" -->
+<!-- wiki:generated section="composition" source="config/agents/examples/image_production.yaml" -->
 Run: `npm run syndicate:image`
 
 - memory: `session-only`

@@ -1,7 +1,7 @@
 ---
 type: subsystem
 title: Memory architecture
-description: Session transcripts distilled into typed, supersedable facts with hybrid vector recall — multi-user siloed, GDPR-erasable, resilient to malformed extractions.
+description: Session transcripts distilled into typed, supersedable facts with hybrid vector recall — siloed per user, erasable per scope across every store, resilient to malformed extractions.
 tags:
   - memory
   - supabase
@@ -11,11 +11,15 @@ generated:
 sources:
   - resource: lib/memory/supabaseMemoryService.ts
   - resource: lib/memory/README.md
+  - resource: lib/memory/providers.ts
+  - resource: lib/memory/store.ts
+  - resource: lib/memory/erase.ts
+  - resource: lib/storage/postgres/index.ts
 ---
 
 # Memory architecture
 
-Long-term memory is `SupabaseVectorMemoryService` — the ADK `BaseMemoryService` contract backed by one Postgres table (`adk_memory_facts`, defined in the [canonical schema](/memory/schema.md)) with pgvector embeddings (768 dims by default).
+Long-term memory is `SupabaseVectorMemoryService` — the ADK `BaseMemoryService` contract backed by one Postgres table (`adk_memory_facts`, created by `db/migrations/0001_base.sql` and reproduced on the [schema page](/memory/schema.md)) with pgvector embeddings (768 dims by default).
 
 ## What computes it
 
@@ -27,9 +31,10 @@ Extraction and embeddings are configured per deployment ([ADR 0020](/decisions/0
 | `MEMORY_EMBEDDING_PROVIDER` | `gemini` | `gemini`, `openai`, `ollama`, or `openai-compatible` (any `POST /embeddings` endpoint: Azure, LiteLLM, an internal proxy). |
 | `MEMORY_EMBEDDING_MODEL` | `gemini-embedding-001` / `text-embedding-3-small` / `nomic-embed-text` | Per provider. |
 | `MEMORY_EMBEDDING_DIMENSIONS` | `768` | Must equal the vector column it was created with; a returned vector of another length is refused. |
-| `MEMORY_EMBEDDING_BASE_URL`, `MEMORY_EMBEDDING_API_KEY` | — | For `openai-compatible` (and to override the OpenAI or Ollama endpoint). |
+| `MEMORY_EMBEDDING_BASE_URL` | `https://api.openai.com/v1` / `http://localhost:11434/v1` | Required for `openai-compatible`; overrides the OpenAI or Ollama endpoint. |
+| `MEMORY_EMBEDDING_API_KEY` | — | The key for `openai-compatible`. The `openai` provider uses `OPENAI_API_KEY`. |
 
-The ledger's semantic search (`npm run telemetry:embed`) uses the same embedder, so both vector columns stay comparable. A deployment that sets nothing behaves as before: Gemini for both, on the server's key.
+The ledger's semantic search (the `embed` command of `scripts/telemetry_admin.ts`) uses the same embedder, so both vector columns stay comparable. A deployment that sets nothing uses Gemini for both, on the server's own key (`GOOGLE_GENAI_API_KEY` or `GEMINI_API_KEY`). Memory always runs on server keys, never on an A2A caller's `X-API-Key`.
 
 ## Where it is stored
 
@@ -44,6 +49,8 @@ The memory logic runs on a `MemoryStore` (`lib/memory/store.ts`), the five datab
 - **A2A tasks** in `adk_a2a_tasks` are scoped to their owner and shared by every instance.
 - **`erase(scopeKey)`** removes a scope's facts, conversations (sub-agent rows included), ledger rows and tasks in one transaction (`melchizedek_erase_scope`).
 
+The Supabase path erases through the same database function (`lib/memory/erase.ts`). Conversations are kept seven days after their last update (`expire_at`); `melchizedek_prune_sessions()` deletes expired ones, nightly under pg_cron or by `npm run sessions:prune`.
+
 The suite `tests/postgresStorage.test.ts` runs all of it against a real Postgres when `TEST_DATABASE_URL` is set.
 
 ## Write path
@@ -54,7 +61,15 @@ The suite `tests/postgresStorage.test.ts` runs all of it against a real Postgres
 [TAG | date: | source: | status: | keys: ] fact text
 ```
 
-Eight tags (`FACT`, `PREFERENCE`, `DECISION`, `ACTION`, `CONTEXT`, `INSIGHT`, `CORRECTION`, `EPISODE`); notable extraction rules: units never rounded, relative dates converted to absolute, the model's own training knowledge never stored, unresolved contradictions store **both** sides, exactly one `EPISODE` narrative per transcript. Malformed lines are dropped — a bad extraction must never poison the store. Exact-duplicate facts are deduped per user key, because stateless A2A callers re-ingest the whole session every turn.
+Eight tags (`FACT`, `PREFERENCE`, `DECISION`, `ACTION`, `CONTEXT`, `INSIGHT`, `CORRECTION`, `EPISODE`); notable extraction rules: units never rounded, relative dates converted to absolute, the model's own training knowledge never stored, unresolved contradictions store **both** sides, exactly one `EPISODE` narrative per transcript. Malformed lines are dropped — a bad extraction must never poison the store.
+
+The A2A server ingests after every completed task, so each session would otherwise be re-read every turn. Three guards keep a fact from being stored twice:
+
+- **A high-water mark per session** means each turn is distilled once. It lives in process memory, so a restart re-reads a session once.
+- **Exact duplicates** under the same user key are skipped.
+- **Semantic duplicates** are skipped too: an active record with the same tag at cosine ≥ 0.93.
+
+Each step throws on failure and the mark advances only after the records are stored, so a failed extraction or embedding leaves the turns pending for the next task.
 
 ## Supersession
 
@@ -66,4 +81,6 @@ A `CORRECTION` record carries a quote of what it supersedes. The service embeds 
 
 ## Boundaries
 
-Every row is siloed by `user_key = appName/userId`. `deleteUserMemory` hard-deletes a user's facts and **throws** on failure rather than silently no-op'ing — session transcripts in `adk_sessions` need separate clearing. How the whole framework fits around this: [architecture](/overview/architecture.md).
+Every row is siloed by `user_key = appName/userId`, where `appName` on the A2A server is the syndicate's `memory_namespace` (else `melchizedek-a2a`).
+
+Erasure comes in two sizes. The A2A server's `DELETE /memory` and `erase(scopeKey)` remove a scope from every store: facts, sessions, ledger rows and A2A tasks ([A2A](/protocols/a2a.md)). `deleteUserMemory(userKey)` removes one user key's facts only, leaving sessions and the ledger in place. Both **throw** on failure rather than silently doing nothing. How the whole framework fits around this: [architecture](/overview/architecture.md).

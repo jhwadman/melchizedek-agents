@@ -112,7 +112,8 @@
     "db:purge": "node --disable-warning=DEP0040 --experimental-strip-types scripts/purge_supabase.ts",
     "telemetry:stats": "node --disable-warning=DEP0040 --experimental-strip-types scripts/telemetry_admin.ts stats",
     "telemetry:prune": "node --disable-warning=DEP0040 --experimental-strip-types scripts/telemetry_admin.ts prune",
-    "telemetry:replay": "node --disable-warning=DEP0040 --experimental-strip-types scripts/telemetry_admin.ts replay"
+    "telemetry:replay": "node --disable-warning=DEP0040 --experimental-strip-types scripts/telemetry_admin.ts replay",
+    "telemetry:embed": "node --disable-warning=DEP0040 --experimental-strip-types scripts/telemetry_admin.ts embed"
   },
   "peerDependencies": {
     "@google/adk": "^2.2.0"

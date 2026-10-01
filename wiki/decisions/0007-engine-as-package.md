@@ -10,7 +10,8 @@ generated:
   by: claude-code/claude-fable-5
   at: 2026-08-19
 sources:
-  - resource: scripts/export-public/export.sh
+  - resource: package.json
+  - resource: tsconfig.build.json
   - resource: lib/loadSyndicate.ts
 ---
 
@@ -26,11 +27,15 @@ Two shapes were considered: restructure the private repo into npm workspaces wit
 
 Publish from the export. The private repo keeps its layout and remains the source of truth; `melchizedek-agents` — the public repo — carries the package manifest in its overlay and is what `npm publish` runs in. This reuses the sanitization machinery wholesale: the allowlist, the overlay, the patches, and the forbidden-term and secret scans all run upstream of packaging, so the package cannot contain what the mirror may not.
 
+> **Note (2026-10-01):** Superseded on where the package is published from: this public repository is now the source of truth and `npm publish` runs in it, with no private source, overlay, export pipeline or mirror, see [ADR 0022](/decisions/0022-public-source-of-truth.md).
+
 Three mechanics follow:
 
 - **The engine is location-independent.** `loadSyndicate` resolves its jail root as option → `MELCHIZEDEK_AGENTS_DIR` → `<cwd>/config/agents`; the wiki root defaults to `<cwd>/wiki` under `WIKI_ROOT`; image tools honor `OUTPUTS_DIR`. Nothing in `lib/` derives paths from its own file location any more.
 - **The package compiles; the repo does not.** Node refuses to strip types under `node_modules`, so the overlay carries a `tsconfig.build.json` (`rewriteRelativeImportExtensions`, declarations, `dist/`) — the project's first and only build step, confined to the mirror. Clones keep running `.ts` sources directly.
 - **Every export proves the package.** The pipeline builds `dist/`, packs the tarball, installs it into a throwaway consumer, and loads a starter-pack syndicate through the installed package before committing. The exports map in the overlay manifest is the semver boundary; publishing itself stays a human act, like pushing.
+
+> **Note (2026-10-01):** `tsconfig.build.json` now sits at the repository root (`npm run build`, also run by `prepack`), and the pack-and-consume check runs in CI (`.github/workflows/ci.yml`) rather than in an export. The root `package.json` exports map is the semver boundary, see [ADR 0022](/decisions/0022-public-source-of-truth.md).
 
 ## Consequences
 

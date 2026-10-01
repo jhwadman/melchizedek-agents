@@ -25,6 +25,8 @@ Research-grade observability was wanted: store every exchange as input and outpu
 
 Three facts about the existing stores shaped the answer. The root span carried no session, task, or invocation id, the chosen route existed only as a console line, and the classifier ran untraced — so traces and sessions could only be matched by timestamp. `adk_sessions` is the ADK runner's working memory: re-read before every model call, re-upserted whole on every append (a 60-turn thread already costs ~59 MB of cumulative upload after the 2026-08-15 trimming), read by the memory pipeline, and expired after seven days. And full payloads measured at 10–100x a turn row, repeating the growing history on every call.
 
+> **Note (2026-10-01):** Every session write sets `expire_at` seven days out, and `melchizedek_prune_sessions()` (`db/migrations/0001_base.sql`) deletes expired rows: nightly through pg_cron when that extension is installed, otherwise by running `npm run sessions:prune` on a schedule, see [ADR 0020](/decisions/0020-memory-contract.md).
+
 ## Decision
 
 **Sessions stay runtime state.** Nothing observability-related is added to `adk_sessions`; it is joined *to*, by `session_id` (the A2A `contextId`) and `invocation_id` (ADK's per-turn id, present on every stored event).
@@ -36,6 +38,8 @@ Three facts about the existing stores shaped the answer. The root span carried n
 **Raw spans remain.** `adk_telemetry` keeps one row per `llm.request` and root span, now with the identity columns and the agent that made each call, and the spans also carry the OpenTelemetry GenAI semantic conventions so an OTLP viewer can be attached without migration.
 
 **The pipeline reports on itself.** Failed inserts are spooled to a dead-letter file and replayable; `telemetry:stats` and the observatory's `doctor` show rows per day and write lag.
+
+> **Note (2026-10-01):** The observatory, with its `doctor` and its grading of production rows, lives in a separate evaluation repository; this repository ships the ledger, `telemetry:stats`, `telemetry:prune` and `telemetry:replay`, see [ADR 0022](/decisions/0022-public-source-of-truth.md).
 
 ## Consequences
 

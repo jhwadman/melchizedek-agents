@@ -15,7 +15,6 @@ sources:
   - resource: lib/models/gatewayLlm.ts
   - resource: lib/models/capabilities.ts
   - resource: lib/doctor.ts
-  - resource: plans/model-access-tiers.md
 ---
 
 # ADR 0012: Direct adapters are canonical; a gateway is a fallback that fills only the keys that are absent
@@ -33,11 +32,13 @@ The framework routes a model id to one of five adapters by prefix, and each clou
 5. **The gateway key is server environment only.** An A2A caller's `X-API-Key` funds that caller's declared provider directly and never selects the gateway. The exposed surface does not widen.
 6. **Vertex AI is not offered**, not even as documentation. It cannot carry OpenAI's hosted models, so it can never be the one-key answer, and its service-account credential is heavier than a gateway key for the audience the starter pack serves.
 
+> **Note (2026-10-01):** Item 6 is superseded: each provider now takes a configured endpoint and credential source, with Vertex AI, Bedrock and Azure OpenAI as first-class targets, see [ADR 0023](/decisions/0023-bring-your-own-endpoint.md).
+
 ## Alternatives considered
 
 - *Gateway as a mode that routes everything.* Simpler to explain, but a present Google key would then be useless and twelve examples would lose grounding for no reason. Rejected: the curriculum's point is that model choice is a routing and cost decision with real trade-offs.
 - *A gateway prefix in `providerMap.ts`.* Would change what the ledger records as the provider and leak into the generated provider table. Rejected; the registry owns the transport decision and the map stays a leaf.
-- *Vertex AI adapters for Claude and Grok.* Three of four providers, a new secret class on Heroku, and still not one key. Rejected.
+- *Vertex AI adapters for Claude and Grok.* Three of four providers, a new secret class on the production host, and still not one key. Rejected.
 - *Asking every newcomer for four keys up front.* Rejected; the doctor lets a key arrive when an agent demands one, which is how this deployment grew.
 - *Subclassing `GptLlm` for the gateway.* It speaks OpenAI's Responses API; gateways universally speak chat completions, the dialect the Ollama adapter already exercises. The gateway subclasses that base.
 
@@ -49,3 +50,5 @@ The framework routes a model id to one of five adapters by prefix, and each clou
 - The public package moves to 0.12.0: a third bin, new root exports, and the `./models/*` map publishing the three new modules.
 - Wire names are mapped by rule (`anthropic/claude-sonnet-4.6`) with `MODEL_GATEWAY_MODEL_MAP` for the exceptions, so an upstream renaming is an env change, not a release.
 - `plans/model-access-tiers.md` is the design record and now reads as history.
+
+> **Note (2026-10-01):** That plan is not part of the public repository; this ADR is the public record of the decision, see [ADR 0022](/decisions/0022-public-source-of-truth.md).

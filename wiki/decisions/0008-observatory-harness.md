@@ -12,9 +12,8 @@ generated:
   at: 2026-08-22
 sources:
   - resource: lib/compile.ts
-  - resource: lib/evals/runSyndicate.ts
-  - resource: scripts/observatory/bridge.ts
-  - resource: observatory/README.md
+  - resource: lib/runtime/syndicateTurn.ts
+  - resource: lib/observability/tracer.ts
 ---
 
 # ADR 0008: Evals drive the production compiler through a bridge; judges are agents
@@ -31,6 +30,8 @@ Three shapes were considered for where inference happens: a Python reimplementat
 
 **The server's compiler moved to `lib/compile.ts`.** The A2A executor's `compileGraph` / `compileSubagent` closures became a module with model resolution and nested-config loading injected, and the server now calls it. This is the only way an eval can claim to measure the served graph; a second compiler would be a second place to drift, which is how `lib/toolRegistry.ts` came to exist. The turn loop itself (`lib/evals/runSyndicate.ts`) mirrors the executor's rules with the shared building blocks — route overrides, the classifier digest, the projected transcript, the DELEGATE relay fallback — rather than sharing the executor, which is welded to the A2A event bus.
 
+> **Note (2026-10-01):** The bridge and `lib/evals/runSyndicate.ts` are not in this repository. The evaluation harness lives in its own repository and drives the exported `runSyndicateTurn`, which replaced the mirrored turn loop, see [ADR 0024](/decisions/0024-adk-behind-the-runtime-seam.md).
+
 **Judges are agents.** A rubric becomes an `outputSchema`; an LLM judge is an `LlmAgent` run through the bridge. No provider SDK in Python, any registry-routable model can judge, and judge calls are traced like any other call.
 
 **Variants are overrides on the production YAML**, applied in memory and through every `yaml_reference`, so the only difference between two variants is the override that names it.
@@ -44,3 +45,5 @@ Tracing had to become honest before any of this could score production. Three ga
 The black-box alternative was rejected because the server hides what an eval most needs — per-call tokens, the route, tool calls — behind `[STATUS]` lines, and because BYOK auth and rate limiting exist to protect production, not to be driven by a test loop. The Python-reimplementation alternative was rejected for the drift it guarantees.
 
 The standing risks: `runSyndicate.ts` and the executor must change together when turn semantics change (both headers say so), and eval runs are stateless — no durable session, no long-term memory — so memory-dependent behaviour is not what the harness measures. The observatory is private to this repo until it is allowlisted for export; `lib/compile.ts` is allowlisted because the exported server imports it.
+
+> **Note (2026-10-01):** The observatory was moved to a separate evaluation repository rather than allowlisted; this repository ships `lib/compile.ts` and the turn runner it drives, see [ADR 0022](/decisions/0022-public-source-of-truth.md).

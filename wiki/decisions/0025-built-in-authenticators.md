@@ -27,6 +27,8 @@ sources:
 
 **The scope is a hash of a model key.** Under `keyMode: 'byok'`, data is stored under `a2a-<sha256(X-API-Key)>`. Rotating the provider key therefore moves every session and memory out of reach. That happened once in production, stranding 69 records (`plans/memory-silo-survives-key-rotation.md`).
 
+> **Note (2026-10-01):** That plan, and the options A to C it weighed (cited below), are not part of the public repository; this ADR is the public record of them, see [ADR 0022](/decisions/0022-public-source-of-truth.md).
+
 **Plugging in an authenticator turned off byok billing.** `resolveRequest` replaced the whole key mode, so a deployment could not have real identity and caller-funded inference at once.
 
 **What a running deployment looks like.** Every caller of one deployment typically shares one key-hash silo, holding all of its sessions and memory.

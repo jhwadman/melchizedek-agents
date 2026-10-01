@@ -1,8 +1,8 @@
 -- ============================================================
--- Melchizedek — Database Hardening (run AFTER the schema SQL in README.md
--- and, if upgrading, after db/memory_v2.sql — order with memory_v2 does
--- not matter; the function revoke below handles either signature).
--- Paste into the Supabase SQL Editor and run once per project.
+-- Melchizedek — Database Hardening (run AFTER the numbered migrations in
+-- db/migrations/ and, if upgrading, after db/memory_v2.sql — order with
+-- memory_v2 does not matter; the function revoke below handles either
+-- signature). `npm run db -- apply` runs it last; it is idempotent.
 -- ============================================================
 --
 -- WHY THIS EXISTS
@@ -77,7 +77,7 @@ BEGIN
   END IF;
 END $$;
 
--- Agent registry (DOCUMENTATION.md step 6). Guarded the same way: the table
+-- Agent registry (adk_agent_registry). Guarded the same way: the table
 -- only exists in deployments that boot syndicates with `registry:<id>`.
 -- Read exposure leaks every system prompt; write exposure is agent takeover.
 DO $$
@@ -91,7 +91,7 @@ END $$;
 -- ── FUNCTIONS: no API role may execute them ──────────────────────────────
 -- Postgres grants EXECUTE on every new function to PUBLIC, and anon and
 -- authenticated inherit PUBLIC — so revoking from those two roles BY NAME
--- (what this file did before 2026-10) left the PUBLIC grant in force. Two
+-- alone would leave the PUBLIC grant in force. Two
 -- of these are SECURITY DEFINER (they bypass RLS): through the anon key,
 -- match_turns would read stored conversations and the prune functions would
 -- delete the ledger and sessions. Revoke from PUBLIC as well, then grant

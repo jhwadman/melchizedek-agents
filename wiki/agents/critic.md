@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-09-02
+  at: 2026-10-01
 sources:
   - resource: config/agents/examples/critic.yaml
 ---
@@ -14,12 +14,12 @@ sources:
 # Critic Review Workflow
 
 <!-- wiki:fill slot="charter" -->
-The Critic Review Workflow syndicate coordinates an iterative draft-and-review process to ensure only high-confidence answers reach the user. It delegates initial user queries to a DrafterAgent and routes drafts to a CriticAgent, which evaluates accuracy, clarity, and completeness while returning a structured JSON response with a confidence score.
+The Critic Review Workflow syndicate coordinates an iterative draft-and-review process to ensure only high-confidence answers reach the user. It delegates the user's question to a DrafterAgent and routes each draft to a CriticAgent. The Critic is a leaf with no tools that holds the `outputSchema`: it returns JSON with a polished `message`, a `confidence` score from 0 to 100, and an `issues` list. The schema sits on the leaf because an ADK agent cannot hold both an `outputSchema` and AgentTools.
 
-This syndicate excels at autonomous answer refinement within a single user-facing turn. If the CriticAgent's confidence score is below 85, the ReviewOrchestrator automatically sends the Critic's feedback back to the DrafterAgent for revisions, looping up to three times. Run this syndicate when user queries require rigorous fact-checking, iterative refinement, and verified output quality.
+The loop runs within a single user-facing turn. If the confidence score is below 85, the ReviewOrchestrator sends the Critic's issues back to the DrafterAgent for a revision, for at most three rounds. It then returns the Critic's latest JSON raw and unchanged. The Critic grades without tools, so it checks a draft only as far as the model can reason. Run this syndicate to see a graded draft-and-revise loop; [Draft Review](/agents/draft_review.md) is the production template with a policy checklist in place of the score.
 <!-- /wiki:fill -->
 
-<!-- wiki:generated section="composition" source="config/agents/critic.yaml" -->
+<!-- wiki:generated section="composition" source="config/agents/examples/critic.yaml" -->
 Run: `npm run syndicate:critic`
 
 - memory: `session-only`

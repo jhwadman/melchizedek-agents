@@ -186,6 +186,10 @@ test('surgical edits splice slots and generated blocks without touching prose', 
   assert.ok(!regen?.includes('old generated'));
   assert.ok(regen?.startsWith('intact prose above'));
   assert.ok(regen?.trimEnd().endsWith('intact prose below'));
+  assert.ok(regen?.includes('source="x"'), 'no source given: marker untouched');
+  const moved = setGeneratedContent(filled!, 'g', 'new generated', 'y/x');
+  assert.ok(moved?.includes('<!-- wiki:generated section="g" source="y/x" -->'));
+  assert.equal(parseDoc(moved!).generated[0].content.trim(), 'new generated');
   assert.equal(setSlotContent(raw, 'missing', 'x'), null);
 
   const slot = parseDoc(raw).slots[0];
@@ -350,6 +354,14 @@ test('refresh regenerates machine sections, preserves prose and filled slots, bu
   const again = refreshDoc(v2, spec2, { ...CTX, date: '2026-07-28' });
   assert.ok(!again.changed, 'idempotent when nothing changed');
   assert.ok(!again.raw.includes('2026-07-28'));
+});
+
+test('refreshDoc inserts a new generated block after its predecessor, not at the end', () => {
+  const gen = (id: string) => ({ kind: 'generated' as const, id, source: `db/${id}.sql`, markdown: `## ${id}` });
+  const v1 = renderDoc({ bundlePath: '/x.md', body: [gen('m1'), gen('tail')] }, CTX);
+  const { raw } = refreshDoc(v1, { bundlePath: '/x.md', body: [gen('m1'), gen('m2'), gen('tail')] }, CTX);
+  const at = (id: string) => raw.indexOf(`section="${id}"`);
+  assert.ok(at('m1') < at('m2') && at('m2') < at('tail'), raw);
 });
 
 // ── wiki_save gate end to end ────────────────────────────────────────────────

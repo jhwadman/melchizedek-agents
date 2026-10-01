@@ -6,7 +6,7 @@ tags:
   - syndicate
 generated:
   by: process:wiki-build
-  at: 2026-09-02
+  at: 2026-10-01
 sources:
   - resource: config/agents/examples/delegation.yaml
 ---
@@ -14,10 +14,10 @@ sources:
 # Delegation Router Workflow
 
 <!-- wiki:fill slot="charter" -->
-The Delegation Router Workflow exists to triage user requests and delegate them to specialized subagents rather than answering specialized queries directly. Led by RouterAgent, this syndicate excels at identifying query domains: it routes programming, software development, and debugging questions to CodeExpert, while directing mathematics, formula, and calculation queries to MathExpert. RouterAgent handles general greetings or unrelated topics directly with concise responses. Run this syndicate when processing incoming requests that require automated triage and delegation across specialized coding and mathematical [agents](/agents/index.md).
+The Delegation Router Workflow exists to triage user requests and delegate them to specialized subagents rather than answering specialized queries directly. RouterAgent reads each specialist's `description` and hands the turn to one of them: code to write or explain goes to CodeExpert, and a number, solution, derivation or proof goes to MathExpert. A question that is both goes by its deliverable. RouterAgent answers greetings, small talk and short questions in the `domain` variable (general knowledge as shipped) itself, and relays a specialist's answer in full. It calls one specialist per turn, never both. The relay turn is the cost of delegation; [Research](/agents/research.md) and [Support Triage](/agents/support_triage.md) show the `dispatch:` version, where code runs the chosen route and the specialist's answer is the reply.
 <!-- /wiki:fill -->
 
-<!-- wiki:generated section="composition" source="config/agents/delegation.yaml" -->
+<!-- wiki:generated section="composition" source="config/agents/examples/delegation.yaml" -->
 Run: `npm run syndicate:delegation`
 
 - memory: `session-only`

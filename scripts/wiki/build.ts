@@ -205,11 +205,22 @@ function loadSyndicates(): LoadedSyndicate[] {
   return loaded;
 }
 
+/** A `yaml_reference` subagent's Model cell: the nested syndicate, linked
+ *  when it has a page. A private page is linked only from a private page
+ *  in practice, because only private syndicates nest private ones. */
+function nestedSyndicate(ref: string, pageOf: Map<string, string>): string {
+  const id = ref.replace(/^(examples|templates)\//, '').replace(/\.yaml$/, '');
+  const page = pageOf.get(id);
+  return page ? `syndicate: [${id}](${page})` : `syndicate: \`${id}\``;
+}
+
 function syndicateSpecs(): DocSpec[] {
   const runScripts = syndicateRunScripts();
   const specs: DocSpec[] = [];
+  const syndicates = loadSyndicates();
+  const pageOf = new Map(syndicates.map((s) => [s.base, s.bundlePath]));
 
-  for (const { base, file, cfg, isPrivate, bundlePath } of loadSyndicates()) {
+  for (const { base, file, cfg, isPrivate, bundlePath } of syndicates) {
     const orch = cfg.orchestrator!;
     const name = cfg.syndicate_name!;
     const subs = cfg.subagents ?? [];
@@ -232,7 +243,7 @@ function syndicateSpecs(): DocSpec[] {
         ['Subagent', 'Model', 'Tools', 'MCP'],
         subs.map((s) => [
           s.name ?? '?',
-          `\`${s.model ?? 'default'}\``,
+          s.yaml_reference ? nestedSyndicate(s.yaml_reference, pageOf) : `\`${s.model ?? 'default'}\``,
           (s.tools ?? []).map((t) => `\`${t}\``).join(', ') || '—',
           s.mcp_server_url ? '`mcp_server_url`' : '—',
         ]),
@@ -314,7 +325,7 @@ function toolDocSpecs(): DocSpec[] {
         {
           kind: 'prose',
           markdown:
-            'Serving: `npm run mcp:wiki` exposes all of these over SSE at `localhost:8933/sse`. Syndicate agents declare the navigation and save tools by name in YAML — see [tool contracts](/tools/tool-contracts.md) for how one definition feeds both surfaces.',
+            'Serving: `npm run mcp:wiki` exposes all of these over SSE at `localhost:8933/sse` (`MCP_WIKI_PORT` changes the port). `wiki_query` and `wiki_garden` run a model in the server process, so they need a provider key in its environment. Syndicate agents declare the navigation tools, `wiki_save` and `wiki_relate` by name in YAML; the two composites are not registered for agents, because a syndicate reaches that behaviour by being the agent with the primitives. See [tool contracts](/tools/tool-contracts.md) for how one definition feeds both surfaces.',
         },
       ],
     },
@@ -348,7 +359,7 @@ function toolDocSpecs(): DocSpec[] {
         {
           kind: 'prose',
           markdown:
-            '`web_search`, `x_search`, and `collections_search` are not contracts — they are sentinels that enable each provider\'s native server-side search (see [provider routing](/models/provider-routing.md)). `web_extract` and `x_api_search` execute client-side on every provider: `web_extract` keyless (the one web capability local models get), `x_api_search` against the X API v2 recent search with `X_BEARER_TOKEN` in the server environment, each post\'s attached photos transcribed by a Gemini vision pass and pasted beneath it — the X channel without a grok-* dependency.',
+            '`web_search`, `x_search`, and `collections_search` are not contracts — they are sentinels that enable each provider\'s native server-side search (see [provider routing](/models/provider-routing.md)). `web_extract` and `x_api_search` execute client-side, so they work on any provider; `web_extract` alone needs no key and runs on local models.',
         },
       ],
     },
@@ -380,7 +391,7 @@ function toolDocSpecs(): DocSpec[] {
         {
           kind: 'prose',
           markdown:
-            'All seven are read-only fetches over free public APIs (Europe PMC, ClinicalTrials.gov v2, Crossref, OpenAlex); none mutates state. The channel decides the evidentiary ceiling in code, every result is a labelled text block carrying each record\'s identifier, ceiling and registry acronym, and the `science` guard (lib/guards/science.ts) verifies an answer against exactly that text. Served over MCP by `npm run mcp:science`.',
+            'All seven are read-only fetches over free public APIs (Europe PMC, ClinicalTrials.gov v2, Crossref, OpenAlex); none mutates state. The channel decides the evidentiary ceiling in code, every result is a labelled text block carrying each record\'s identifier, ceiling and registry acronym, and the `science` guard (lib/guards/science.ts) verifies an answer against exactly that text. Served over MCP by `npm run mcp:science` at `localhost:8934/sse` (`MCP_SCIENCE_PORT` changes the port). `SCIENCE_API_CONTACT` sets the contact the sources\' polite pools ask for; without it, calls go out in the throttled pool.',
         },
       ],
     },
@@ -413,12 +424,12 @@ function toolDocSpecs(): DocSpec[] {
         {
           kind: 'prose',
           markdown:
-            '**The tools never run a job.** A tool that runs agents is the composite the [tool contract](/tools/tool-contracts.md) refuses, so `task_queue` only writes a record, and `scripts/assistant_worker.ts` (`npm run assistant:worker`; `melchizedek-worker` in the package) runs it: it claims the oldest queued job, runs its instruction as a fresh single turn through one agent compiled by `lib/compile.ts` (default: the [Assistant](/agents/assistant.md)\'s Worker; any syndicate and agent will do), and writes the result or the error back for `task_get`. A job left running by a dead worker is re-queued at the next start and failed after two interruptions; one still running after ten minutes is recorded as failed. Run one worker per store: the claim is a read-modify-write, not a lock.',
+            '**The tools never run a job.** A tool that runs agents is the composite the [tool contract](/tools/tool-contracts.md) refuses, so `task_queue` only writes a record, and `scripts/assistant_worker.ts` (`npm run assistant:worker`; `melchizedek-worker` in the package) runs it: it claims the oldest queued job, runs its instruction as a fresh single turn through `runSyndicateTurn` (`lib/runtime/syndicateTurn.ts`) with one agent, and writes the result or the error back for `task_get`. The agent defaults to the [Assistant](/agents/assistant.md)\'s Worker; `--syndicate <file> --agent <name>` picks any syndicate and agent. A job left running by a dead worker is re-queued at the next start and failed after two interruptions; a job that runs past ten minutes is aborted and recorded as failed. Run one worker per store: the claim is a read-modify-write, not a lock.',
         },
         {
           kind: 'prose',
           markdown:
-            'Exposure: the store is single-user and has no caller identity, and neither does the A2A server, so on a shared endpoint every caller would share one list. A syndicate carrying these tools is for one person\'s machine. A job result is the worker\'s output and reaches the Assistant as material to report, never as instructions.',
+            'Exposure: the store is single-user. It is one file with no caller identity, so on a shared A2A endpoint every caller would share one list. A syndicate carrying these tools is for one person\'s machine. A job result is the worker\'s output and reaches the Assistant as material to report, never as instructions.',
         },
       ],
     },
@@ -471,7 +482,7 @@ function schemaSpec(): DocSpec {
       type: 'schema',
       title: 'Memory & telemetry schema',
       description:
-        'The canonical Postgres DDL, verbatim from db/: the numbered migrations (sessions, memory facts, erase, the direct-Postgres tables), the telemetry ledger, and the row-level-security hardening.',
+        'The Postgres DDL shipped in db/, verbatim and in install order: the numbered migrations (sessions, memory facts, erase, the direct-Postgres tables, usage counters), the telemetry ledger, the row-level-security hardening and the memory_v2 upgrade.',
       tags: ['schema', 'postgres', 'supabase', 'memory'],
       sources: [
         ...migrations.map((f) => ({ resource: `db/migrations/${f}` })),
@@ -1274,7 +1285,9 @@ async function main(): Promise<void> {
   );
   reportEntityPass(pass);
 
-  if (tally.created + tally.updated > 0) {
+  // Only a build that creates documents is logged: regenerated tables change
+  // on every source edit, and git already records those.
+  if (tally.created > 0) {
     appendLog(
       wikiRoot,
       today,

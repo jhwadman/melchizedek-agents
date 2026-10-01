@@ -41,3 +41,5 @@ The graph went from 42 nodes to over 300 — agents, models, providers, tools, M
 The costs are real and accepted. The snapshot is as fresh as the last build, so `wiki_graph` reports its own staleness rather than pretending. The scanners are literal: a dynamically-built import or table name is invisible to them, which is preferable to a guess. And assertion is deliberate work — the [Cartographers](/agents/cartographers.md) exist to do it at scale, but nothing asserts itself.
 
 The public mirror receives the engine and the tools but not `scripts/wiki/build.ts`, which is private; there, `wiki_graph` serves whatever snapshot the bundle carries and says so plainly when it carries none.
+
+> **Note (2026-10-01):** `scripts/wiki/build.ts` ships in this public repository, so `npm run wiki:build` rebuilds `.graph/graph.json` here, and the repository commits that snapshot beside the markdown; there is no mirror or markdown-only export, see [ADR 0022](/decisions/0022-public-source-of-truth.md).

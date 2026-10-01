@@ -142,7 +142,7 @@ CREATE INDEX IF NOT EXISTS idx_adk_turns_search    ON adk_turns USING gin (searc
 --
 -- Deliberately additive and deliberately NOT tied to memory: the X-User-Id
 -- header silos long-term memory, so using it to carry a Discord author id
--- would give every human their own memory silo and change what the desk
+-- would give every human their own memory silo and change what the agent
 -- remembers. Observability must not change behavior, so this is a separate
 -- channel that only ever reaches telemetry.
 --
@@ -233,7 +233,7 @@ CREATE OR REPLACE VIEW adk_turns_production AS
   SELECT * FROM adk_turns
   WHERE eval_run IS NULL AND stage IN ('delegate', 'dispatch');
 
--- ── adk_verdicts: the observatory's judgments, persisted (Phase 2) ────────
+-- ── adk_verdicts: eval-judge verdicts, persisted ─────────────────────────
 -- One row per (turn, judge, run). A re-judge with a new rubric is a new
 -- run_id beside the old one, never an overwrite: judge_hash and
 -- dataset_hash say exactly what graded what. `ref` is the turn's trace_id
@@ -270,8 +270,8 @@ CREATE INDEX IF NOT EXISTS idx_adk_verdicts_trace ON adk_verdicts (trace_id);
 CREATE INDEX IF NOT EXISTS idx_adk_verdicts_run   ON adk_verdicts (run_id);
 CREATE INDEX IF NOT EXISTS idx_adk_verdicts_judge ON adk_verdicts (suite, judge, ts DESC);
 
--- ── adk_labels: human judgments, the calibration ground truth (Phase 2) ───
--- `observatory label` writes here. A label outlives every re-judge of the
+-- ── adk_labels: human judgments, the calibration ground truth ─────────────
+-- An eval harness's labelling tool writes here. A label outlives every re-judge of the
 -- same turn; judge-versus-human agreement (Cohen's kappa) is computed by
 -- joining on ref.
 CREATE TABLE IF NOT EXISTS adk_labels (
@@ -294,11 +294,11 @@ CREATE TABLE IF NOT EXISTS adk_labels (
 );
 CREATE INDEX IF NOT EXISTS idx_adk_labels_ref ON adk_labels (ref);
 
--- ── Semantic search over turns (Phase 3) ─────────────────────────────────
+-- ── Semantic search over turns ───────────────────────────────────────────
 -- The same embedding model and dimensions as long-term memory
 -- (lib/config.ts EMBEDDING_MODEL / EMBEDDING_DIMENSIONS). Rows are embedded
 -- by `npm run telemetry:embed` (a job, not the exporter — inference stays
--- off the export path); `observatory search --semantic` queries them.
+-- off the export path); match_turns queries them.
 ALTER TABLE adk_turns ADD COLUMN IF NOT EXISTS embedding vector(768);
 DO $idx$
 BEGIN
@@ -342,7 +342,7 @@ AS $$
   LIMIT match_count;
 $$;
 
--- ── KPI views (Phase 5) ───────────────────────────────────────────────────
+-- ── KPI views ─────────────────────────────────────────────────────────────
 -- Standing daily aggregates over production turns and persisted verdicts,
 -- for dashboards (Supabase charts, Metabase, Grafana) and the alert job.
 CREATE OR REPLACE VIEW adk_kpi_daily AS
