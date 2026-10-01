@@ -525,7 +525,7 @@ export const wikiRelateContract = defineTool({
     'Assert ONE typed relation the build cannot derive — a judgment read out of prose (depends_on, constrains, supersedes, explains, alternative_to, mitigates, contradicts). Requires evidence: quote the text or name the file that says so. Structural relations (uses_tool, imports…) are refused: those are derived by `npm run wiki:build` and asserting them would rot.',
   schema: z.object({
     from: z.string().min(1).describe('Source node id, e.g. "/decisions/0003-path-based-visibility.md"'),
-    to: z.string().min(1).describe('Target node id, e.g. "module:scripts/export-public/export.sh"'),
+    to: z.string().min(1).describe('Target node id, e.g. "module:lib/wiki/lint.ts"'),
     relation: z
       .string()
       .min(1)

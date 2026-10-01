@@ -67,24 +67,24 @@ test('a turn reports its model calls and the tokens the provider counted', async
 
 // ── Budgets ──────────────────────────────────────────────────────────────────
 
-const subject = { caller: 'penguin', scopeKey: 'silo-1', agentId: 'echo' };
+const subject = { caller: 'alpha', scopeKey: 'silo-1', agentId: 'echo' };
 const spend = { llmCalls: 3, inputTokens: 1000, outputTokens: 200, thinkingTokens: 0 };
 
 test('budgets refuse a caller at its daily task limit, per caller, and reset the next UTC day', async () => {
   let now = new Date('2026-10-01T10:00:00Z');
-  const policy = budgets({ perCaller: { tasks: 2 }, callers: { ymir: { tasks: 1 } } }, { now: () => now });
+  const policy = budgets({ perCaller: { tasks: 2 }, callers: { beta: { tasks: 1 } } }, { now: () => now });
   for (let i = 0; i < 2; i++) {
     assert.deepEqual(await policy.admit!(subject), { ok: true });
     await policy.record!(subject, spend);
   }
   const refused = await policy.admit!(subject);
   assert.equal(refused.ok, false);
-  assert.match((refused as any).reason, /Caller 'penguin' has used today's budget of 2 tasks/);
+  assert.match((refused as any).reason, /Caller 'alpha' has used today's budget of 2 tasks/);
 
-  const ymir = { ...subject, caller: 'ymir', scopeKey: 'silo-2' };
-  assert.equal((await policy.admit!(ymir)).ok, true, 'another caller has its own budget');
-  await policy.record!(ymir, spend);
-  assert.equal((await policy.admit!(ymir)).ok, false, 'an override replaces perCaller');
+  const beta = { ...subject, caller: 'beta', scopeKey: 'silo-2' };
+  assert.equal((await policy.admit!(beta)).ok, true, 'another caller has its own budget');
+  await policy.record!(beta, spend);
+  assert.equal((await policy.admit!(beta)).ok, false, 'an override replaces perCaller');
 
   now = new Date('2026-10-02T00:00:01Z');
   assert.equal((await policy.admit!(subject)).ok, true, 'a new UTC day starts over');
@@ -119,14 +119,14 @@ test('parseBudgets names the bad key', () => {
 
 test('metrics render Prometheus text with cumulative histogram buckets', () => {
   const m = createMetrics();
-  const base: TaskRecord = { agentId: 'echo', syndicate: 'Echo', caller: 'penguin', scopeHash: 'abc', status: 'completed', durationMs: 3000, usage: spend };
+  const base: TaskRecord = { agentId: 'echo', syndicate: 'Echo', caller: 'alpha', scopeHash: 'abc', status: 'completed', durationMs: 3000, usage: spend };
   m.observeTask(base);
   m.observeTask({ ...base, durationMs: 50_000 });
   m.observeTask({ ...base, status: 'rejected', reason: 'policy', usage: { llmCalls: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0 } });
   const out = m.render(2);
-  assert.match(out, /melchizedek_a2a_tasks_total\{agent="echo",caller="penguin",reason="",status="completed"\} 2/);
-  assert.match(out, /melchizedek_a2a_tasks_total\{agent="echo",caller="penguin",reason="policy",status="rejected"\} 1/);
-  assert.match(out, /melchizedek_a2a_tokens_total\{agent="echo",caller="penguin",kind="input"\} 2000/);
+  assert.match(out, /melchizedek_a2a_tasks_total\{agent="echo",caller="alpha",reason="",status="completed"\} 2/);
+  assert.match(out, /melchizedek_a2a_tasks_total\{agent="echo",caller="alpha",reason="policy",status="rejected"\} 1/);
+  assert.match(out, /melchizedek_a2a_tokens_total\{agent="echo",caller="alpha",kind="input"\} 2000/);
   assert.match(out, /melchizedek_a2a_task_duration_seconds_bucket\{agent="echo",le="5"\} 1/);
   assert.match(out, /melchizedek_a2a_task_duration_seconds_bucket\{agent="echo",le="60"\} 2/);
   assert.match(out, /melchizedek_a2a_task_duration_seconds_count\{agent="echo"\} 2/);
@@ -136,10 +136,10 @@ test('metrics render Prometheus text with cumulative histogram buckets', () => {
 
 // ── Through the server ───────────────────────────────────────────────────────
 
-const PENGUIN = 'penguin-token-0123456789abcdefghijklmnop';
-const YMIR = 'ymir-token-0123456789abcdefghijklmnopqrst';
+const ALPHA = 'alpha-token-0123456789abcdefghijklmnop';
+const BETA = 'beta-token-0123456789abcdefghijklmnopqrst';
 const METRICS = 'metrics-token-0123456789abcdefghijklmn';
-const callers = parseCallers(`penguin:${hashCallerToken(PENGUIN)}; ymir:${hashCallerToken(YMIR)}`);
+const callers = parseCallers(`alpha:${hashCallerToken(ALPHA)}; beta:${hashCallerToken(BETA)}`);
 
 async function serve(options: Record<string, unknown>) {
   const app = await createA2AApp({
@@ -181,27 +181,27 @@ test('a caller over budget is rejected with the reason; metrics and task records
     onTaskEnd: (r: TaskRecord) => records.push(r),
   });
   try {
-    assert.equal((await send(url, PENGUIN)).state, 'completed');
-    assert.equal((await send(url, PENGUIN)).state, 'completed');
-    const third = await send(url, PENGUIN);
+    assert.equal((await send(url, ALPHA)).state, 'completed');
+    assert.equal((await send(url, ALPHA)).state, 'completed');
+    const third = await send(url, ALPHA);
     assert.equal(third.state, 'rejected');
     assert.match(third.text ?? '', /budget of 2 tasks/);
-    assert.equal((await send(url, YMIR)).state, 'completed', 'ymir has its own budget');
+    assert.equal((await send(url, BETA)).state, 'completed', 'beta has its own budget');
 
     assert.deepEqual(records.map((r) => [r.caller, r.status, r.reason ?? '']), [
-      ['penguin', 'completed', ''],
-      ['penguin', 'completed', ''],
-      ['penguin', 'rejected', 'policy'],
-      ['ymir', 'completed', ''],
+      ['alpha', 'completed', ''],
+      ['alpha', 'completed', ''],
+      ['alpha', 'rejected', 'policy'],
+      ['beta', 'completed', ''],
     ]);
     assert.deepEqual(records[0].usage, { llmCalls: 1, inputTokens: 100, outputTokens: 20, thinkingTokens: 5 });
     assert.match(records[0].scopeHash, /^[0-9a-f]{12}$/);
 
     assert.equal((await fetch(`${url}/metrics`)).status, 401);
-    assert.equal((await fetch(`${url}/metrics`, { headers: { Authorization: `Bearer ${PENGUIN}` } })).status, 401, 'a caller token is not a scrape token');
+    assert.equal((await fetch(`${url}/metrics`, { headers: { Authorization: `Bearer ${ALPHA}` } })).status, 401, 'a caller token is not a scrape token');
     const metrics = await (await fetch(`${url}/metrics`, { headers: { Authorization: `Bearer ${METRICS}` } })).text();
-    assert.match(metrics, /melchizedek_a2a_tasks_total\{agent="default",caller="penguin",reason="policy",status="rejected"\} 1/);
-    assert.match(metrics, /melchizedek_a2a_llm_calls_total\{agent="default",caller="ymir"\} 1/);
+    assert.match(metrics, /melchizedek_a2a_tasks_total\{agent="default",caller="alpha",reason="policy",status="rejected"\} 1/);
+    assert.match(metrics, /melchizedek_a2a_llm_calls_total\{agent="default",caller="beta"\} 1/);
   } finally {
     srv.close();
   }
@@ -211,7 +211,7 @@ test('a policy that cannot read its store refuses (fail closed)', async () => {
   const broken: UsageStore = { get: async () => { throw new Error('db down'); }, add: async () => {} };
   const { srv, url } = await serve({ policy: budgets({ perCaller: { tasks: 10 } }, { store: broken }) });
   try {
-    const r = await send(url, PENGUIN);
+    const r = await send(url, ALPHA);
     assert.equal(r.state, 'rejected');
     assert.match(r.text ?? '', /could not check its usage limits/);
   } finally {
@@ -222,9 +222,9 @@ test('a policy that cannot read its store refuses (fail closed)', async () => {
 test('with an authenticator the rate limit is per caller, not per IP', async () => {
   const { srv, url } = await serve({ rateLimit: { windowMs: 60_000, max: 1 } });
   try {
-    assert.equal((await send(url, PENGUIN)).status, 200);
-    assert.equal((await send(url, PENGUIN)).status, 429, 'penguin is over its own limit');
-    assert.equal((await send(url, YMIR)).status, 200, 'ymir, on the same IP, is not');
+    assert.equal((await send(url, ALPHA)).status, 200);
+    assert.equal((await send(url, ALPHA)).status, 429, 'alpha is over its own limit');
+    assert.equal((await send(url, BETA)).status, 200, 'beta, on the same IP, is not');
   } finally {
     srv.close();
   }
@@ -315,8 +315,8 @@ test('the usage counters name a scope only by its hash', async () => {
   const seen: string[] = [];
   const spy: UsageStore = { get: (d, s) => store.get(d, s), add: async (d, s, u) => { seen.push(s); await store.add(d, s, u); } };
   const policy = budgets({ perScope: { tasks: 5 } }, { store: spy });
-  await policy.record!({ caller: 'penguin', scopeKey: 'alice@example.com', agentId: '' }, spend);
-  assert.ok(seen.includes('caller:penguin'));
+  await policy.record!({ caller: 'alpha', scopeKey: 'alice@example.com', agentId: '' }, spend);
+  assert.ok(seen.includes('caller:alpha'));
   const scope = seen.find((x) => x.startsWith('scope:'))!;
   assert.match(scope, /^scope:[0-9a-f]{24}$/);
   assert.doesNotMatch(scope, /alice/);

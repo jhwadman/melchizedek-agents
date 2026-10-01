@@ -273,8 +273,8 @@ test('the usage store adds atomically under concurrency and reads back per day a
   const { postgresUsageStore } = await import('../lib/a2a/policy.ts');
   const store = postgresUsageStore(pool);
   const d = { tasks: 1, llmCalls: 2, inputTokens: 30, outputTokens: 4, thinkingTokens: 1 };
-  await Promise.all(Array.from({ length: 20 }, () => store.add('2026-10-01', 'caller:penguin', d)));
-  assert.deepEqual(await store.get('2026-10-01', 'caller:penguin'), { tasks: 20, llmCalls: 40, inputTokens: 600, outputTokens: 80, thinkingTokens: 20 });
-  assert.equal((await store.get('2026-10-02', 'caller:penguin')).tasks, 0);
-  assert.equal((await store.get('2026-10-01', 'caller:ymir')).tasks, 0);
+  await Promise.all(Array.from({ length: 20 }, () => store.add('2026-10-01', 'caller:alpha', d)));
+  assert.deepEqual(await store.get('2026-10-01', 'caller:alpha'), { tasks: 20, llmCalls: 40, inputTokens: 600, outputTokens: 80, thinkingTokens: 20 });
+  assert.equal((await store.get('2026-10-02', 'caller:alpha')).tasks, 0);
+  assert.equal((await store.get('2026-10-01', 'caller:beta')).tasks, 0);
 });

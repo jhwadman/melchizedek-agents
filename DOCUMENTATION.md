@@ -405,7 +405,7 @@ or pass your own `resolveRequest`.
 - **Budgets** (`A2A_BUDGETS`, option `policy: budgets(config)`): daily limits
   per UTC day on tasks, model calls and tokens, per caller (`perCaller`, with
   overrides by name in `callers`) and per scope (`perScope`, one end user).
-  Example: `{"perCaller":{"tokens":5000000},"callers":{"ymir":{"tasks":100}},"perScope":{"tasks":50}}`.
+  Example: `{"perCaller":{"tokens":5000000},"callers":{"reports":{"tasks":100}},"perScope":{"tasks":50}}`.
   A task over budget ends `rejected` with the reason, before it takes a slot.
   The counts live in the `melchizedek_usage` table (`db/migrations/0004_usage.sql`)
   when Postgres or Supabase is configured, else in process memory. A store

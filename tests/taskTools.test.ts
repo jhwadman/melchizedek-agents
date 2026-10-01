@@ -43,8 +43,7 @@ after(() => {
 const call = (contract: any, args: unknown) => executeContract(contract, args);
 const store = () => JSON.parse(readFileSync(taskStorePath(), 'utf8'));
 
-// The public mirror ships its own sanitized registry (the export overlay), so
-// this runs against whichever registry the repo has: a task tool missing from
+// This runs against whichever tool registry the checkout has: a task tool missing from
 // it would leave assistant.yaml calling tools that do not exist.
 test('every task contract is registered by name', () => {
   const unknown: string[] = [];

@@ -117,17 +117,17 @@ test('verified: bare mapping is a one-element list; trust tiers derive from acto
 
   const human = conceptFrontmatterSchema.parse({
     type: 'guide',
-    verified: [{ by: 'melchizedek/gemini' }, { by: 'human:jimmy' }],
+    verified: [{ by: 'melchizedek/gemini' }, { by: 'human:reviewer' }],
   });
   assert.equal(trustTier(human), 'human-reviewed');
   assert.equal(trustTier(conceptFrontmatterSchema.parse({ type: 'guide' })), 'unverified');
 });
 
 test('actor convention accepts the three forms and rejects bare names', () => {
-  for (const ok of ['human:jimmy', 'process:wiki-build', 'melchizedek/gemini-3.8-flash']) {
+  for (const ok of ['human:reviewer', 'process:wiki-build', 'melchizedek/gemini-3.8-flash']) {
     assert.ok(actorSchema.safeParse(ok).success, ok);
   }
-  for (const bad of ['jimmy', 'human:', 'process:']) {
+  for (const bad of ['reviewer', 'human:', 'process:']) {
     assert.ok(!actorSchema.safeParse(bad).success, bad);
   }
 });
@@ -366,7 +366,7 @@ test('wiki_save rejects nonconformant drafts and lands conformant ones with inde
     const reject = await executeContract(wikiSaveContract, {
       path: '/guides/new.md',
       content: '# No frontmatter\n\n[[banned]] too\n',
-      actor: 'human:jimmy',
+      actor: 'human:reviewer',
       summary: 'should not land',
     });
     assert.ok(reject.startsWith('REJECTED'));
@@ -375,7 +375,7 @@ test('wiki_save rejects nonconformant drafts and lands conformant ones with inde
     const reserved = await executeContract(wikiSaveContract, {
       path: '/guides/index.md',
       content: `${FM()}# X\n`,
-      actor: 'human:jimmy',
+      actor: 'human:reviewer',
       summary: 'reserved write',
     });
     assert.ok(reserved.startsWith('Error:') && reserved.includes('reserved'));
@@ -383,7 +383,7 @@ test('wiki_save rejects nonconformant drafts and lands conformant ones with inde
     const accept = await executeContract(wikiSaveContract, {
       path: '/guides/new.md',
       content: `---\ntype: guide\ntitle: New guide\ndescription: fresh\n---\n\n# New guide\n\nSee [Old](/guides/old.md).\n`,
-      actor: 'human:jimmy',
+      actor: 'human:reviewer',
       summary: 'plant new guide',
     });
     assert.ok(accept.startsWith('CREATED /guides/new.md'), accept);
@@ -391,7 +391,7 @@ test('wiki_save rejects nonconformant drafts and lands conformant ones with inde
     const index = readFileSync(join(root, 'guides/index.md'), 'utf-8');
     assert.ok(index.includes('/guides/new.md'), 'directory index refreshed');
     const log = readFileSync(join(root, 'log.md'), 'utf-8');
-    assert.ok(log.includes('plant new guide') && log.includes('human:jimmy'));
+    assert.ok(log.includes('plant new guide') && log.includes('human:reviewer'));
 
     const search = await executeContract(wikiSearchContract, { query: 'new guide', limit: 5 });
     assert.ok(search.includes('/guides/new.md'));
@@ -496,7 +496,7 @@ test('entity graph dedupes, keeps private sticky, and walks typed relations', ()
   // Two relations between the same pair must BOTH surface.
   const twice = buildEntityGraph(NODES, [
     ...EDGES,
-    { from: 'tool:wiki_save', to: 'module:lib/wiki/lint.ts', rel: 'depends_on', tier: 'inferred' as const, by: 'human:jimmy', evidence: 'the gate calls lint' },
+    { from: 'tool:wiki_save', to: 'module:lib/wiki/lint.ts', rel: 'depends_on', tier: 'inferred' as const, by: 'human:reviewer', evidence: 'the gate calls lint' },
   ]);
   const both = neighbors(twice, 'tool:wiki_save', { direction: 'out' });
   assert.deepEqual(both.map((n) => n.rel).sort(), ['defined_in', 'depends_on']);
@@ -520,9 +520,9 @@ test('entity graph dedupes, keeps private sticky, and walks typed relations', ()
 test('graph lint: dangling endpoints, tiers, kinds, closure — closure only for documents', () => {
   const findings = lintEntityGraph(
     buildEntityGraph(NODES, [
-      { from: '/decisions/0003.md', to: 'module:nope.ts', rel: 'constrains', tier: 'inferred', by: 'human:jimmy', evidence: 'x' },
-      { from: '/decisions/0003.md', to: '/private/secret.md', rel: 'explains', tier: 'inferred', by: 'human:jimmy' },
-      { from: 'module:lib/wiki/lint.ts', to: '/private/secret.md', rel: 'depends_on', tier: 'inferred', by: 'human:jimmy' },
+      { from: '/decisions/0003.md', to: 'module:nope.ts', rel: 'constrains', tier: 'inferred', by: 'human:reviewer', evidence: 'x' },
+      { from: '/decisions/0003.md', to: '/private/secret.md', rel: 'explains', tier: 'inferred', by: 'human:reviewer' },
+      { from: 'module:lib/wiki/lint.ts', to: '/private/secret.md', rel: 'depends_on', tier: 'inferred', by: 'human:reviewer' },
       { from: 'module:lib/wiki/lint.ts', to: '/decisions/0003.md', rel: 'links_to', tier: 'extracted' },
       { from: '/decisions/0003.md', to: 'tool:wiki_save', rel: 'constrains', tier: 'extracted' },
       { from: '/decisions/0003.md', to: 'module:lib/wiki/lint.ts', rel: 'depends_on', tier: 'inferred' },
@@ -554,7 +554,7 @@ test('the two stores round-trip: derived snapshot rewritten, assertions preserve
         to: 'module:lib/wiki/lint.ts',
         rel: 'constrains',
         evidence: 'ADR 0003: "no document outside /private/ may link into it"',
-        by: 'human:jimmy',
+        by: 'human:reviewer',
         at: '2026-08-19',
       },
     ]);
@@ -564,7 +564,7 @@ test('the two stores round-trip: derived snapshot rewritten, assertions preserve
     assert.equal(loaded.inferredCount, 1);
     assert.equal(loaded.graph.edges.length, EDGES.length + 1);
     const asserted = loaded.graph.edges.find((e) => e.tier === 'inferred')!;
-    assert.equal(asserted.by, 'human:jimmy');
+    assert.equal(asserted.by, 'human:reviewer');
     assert.ok(asserted.evidence!.includes('link into it'));
 
     // A rebuild replaces the snapshot and must not touch the assertions.
@@ -602,7 +602,7 @@ test('wiki_relate refuses derived relations, dangling ends and closure breaks; l
       to: 'tool:wiki_save',
       relation: 'uses_tool',
       evidence: 'the YAML declares it',
-      actor: 'human:jimmy',
+      actor: 'human:reviewer',
     });
     assert.ok(derived.startsWith('REJECTED') && derived.includes('EXTRACTED'), derived);
 
@@ -611,7 +611,7 @@ test('wiki_relate refuses derived relations, dangling ends and closure breaks; l
       to: 'module:does/not/exist.ts',
       relation: 'constrains',
       evidence: 'ADR 0003 says so somewhere',
-      actor: 'human:jimmy',
+      actor: 'human:reviewer',
     });
     assert.ok(dangling.startsWith('REJECTED') && dangling.includes('no node'), dangling);
 
@@ -620,7 +620,7 @@ test('wiki_relate refuses derived relations, dangling ends and closure breaks; l
       to: '/private/secret.md',
       relation: 'explains',
       evidence: 'a public document reaching into the annex',
-      actor: 'human:jimmy',
+      actor: 'human:reviewer',
     });
     assert.ok(leak.startsWith('REJECTED') && leak.includes('private'), leak);
 
@@ -629,7 +629,7 @@ test('wiki_relate refuses derived relations, dangling ends and closure breaks; l
       to: 'module:lib/wiki/lint.ts',
       relation: 'constrains',
       evidence: 'ADR 0003: "Closure (lint error): no document outside /private/ may link into it."',
-      actor: 'human:jimmy',
+      actor: 'human:reviewer',
     });
     assert.ok(ok.startsWith('ASSERTED'), ok);
     assert.ok(ok.includes('constrains'), ok);
@@ -643,7 +643,7 @@ test('wiki_relate refuses derived relations, dangling ends and closure breaks; l
       to: 'module:lib/wiki/lint.ts',
       relation: 'constrains',
       evidence: 'ADR 0003: "Closure (lint error): no document outside /private/ may link into it."',
-      actor: 'human:jimmy',
+      actor: 'human:reviewer',
     });
     assert.ok(again.startsWith('UNCHANGED'), again);
 
@@ -652,7 +652,7 @@ test('wiki_relate refuses derived relations, dangling ends and closure breaks; l
       to: 'module:lib/wiki/lint.ts',
       relation: 'depends_on',
       evidence: 'the annex may point outward',
-      actor: 'human:jimmy',
+      actor: 'human:reviewer',
     });
     assert.ok(priv.startsWith('ASSERTED'), priv);
     assert.ok(

@@ -11,8 +11,8 @@
  *
  * WHAT STAYS TRUE THROUGH THE GATEWAY:
  *   - Attribution. providerId() is the YAML id's provider (anthropic,
- *     openai, gemini, xai), never "gateway", so the ledger and ymir's
- *     per-agent cost trends keep the same provider column (ADR 0009). The
+ *     openai, gemini, xai), never "gateway", so the ledger and any per-agent
+ *     cost view keep the same provider column (ADR 0009). The
  *     transport is a separate span attribute: llm.transport = gateway:<id>.
  *   - Tool calling, structured output, reasoning_effort, streaming and
  *     token accounting — all provided by the base class.

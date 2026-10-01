@@ -43,8 +43,8 @@ export function isReservedFilename(fileName: string): boolean {
 
 /**
  * The subtree that never leaves this repo. Path-based visibility: a doc is
- * private iff its bundle path starts with this prefix. The export pipeline
- * copies the bundle WITHOUT this subtree, and lint's closure rule forbids
+ * private iff its bundle path starts with this prefix. Whatever publishes
+ * the bundle copies it WITHOUT this subtree, and lint's closure rule forbids
  * docs outside it from linking into it — so the published bundle is
  * link-closed by construction (see wiki/decisions/0003.)
  */

@@ -121,8 +121,8 @@ test('declared tiers match the models in every example', () => {
 });
 
 test('nested yaml_reference syndicates are walked and named under their parent', () => {
-  // A fixture of its own: the public mirror ships no nested syndicate, and
-  // the doctor must behave the same in both repos.
+  // A fixture of its own, so the test does not depend on which syndicates
+  // a checkout ships.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-nested-'));
   try {
     fs.writeFileSync(

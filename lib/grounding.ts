@@ -5,7 +5,7 @@
  * answer and a recalled one are indistinguishable in logs and to clients.
  * scripts/a2a_server.ts folds these into `[A2A] ⌕ Grounding` log lines and
  * the `Invoking tool: web_search` / `Web sources: …` status lines that
- * nihilistic-penguin's RouteTrace renders into the Discord footer.
+ * a client can render (a chat surface's "sources" footer, say).
  */
 
 export interface GroundingState {
@@ -56,7 +56,7 @@ export function describeGrounding(state: GroundingState, maxSources = 8): string
   return `${q} quer${q === 1 ? 'y' : 'ies'} · ${s} source${s === 1 ? '' : 's'}${list}`;
 }
 
-/** The consumer contract line (penguin RouteTrace `_SOURCES_RE`), or null. */
+/** The consumer-facing status line ("Web sources: a, b") clients parse, or null. */
 export function webSourcesLine(state: GroundingState, max = 10): string | null {
   if (!state.sources.size) return null;
   return `Web sources: ${[...state.sources].slice(0, max).join(', ')}`;

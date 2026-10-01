@@ -4,8 +4,6 @@
 - [Account Memory](/agents/account_memory.md) — The Account Memory syndicate.
 - [Ares Data Extractor](/agents/ares.md) — The Ares Data Extractor syndicate.
 - [Assistant](/agents/assistant.md) — The Assistant syndicate.
-- [Augustin Desk (deep)](/agents/augustin_desk_deep.md) — The Augustin Desk (deep) syndicate.
-- [Augustin Desk](/agents/augustin_desk.md) — The Augustin Desk syndicate.
 - [Augustin](/agents/augustin.md) — The Augustin syndicate.
 - [The Cartographers](/agents/cartographers.md) — Maps the knowledge graph: has the Surveyor read prose for relations a parser cannot see, and the Registrar record them with their evidence.
 - [Case Desk](/agents/case_desk.md) — The Case Desk syndicate.
@@ -32,5 +30,4 @@
 - [Global Synthesis Council](/agents/syndicate.md) — The Global Synthesis Council syndicate.
 - [Systems Operator](/agents/systems_operator.md) — The Systems Operator syndicate.
 - [Tutor](/agents/tutor.md) — The Tutor syndicate.
-- [Ymir Judge](/agents/ymir_judge.md) — The Ymir Judge syndicate.
 <!-- /wiki:generated -->

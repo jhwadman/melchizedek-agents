@@ -42,9 +42,9 @@ process.env.OTEL_CONSOLE_SPANS = 'false';
 type AdapterRow = Exclude<MatrixRow, 'gemini'>;
 
 const FAKE_ENV: Record<AdapterRow, Record<string, string>> = {
-  anthropic: { ANTHROPIC_API_KEY: 'fixture-ant-test-0123456789abcdef' },
-  openai: { OPENAI_API_KEY: 'fixture-openai-0123456789abcdef' },
-  xai: { XAI_API_KEY: 'fixture-xai-0123456789abcdef' },
+  anthropic: { ANTHROPIC_API_KEY: 'fixture-ant-test-0123456789abcdef' }, // gitleaks:allow (test fixture)
+  openai: { OPENAI_API_KEY: 'fixture-openai-0123456789abcdef' }, // gitleaks:allow (test fixture)
+  xai: { XAI_API_KEY: 'fixture-xai-0123456789abcdef' }, // gitleaks:allow (test fixture)
   ollama: {},
   gateway: { MODEL_GATEWAY: 'openrouter', MODEL_GATEWAY_API_KEY: 'fixture-gateway-0123456789abcdef' },
 };

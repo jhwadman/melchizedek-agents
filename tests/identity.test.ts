@@ -55,40 +55,40 @@ const echo = () => new ScriptedLlm('scripted/echo', (req) => text(`heard: ${sent
 const req = (headers: Record<string, string>) =>
   ({ headers: Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])) }) as any;
 
-const PENGUIN = 'penguin-token-0123456789abcdefghijklmnop';
-const YMIR = 'ymir-token-0123456789abcdefghijklmnopqrst';
-const SECRET = 'legacy-secret-0123456789abcdef0123456789';
+const ALPHA = 'alpha-token-0123456789abcdefghijklmnop';
+const BETA = 'beta-token-0123456789abcdefghijklmnopqrst';
+const SECRET = 'legacy-secret-0123456789abcdef0123456789'; // gitleaks:allow (test fixture)
 const MODEL_KEY = 'fixture-model-key';
 const SILO = deriveUserId({ apiKey: MODEL_KEY });
 
 // ── Caller tokens ────────────────────────────────────────────────────────────
 
 test('parseCallers reads name:sha256[:scope] and refuses what it cannot trust', () => {
-  const h = hashCallerToken(PENGUIN);
-  assert.deepEqual(parseCallers(`penguin:${h}:a2a-0123456789abcdef; ymir:${hashCallerToken(YMIR)}`), [
-    { name: 'penguin', tokenSha256: h, scope: 'a2a-0123456789abcdef' },
-    { name: 'ymir', tokenSha256: hashCallerToken(YMIR), scope: 'ymir' },
+  const h = hashCallerToken(ALPHA);
+  assert.deepEqual(parseCallers(`alpha:${h}:a2a-0123456789abcdef; beta:${hashCallerToken(BETA)}`), [
+    { name: 'alpha', tokenSha256: h, scope: 'a2a-0123456789abcdef' },
+    { name: 'beta', tokenSha256: hashCallerToken(BETA), scope: 'beta' },
   ]);
-  assert.throws(() => parseCallers(`penguin:${PENGUIN}`), /SHA-256/, 'a raw token is refused');
+  assert.throws(() => parseCallers(`alpha:${ALPHA}`), /SHA-256/, 'a raw token is refused');
   assert.throws(() => parseCallers(`a:${h}; b:${h}`), /reuses/);
-  assert.throws(() => parseCallers(`a:${h}; a:${hashCallerToken(YMIR)}`), /twice/);
+  assert.throws(() => parseCallers(`a:${h}; a:${hashCallerToken(BETA)}`), /twice/);
   assert.throws(() => parseCallers(`bad name:${h}`), /must match/);
   assert.throws(() => parseCallers(' ; '), /no callers/);
 });
 
 test('callerTokens: the scope is the caller’s, an end user nests beneath it', async () => {
-  const auth = callerTokens(parseCallers(`penguin:${hashCallerToken(PENGUIN)}:${SILO}`));
-  assert.deepEqual(await auth.resolveRequest(req({ Authorization: `Bearer ${PENGUIN}` })), {
+  const auth = callerTokens(parseCallers(`alpha:${hashCallerToken(ALPHA)}:${SILO}`));
+  assert.deepEqual(await auth.resolveRequest(req({ Authorization: `Bearer ${ALPHA}` })), {
     scopeKey: SILO,
-    caller: 'penguin',
+    caller: 'alpha',
     ownsNested: true,
     operator: true,
   });
-  const nested = await auth.resolveRequest(req({ Authorization: `Bearer ${PENGUIN}`, 'X-User-Id': 'u1' }));
+  const nested = await auth.resolveRequest(req({ Authorization: `Bearer ${ALPHA}`, 'X-User-Id': 'u1' }));
   assert.equal(nested?.scopeKey, `${SILO}/u1`);
   assert.equal(nested?.ownsNested, false);
-  assert.equal(await auth.resolveRequest(req({ Authorization: `Bearer ${YMIR}` })), undefined);
-  assert.equal(await auth.resolveRequest(req({ Authorization: `Bearer ${PENGUIN}`, 'X-User-Id': 'a/b' })), undefined);
+  assert.equal(await auth.resolveRequest(req({ Authorization: `Bearer ${BETA}` })), undefined);
+  assert.equal(await auth.resolveRequest(req({ Authorization: `Bearer ${ALPHA}`, 'X-User-Id': 'a/b' })), undefined);
   assert.equal(await auth.resolveRequest(req({})), undefined);
 });
 
@@ -114,7 +114,7 @@ test('scopeSegment keeps readable ids and hashes the rest without collisions', (
 
 // ── JWT ──────────────────────────────────────────────────────────────────────
 
-const JWT_SECRET = 'jwt-secret-0123456789abcdef0123456789abcdef';
+const JWT_SECRET = 'jwt-secret-0123456789abcdef0123456789abcdef'; // gitleaks:allow (test fixture)
 const hs = new TextEncoder().encode(JWT_SECRET);
 async function token(claims: Record<string, unknown>, opts: { exp?: string; iss?: string; aud?: string } = {}) {
   return new SignJWT(claims)
@@ -134,14 +134,14 @@ test('jwtIdentity verifies issuer, audience and expiry, and scopes by tenant/use
   await assert.rejects(async () => auth.resolveRequest(req({ Authorization: `Bearer ${await token({ sub: 'x', org: 'acme' }, { iss: 'https://evil' })}` })) as Promise<unknown>);
   await assert.rejects(async () => auth.resolveRequest(req({ Authorization: `Bearer ${await token({ sub: 'x', org: 'acme' }, { exp: '-10m' })}` })) as Promise<unknown>);
   await assert.rejects(async () => auth.resolveRequest(req({ Authorization: `Bearer ${await token({ sub: 'x' })}` })) as Promise<unknown>, /org/);
-  assert.equal(await auth.resolveRequest(req({ Authorization: `Bearer ${PENGUIN}` })), undefined, 'not a JWT');
+  assert.equal(await auth.resolveRequest(req({ Authorization: `Bearer ${ALPHA}` })), undefined, 'not a JWT');
 });
 
 test('jwtIdentity accepts asymmetric keys through a key resolver and refuses a forged token', async () => {
   const { publicKey, privateKey } = await generateKeyPair('ES256');
   const forger = await generateKeyPair('ES256');
   const auth = jwtIdentity({ getKey: async () => publicKey, issuer: 'iss', audience: 'aud' });
-  const sign = (key: CryptoKey) =>
+  const sign = (key: Parameters<SignJWT['sign']>[0]) =>
     new SignJWT({ sub: 'u1' }).setProtectedHeader({ alg: 'ES256' }).setIssuer('iss').setAudience('aud').setExpirationTime('5m').sign(key);
   assert.equal((await auth.resolveRequest(req({ Authorization: `Bearer ${await sign(privateKey)}` })))?.scopeKey, 'u1');
   await assert.rejects(async () => auth.resolveRequest(req({ Authorization: `Bearer ${await sign(forger.privateKey)}` })) as Promise<unknown>);
@@ -215,44 +215,44 @@ async function erasedScope(url: string, headers: Record<string, string>) {
 }
 
 test('a caller token on the old silo reaches the conversation the shared secret started', async () => {
-  const callers = parseCallers(`penguin:${hashCallerToken(PENGUIN)}:${SILO}; ymir:${hashCallerToken(YMIR)}`);
+  const callers = parseCallers(`alpha:${hashCallerToken(ALPHA)}:${SILO}; beta:${hashCallerToken(BETA)}`);
   const { srv, url } = await serve({ keyMode: 'byok', ...firstOf(callerTokens(callers), sharedSecret({ secret: SECRET, keyMode: 'byok' })) });
   try {
     const ctx = `ctx-${crypto.randomUUID()}`;
     const legacy = { Authorization: `Bearer ${SECRET}`, 'X-API-Key': MODEL_KEY };
     assert.equal((await send(url, legacy, 'first, over the shared secret', ctx)).status, 200);
 
-    // Same silo through penguin's own token, even with a ROTATED model key.
-    const penguin = { Authorization: `Bearer ${PENGUIN}`, 'X-API-Key': 'fixture-rotated-key' };
-    const resumed = await send(url, penguin, 'second, over a caller token', ctx);
+    // Same silo through alpha's own token, even with a ROTATED model key.
+    const alpha = { Authorization: `Bearer ${ALPHA}`, 'X-API-Key': 'fixture-rotated-key' };
+    const resumed = await send(url, alpha, 'second, over a caller token', ctx);
     assert.match(resumed.answer ?? '', /first, over the shared secret/);
 
-    // ymir owns a different scope: the same context id is a fresh session.
-    const ymir = { Authorization: `Bearer ${YMIR}`, 'X-API-Key': MODEL_KEY };
-    assert.doesNotMatch((await send(url, ymir, 'ymir here', ctx)).answer ?? '', /first, over the shared secret/);
+    // beta owns a different scope: the same context id is a fresh session.
+    const beta = { Authorization: `Bearer ${BETA}`, 'X-API-Key': MODEL_KEY };
+    assert.doesNotMatch((await send(url, beta, 'beta here', ctx)).answer ?? '', /first, over the shared secret/);
 
     // Caller tokens and the shared secret are operator credentials.
     const op = (h: Record<string, string>) =>
       fetch(`${url}/v1/operator-only`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{}' }).then((r) => r.status);
-    assert.equal(await op(penguin), 200);
+    assert.equal(await op(alpha), 200);
     assert.equal(await op(legacy), 200);
 
     // Erasure follows the authenticated scope.
-    assert.deepEqual(await erasedScope(url, penguin), { scopeKey: SILO, includeNested: true });
-    assert.deepEqual(await erasedScope(url, { ...penguin, 'X-User-Id': 'u1' }), { scopeKey: `${SILO}/u1`, includeNested: false });
+    assert.deepEqual(await erasedScope(url, alpha), { scopeKey: SILO, includeNested: true });
+    assert.deepEqual(await erasedScope(url, { ...alpha, 'X-User-Id': 'u1' }), { scopeKey: `${SILO}/u1`, includeNested: false });
   } finally {
     srv.close();
   }
 });
 
 test('byok billing holds under an authenticator: no X-API-Key, no task', async () => {
-  const { srv, url } = await serve({ keyMode: 'byok', ...callerTokens(parseCallers(`penguin:${hashCallerToken(PENGUIN)}`)) });
+  const { srv, url } = await serve({ keyMode: 'byok', ...callerTokens(parseCallers(`alpha:${hashCallerToken(ALPHA)}`)) });
   try {
-    assert.equal((await send(url, { Authorization: `Bearer ${PENGUIN}` }, 'hi', 'c1')).status, 401);
-    assert.equal((await send(url, { Authorization: `Bearer ${PENGUIN}`, 'X-API-Key': MODEL_KEY }, 'hi', 'c1')).status, 200);
-    assert.equal((await send(url, { Authorization: `Bearer ${YMIR}`, 'X-API-Key': MODEL_KEY }, 'hi', 'c1')).status, 401);
+    assert.equal((await send(url, { Authorization: `Bearer ${ALPHA}` }, 'hi', 'c1')).status, 401);
+    assert.equal((await send(url, { Authorization: `Bearer ${ALPHA}`, 'X-API-Key': MODEL_KEY }, 'hi', 'c1')).status, 200);
+    assert.equal((await send(url, { Authorization: `Bearer ${BETA}`, 'X-API-Key': MODEL_KEY }, 'hi', 'c1')).status, 401);
     assert.equal((await fetch(`${url}/.well-known/agent-card.json`)).status, 401, 'a card is not public');
-    const card = (await (await fetch(`${url}/.well-known/agent-card.json`, { headers: { Authorization: `Bearer ${PENGUIN}` } })).json()) as any;
+    const card = (await (await fetch(`${url}/.well-known/agent-card.json`, { headers: { Authorization: `Bearer ${ALPHA}` } })).json()) as any;
     assert.match(JSON.stringify(card.securitySchemes?.bearer ?? {}), /own token/);
     assert.ok(card.securitySchemes?.apiKey, 'byok still declares X-API-Key');
   } finally {

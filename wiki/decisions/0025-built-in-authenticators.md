@@ -29,7 +29,7 @@ sources:
 
 **Plugging in an authenticator turned off byok billing.** `resolveRequest` replaced the whole key mode, so a deployment could not have real identity and caller-funded inference at once.
 
-**What production looks like.** In the live deployment, every caller shares one key-hash silo: 151 sessions and 126 memory facts.
+**What a running deployment looks like.** Every caller of one deployment typically shares one key-hash silo, holding all of its sessions and memory.
 
 ## Decision
 
@@ -39,7 +39,7 @@ sources:
    - `jwt` — verified with `jose`: signature, `iss`, `aud` and `exp` are required. The scope is the user claim, optionally under a tenant claim. A claim value that is not key-safe becomes `h-` plus a SHA-256 prefix, never a lossy substitution that could merge two users.
    - `header` — a gateway in front authenticates the user and names them in a header. It is accepted only together with the server secret, which only the gateway holds; the factory refuses the combination without one.
 2. **A scope never derives from a model credential** under `callers`, `jwt` or `header`. Rotating a provider key changes who pays and nothing else.
-3. **An existing silo is kept by mapping, not by moving data.** A caller entry may name an existing scope (`penguin:<hash>:a2a-6005261f8e86d1ee`). Callers given one scope share its data on purpose. Production moves to caller tokens with no data migration.
+3. **An existing silo is kept by mapping, not by moving data.** A caller entry may name an existing scope (`alpha:<sha256>:a2a-<keyhash>`). Callers given one scope share its data on purpose. Production moves to caller tokens with no data migration.
 4. **The shared secret is a migration bridge.** With `A2A_AUTH=callers`, a still-set `A2A_SERVER_SECRET` keeps working with exactly its old scoping (`firstOf(callerTokens, sharedSecret)`). Callers then switch one at a time, and the secret is removed when the last has moved.
 5. **Billing is `A2A_KEY_MODE` alone.** Under `byok` the caller's `X-API-Key` pays, whatever the authenticator, unless the identity supplies a key. The key-hash scope applies only under `A2A_AUTH=secret`.
 

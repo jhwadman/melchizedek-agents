@@ -5,7 +5,7 @@
  *   lib/wiki/graph.ts derives ONE graph: documents joined by markdown
  *   links. That graph answers "what should I read next", but it cannot
  *   answer "which syndicates call web_search", "what breaks without
- *   XAI_API_KEY", or "which decision constrains the export pipeline" —
+ *   XAI_API_KEY", or "which decision constrains the memory schema" —
  *   because the things those questions name (agents, tools, models,
  *   tables, env vars, decisions) are not documents. They are ENTITIES,
  *   and the relations between them are typed, not hyperlinks.
@@ -632,8 +632,8 @@ export function lintEntityGraph(graph: EntityGraph): GraphFinding[] {
     // The closure rule mirrors the DOCUMENT invariant exactly: what gets
     // published is the bundle, so a public DOCUMENT may never point into
     // private knowledge. Code-to-code edges are out of scope here — a
-    // public module importing a private one is a real fact of this repo,
-    // sanitized by the export pipeline's patches, not by this graph.
+    // public module importing a private one is a real fact of a codebase,
+    // governed by what the codebase publishes, not by this graph.
     if (from.kind === 'doc' && !isPrivateNode(from) && isPrivateNode(to)) {
       findings.push({
         severity: 'error',
@@ -657,7 +657,7 @@ export function lintEntityGraph(graph: EntityGraph): GraphFinding[] {
 /**
  * Both stores live in a dot-directory inside the bundle: the vault walker
  * skips dotfiles, so they are invisible to every document operation, they
- * travel with WIKI_ROOT, and the export pipeline (which copies *.md only)
+ * travel with WIKI_ROOT, and publishing the bundle as markdown (*.md only)
  * cannot ship them by accident.
  */
 export function graphDir(wikiRoot: string): string {

@@ -36,21 +36,12 @@ Documents interleave three regions. `wiki:generated` markers hold machine-owned 
 - The [Cartographers](/agents/cartographers.md) work the [knowledge graph](/meta/knowledge-graph.md) — the second layer, where entities and typed relations sit over the same files.
 - `npm run wiki:init` scaffolds a fresh bundle elsewhere (`WIKI_ROOT`) — the tooling is bundle-agnostic.
 
-## The sibling bundles
+## Other repositories' bundles
 
-Bundle-agnostic is not a claim; four other repos are maintained by this engine and none of them installs any of it. Each has a hand-written `knowledge/` manual carrying judgment, and a build script HERE supplying the mechanical half — derived inventory, per-directory indexes, `log.md`, link lint, the entity graph — because the target repo must not gain a dependency for it.
-
-| Script | Bundle | Why the script lives here |
-|---|---|---|
-| `npm run wiki:lyceum` | `../lyceumagents/knowledge` | the site deploys from exactly three Astro integrations; a knowledge pipeline has no business in a Vercel build |
-| `npm run wiki:penguin` | `../nihilistic-penguin/knowledge` | the engine is TypeScript and penguin is Python |
-| `npm run wiki:cajal` | `../cajal/knowledge` | cajal's simulation engine is deliberately dependency-free, and its page is a two-devDep Astro build |
-| `npm run wiki:melch` | `../melch/knowledge` | melch.ai deploys to Vercel from its own tree, and the build reads the public mirror to report drift, which the site's own build must never do |
-
-Each takes `--check` for a lint-only, CI-style exit code, and each maps its own repo's truth onto the shared [pipeline](/meta/knowledge-graph.md) — what a "content entry" is on the site, a "process" is in penguin, a "preset" or "tool contract" is in cajal, and a "route", "starter-pack copy" or "captured run" is on melch.ai. What those repos gain is plain markdown that stands on its own.
+Bundle-agnostic is not a claim: the pipeline ships as `melchizedek-agents/wiki/*`, so another repository's `knowledge/` manual can get the mechanical half — derived inventory, per-directory indexes, `log.md`, link lint, the entity graph — from a short build script that maps that repository's truth onto the shared [pipeline](/meta/knowledge-graph.md) (what a "content entry" is on a site, a "process" in a Python service, a "preset" in a simulation). The script lives wherever is convenient, so the target repository never gains a dependency for it; the hand-written judgment stays in the target's own markdown, which stands on its own. Each such build takes `--check` for a lint-only, CI-style exit code.
 
 ## The second layer
 
 Documents linked to documents is one graph; it answers what to read. Over the same files the build derives a second one — entities (agents, tools, models, providers, modules, tables, environment variables) joined by typed relations — so relational questions have an answer that is not grep. Structural relations are derived every run and never authored; judgment is asserted separately, with evidence, through `wiki_relate`. The vocabulary, the two stores and the gate are described in [the knowledge graph](/meta/knowledge-graph.md), the reasoning in [ADR 0005](/decisions/0005-entity-graph-layer.md).
 
-The public repo receives this bundle minus `/private/` via the [export pipeline](/operations/export-pipeline.md).
+A published copy of this bundle carries everything except `/private/` ([ADR 0003](/decisions/0003-path-based-visibility.md)).

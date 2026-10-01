@@ -23,7 +23,7 @@
  *   An agent sees the tool only when its name is added to TOOL_MAP in
  *   lib/toolRegistry.ts AND declared in the syndicate YAML; an MCP client
  *   sees it only when a server script explicitly lists it (see
- *   scripts/financial_mcp_server.ts). Both remain deliberate acts.
+ *   scripts/science_mcp_server.ts). Both remain deliberate acts.
  */
 
 import { FunctionTool } from '@google/adk';
@@ -137,7 +137,7 @@ export function toFunctionTool(contract: ToolContract<any>): FunctionTool {
 
 /**
  * MCP surface: a tools/list entry. Pair with executeContract() in the
- * server's CallTool handler — see scripts/financial_mcp_server.ts.
+ * server's CallTool handler — see lib/tools/mcpServe.ts.
  */
 export function toMcpToolDefinition(contract: ToolContract<any>): {
   name: string;

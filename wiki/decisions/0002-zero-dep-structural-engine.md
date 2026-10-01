@@ -25,4 +25,4 @@ Building docs "structurally (AST or something programmatic)" needs parsing (fron
 
 ## Consequences
 
-Zero new dependencies in either repo ([the tool exports publicly](/operations/export-pipeline.md)). The engine answers exactly the wiki's questions and nothing else; anything needing true CommonMark semantics later can be added behind the same node model. The refresh contract ([builder](/tools/wiki-tools.md)) — generated sections always current, filled slots always preserved, `generated.at` bumped only on real change — is what makes `wiki:build` safe to run at any time.
+Zero new dependencies (the engine ships in the public package). The engine answers exactly the wiki's questions and nothing else; anything needing true CommonMark semantics later can be added behind the same node model. The refresh contract ([builder](/tools/wiki-tools.md)) — generated sections always current, filled slots always preserved, `generated.at` bumped only on real change — is what makes `wiki:build` safe to run at any time.

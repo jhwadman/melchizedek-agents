@@ -24,7 +24,7 @@
  * private chain-of-thought ("**My Micron Monday Decision Strategy** Okay, so
  * the question is…", `thought: true`) arrived as USER speech. And raw tool
  * payloads were inlined as text — one `load_memory` result alone was 23,502
- * characters, one `get_company_fundamentals` 8,953 — all of it handed to a
+ * characters, one market-data tool's 8,953 — all of it handed to a
  * 400-character, tool-less flash-lite route that could do nothing with it.
  *
  * ── The fix ───────────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@
  * Names, not module paths: a YAML that could name an arbitrary file to load
  * is a code-loading vector. Adding a guard is a deliberate act here.
  *
- * PUBLIC BUILD. This is the overlay copy. It ships the guard interface and one
+ * It ships the guard interface and one
  * guard, `science` (lib/guards/science.ts), which research.yaml runs: identifier
  * closure, a retraction check, and name correspondence over the answer. Any
  * other guard a syndicate names gets the ordinary "Unknown guard — ignored"

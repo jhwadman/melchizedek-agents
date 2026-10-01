@@ -49,7 +49,7 @@ The public package shipped the registry preference but neither the table definit
 
 ## Consequences
 
-- **A deployment that serves bare ids from the registry must act before this ships.** Either list those ids in `A2A_REGISTRY_AGENTS`, or move its clients to `registry:<id>`. Otherwise a bare id resolves to a file. For a registry-only live copy ([ADR 0011](/decisions/0011-private-live-syndicate-copy.md)), that file is absent from the deployed tree, and without item 3 the public example of the same name would answer instead.
+- **A deployment that serves bare ids from the registry must act before this ships.** Either list those ids in `A2A_REGISTRY_AGENTS`, or move its clients to `registry:<id>`. Otherwise a bare id resolves to a file. For a registry-only live copy (a deployment's edited copy of a shipped example, kept only in the registry), that file is absent from the deployed tree, and without item 3 the public example of the same name would answer instead.
 - Every load logs its source (file, registry version, or example), so the wrong source is visible at the first request.
 - The served config hash is shown in the boot log and on the agent card, so version skew between processes is visible.
-- [ADR 0011](/decisions/0011-private-live-syndicate-copy.md)'s registry-only live copy becomes an explicit `registry:` id with version history.
+- A registry-only live copy becomes an explicit `registry:` id with version history.

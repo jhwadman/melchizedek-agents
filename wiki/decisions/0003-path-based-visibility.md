@@ -22,7 +22,7 @@ The bundle mixes exportable framework knowledge with knowledge that must never l
 
 ## Decision
 
-Visibility is the **path**: everything under `/private/` stays here; the [export pipeline](/operations/export-pipeline.md) copies the bundle without that subtree. Three rules make it safe:
+Visibility is the **path**: everything under `/private/` stays with its owner; whatever publishes the bundle copies it without that subtree. Three rules make it safe:
 
 1. **Closure (lint error):** no document outside `/private/` may link into it. The exported bundle is link-closed by construction.
 2. **Vocabulary (lint error):** public documents must not mention private system names — the build passes the same forbidden patterns the export scan greps for, so the wiki fails first, with a line number.

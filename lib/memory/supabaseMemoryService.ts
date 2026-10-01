@@ -13,8 +13,9 @@ import type { FactRow, MemoryStore, NewFact } from './store.ts';
 import type { Embedder, MemoryExtractor } from './providers.ts';
 
 /**
- * Harness-injected blocks the Discord surface prefixes to a user message
- * (nihilistic-penguin stocks.py): the date marker and the portfolio payload.
+ * Harness-injected blocks a calling surface prefixes to a user message: the
+ * `[System Context: …]` date marker and a labelled data block (`[… Payload]`
+ * or `[… Sheet]` followed by a fenced block).
  * Neither is something the USER said. Stripped from the memory SEARCH query
  * (a portfolio JSON would dominate the embedding and drown the question) and
  * from the extraction transcript (a snapshot that changes daily would be
@@ -24,7 +25,9 @@ import type { Embedder, MemoryExtractor } from './providers.ts';
 export function stripHarnessBlocks(text: string): string {
 	return text
 		.replace(/\[System Context:[^\]]*\]\s*/g, '')
-		.replace(/\[(?:Portfolio Performance Payload|Stock Trade Sheet)\]\s*```[\s\S]*?```\s*/g, '')
+		// A data block a calling surface attaches: a bracketed label ending in
+		// "Payload" or "Sheet" (e.g. `[Account Payload]`), then a fenced block.
+		.replace(/\[[A-Za-z][A-Za-z ]{0,60}(?:Payload|Sheet)\]\s*```[\s\S]*?```\s*/g, '')
 		.trim();
 }
 

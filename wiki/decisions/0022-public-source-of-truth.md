@@ -10,8 +10,8 @@ generated:
   by: claude-code/claude-opus-5-5
   at: 2026-10-01
 sources:
-  - resource: scripts/export-public/export.sh
-  - resource: plans/public-takeover.md
+  - resource: README.md
+  - resource: package.json
 ---
 
 # ADR 0022: This repository becomes the public source of truth; private deployments consume the package
@@ -35,7 +35,7 @@ An enterprise adopter expects to read, test and contribute to the source it runs
 1. **A new public repository with a fresh history becomes the engine's source of truth.** Development, tests, the wiki and npm publishing of `melchizedek-agents` happen there.
 2. **It is assembled by allowlist, never by deleting from a copy.** The last export run writes the sanitised tree into an empty directory, which starts the new history. A history rewrite of this repository would still carry every private file in it.
 3. **Private syndicates, private tools, private routes and the live deployment move to a private repository** that depends on the published package. It registers its tools and routes through the plug points ([ADR 0017](/decisions/0017-plug-points.md)).
-4. **Evals live in their own repository** (beside the probe harness of [ADR 0013](/decisions/0013-melch-obs-sibling.md)) and drive the package's exported runner.
+4. **Evals live in their own repository** and drive the package's exported runner.
 5. **The export pipeline, its overlay and the generated mirror are retired.** The mirror is archived with a pointer.
 6. **The public wiki is reviewed against the code before publication.** Every page is kept, fixed, moved to private or deleted.
 
@@ -47,6 +47,6 @@ An enterprise adopter expects to read, test and contribute to the source it runs
 ## Consequences
 
 - Supersedes [ADR 0007](/decisions/0007-engine-as-package.md) on where the package is published from. The exports map stays the semver boundary.
-- Supersedes [ADR 0011](/decisions/0011-private-live-syndicate-copy.md) on where the live copy lives: the private deployment repository.
+- A deployment's registry-only live copy of a shipped syndicate lives with that deployment, in its private repository.
 - [ADR 0003](/decisions/0003-path-based-visibility.md)'s private subtree moves out. The public wiki has no private section.
 - The migration order, including the prerequisite plug points, is specified in `plans/public-takeover.md`.

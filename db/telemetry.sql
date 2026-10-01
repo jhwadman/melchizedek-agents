@@ -147,7 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_adk_turns_search    ON adk_turns USING gin (searc
 -- channel that only ever reaches telemetry.
 --
 -- surface_user is a PSEUDONYM, not an account id: callers are expected to
--- send a salted hash (nihilistic-penguin sends one), so a channel's traffic
+-- send a salted hash, so a channel's traffic
 -- stays sliceable without the ledger holding a platform identity.
 ALTER TABLE adk_turns ADD COLUMN IF NOT EXISTS surface         TEXT;  -- 'discord' | 'cli' | 'web' | ...
 ALTER TABLE adk_turns ADD COLUMN IF NOT EXISTS surface_guild   TEXT;  -- Discord guild (server) id

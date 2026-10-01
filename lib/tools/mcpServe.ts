@@ -2,9 +2,8 @@
  * lib/tools/mcpServe.ts — serve a list of tool CONTRACTS over MCP.
  *
  * WHY this exists:
- *   Three scripts carried a byte-identical copy of this scaffold —
- *   `scripts/financial_mcp_server.ts`, `scripts/science_mcp_server.ts`,
- *   `scripts/wiki/mcp_server.ts`. `diff` put the financial and science copies
+ *   Three scripts carried a byte-identical copy of this scaffold (the
+ *   science and wiki MCP servers among them). `diff` put two of the copies
  *   11 lines apart, 6 of those comment prose: the tool list, the port, the
  *   server name. The other ~55 lines (buildServer, the transport map, the rate
  *   limit, the /sse and /messages handlers, the loopback bind) were the same

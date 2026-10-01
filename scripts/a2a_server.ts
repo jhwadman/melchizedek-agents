@@ -47,7 +47,7 @@
  *   A2A_SHUTDOWN_GRACE_MS     how long SIGTERM waits for running tasks (25000)
  *   A2A_BUDGETS               daily budgets per UTC day (ADR 0026), JSON:
  *                             {"perCaller":{"tasks":500,"llmCalls":5000,"tokens":5000000},
- *                              "callers":{"ymir":{"tasks":100}},"perScope":{"tasks":50}}.
+ *                              "callers":{"reports":{"tasks":100}},"perScope":{"tasks":50}}.
  *                             Counted in Postgres or Supabase when configured
  *                             (db/migrations/0004), else in process memory
  *   A2A_METRICS_TOKEN         bearer for GET /metrics (Prometheus); unset = no route

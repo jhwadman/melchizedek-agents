@@ -4,7 +4,7 @@ title: Melchizedek knowledge bundle
 description: "The framework's company brain: agents, tools, models, memory, protocols, operations, decisions — as one linked OKF bundle."
 generated:
   by: process:wiki-build
-  at: 2026-07-26
+  at: 2026-10-01
 ---
 
 # Melchizedek knowledge bundle
@@ -15,7 +15,7 @@ generated:
 - [memory](/memory/) — long-term memory: pipeline, schema, supersession
 - [meta](/meta/) — how this knowledge bundle itself works
 - [models](/models/) — provider routing and model optionality
-- [operations](/operations/) — setup, failure modes, deployment, the export pipeline
+- [operations](/operations/) — setup, failure modes, deployment, agent skills
 - [overview](/overview/) — what melchizedek is and how its parts fit together
 - [protocols](/protocols/) — interop surfaces: MCP and A2A
 - [tools](/tools/) — the tool layer: contracts, registries, exposure doctrine

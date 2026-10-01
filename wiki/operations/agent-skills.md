@@ -18,7 +18,7 @@ sources:
 
 # The agent-skills suite
 
-`skills/` is how a coding agent — Claude Code, Codex, Cursor, OpenCode, Gemini CLI — learns this framework. It holds six Agent Skills in the open SKILL.md standard (one directory per skill, `name` + `description` frontmatter, optional `templates/`), shipped in the npm package (`files` in the overlay manifest) and in the public mirror. They are the consumer-facing counterpart of the private discipline skills in `.claude/skills/`, which govern changes to this repo and never export.
+`skills/` is how a coding agent — Claude Code, Codex, Cursor, OpenCode, Gemini CLI — learns this framework. It holds six Agent Skills in the open SKILL.md standard (one directory per skill, `name` + `description` frontmatter, optional `templates/`), shipped in the npm package (`files` in `package.json`). They are the consumer-facing counterpart of the contributor skills in `.claude/skills/`, which govern changes to this repository.
 
 | Skill | Teaches |
 |---|---|
@@ -37,4 +37,4 @@ The installer copies only from the package's own `skills/` directory (found by w
 
 ## How the prose is made
 
-Every SKILL.md body and `skills/README.md` were written by [the Scribe](/agents/scribe.md) from one brief each, kept beside the prose in `skills/briefs/`: `_shared.md` (the facts every skill agrees on, and the global limits for a skill file) is prepended to each skill's brief; the brief carries the facts, identifiers and required structure; the Scribe carries the voice; a person reviews the result. A skill changes by changing its brief and rerunning (`CHAT_STREAMING=false npm run syndicate:scribe -- "$(cat brief)"`, the document is everything after the last `Scribe › ` line), never by patching prose with the brief left stale — the `melchizedek-scribe` skill is that procedure. The [export pipeline](/operations/export-pipeline.md) lists every skill file and brief in its allowlist; a new skill is a deliberate publication. Rationale: [ADR 0014](/decisions/0014-agent-skills-suite.md).
+Every SKILL.md body and `skills/README.md` were written by [the Scribe](/agents/scribe.md) from one brief each, kept beside the prose in `skills/briefs/`: `_shared.md` (the facts every skill agrees on, and the global limits for a skill file) is prepended to each skill's brief; the brief carries the facts, identifiers and required structure; the Scribe carries the voice; a person reviews the result. A skill changes by changing its brief and rerunning (`CHAT_STREAMING=false npm run syndicate:scribe -- "$(cat brief)"`, the document is everything after the last `Scribe › ` line), never by patching prose with the brief left stale — the `melchizedek-scribe` skill is that procedure. Every skill file and brief ships in the package (`files` in `package.json`); a new skill is a deliberate publication. Rationale: [ADR 0014](/decisions/0014-agent-skills-suite.md).

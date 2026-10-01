@@ -24,7 +24,7 @@
  *     - usage → usageMetadata mapping for llm.request token spans
  *
  * HOW TO ENABLE:
- *   1. Add your API key to .env:  XAI_API_KEY=xai-...   (console.x.ai — paid)
+ *   1. Add your API key to .env as XAI_API_KEY (console.x.ai — paid).
  *   2. Set model: "grok-4.7" (or any grok-* id) in your YAML.
  *   registerAvailableProviders() registers this adapter when the key is set.
  *   grok-4.5/4.7 requests carry reasoning effort 'medium' by default — see

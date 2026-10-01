@@ -67,7 +67,7 @@ sources:
 
 ## Consequences
 
-- An over-budget caller sees a `rejected` task with a reason, not a 429. penguin's client retries 429s with backoff and does not retry a rejected task, which is the right behaviour for a budget that resets at midnight UTC.
+- An over-budget caller sees a `rejected` task with a reason, not a 429. A client that retries 429s with backoff would not retry a rejected task, which is the right behaviour for a budget that resets at midnight UTC.
 - Turning budgets on in a Supabase deployment needs migration 0004 applied first (`melchizedek-db apply`).
 - The memory-extraction call that runs after a completed task is outside the turn and is not counted against the caller's budget. It is the operator's cost, bounded by one call per task.
 - **Approval gates for tools that write are deferred.** They need the A2A `input-required` state and a resumable turn, which is its own decision.

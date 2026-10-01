@@ -237,7 +237,7 @@ export async function drainAgentStream(
       const firstSight = grounding.queries.size + grounding.sources.size > 0 && !groundingAnnounced;
       ev.log?.(`⌕ Grounding: ${describeGrounding(grounding)}`);
       // Same shape as a function-tool line so consumers that parse
-      // "Invoking tool:" (nihilistic-penguin RouteTrace) list it.
+      // "Invoking tool:" status lines list it too.
       if (opts.publishToolStatus && firstSight) ev.onProgress?.('Invoking tool: web_search');
       groundingAnnounced = true;
     }
@@ -309,7 +309,7 @@ export async function drainAgentStream(
   }
 
   const sourcesLine = webSourcesLine(grounding);
-  // A consumer contract (penguin RouteTrace `_SOURCES_RE`): "Web sources: a, b",
+  // A consumer contract clients parse: "Web sources: a, b",
   // published once, after the stream, with the full set.
   if (opts.publishToolStatus && sourcesLine) ev.onProgress?.(sourcesLine);
   if (grounding.queries.size || grounding.sources.size) {

@@ -24,7 +24,7 @@ import { ScriptedLlm, hangUntilAborted, sentTexts, text } from './helpers/script
 
 setLogLevel(LogLevel.ERROR);
 
-const SECRET = 'test-secret-0123456789abcdef0123456789';
+const SECRET = 'test-secret-0123456789abcdef0123456789'; // gitleaks:allow (test fixture)
 const dir = mkdtempSync(join(tmpdir(), 'melch-a2a-'));
 writeFileSync(join(dir, 'echo.yaml'), [
   'syndicate_name: Echo',

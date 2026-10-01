@@ -16,7 +16,7 @@ sources:
 
 # The knowledge graph
 
-Documents linked to documents answer *what should I read next*. They cannot answer *which syndicates call `web_search`*, *what stops working without `XAI_API_KEY`*, or *how the export pipeline connects to the memory schema* — because agents, tools, keys and tables are not documents. So the bundle carries a second layer over the same files: **entities**, joined by **typed relations**.
+Documents linked to documents answer *what should I read next*. They cannot answer *which syndicates call `web_search`*, *what stops working without `XAI_API_KEY`*, or *which decision constrains the memory schema* — because agents, tools, keys and tables are not documents. So the bundle carries a second layer over the same files: **entities**, joined by **typed relations**.
 
 Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 
@@ -28,11 +28,11 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 
 | Kind | Id form | Now | What it is |
 |---|---|---|---|
-| `module` | `module:<name>` | 112 | one source module |
+| `module` | `module:<name>` | 113 | one source module |
 | `agent` | `agent:<name>` | 109 | one orchestrator or subagent inside a syndicate |
 | `doc` | `/dir/doc.md` | 90 | a concept document in the bundle — identity is its bundle path |
 | `env` | `env:<name>` | 86 | an environment variable the code reads |
-| `file` | `file:<name>` | 67 | a repo file that is not a source module (DDL, config, prose) |
+| `file` | `file:<name>` | 66 | a repo file that is not a source module (DDL, config, prose) |
 | `script` | `script:<name>` | 51 | an npm script entrypoint |
 | `tool` | `tool:<name>` | 40 | a tool an agent may declare by name |
 | `syndicate` | `syndicate:<name>` | 39 | one agent-team definition (a YAML) |
@@ -50,14 +50,14 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 
 | Relation | Tier | Reads as | Now | Meaning |
 |---|---|---|---|---|
-| `imports` | extracted | A imports B | 325 | a static import edge between source files |
-| `links_to` | extracted | A links to B | 186 | a resolved markdown link between documents |
+| `imports` | extracted | A imports B | 327 | a static import edge between source files |
+| `links_to` | extracted | A links to B | 176 | a resolved markdown link between documents |
 | `derives_from` | extracted | A derives from B | 169 | declared in the document’s `sources:` frontmatter |
 | `requires_env` | extracted | A requires B | 141 | this environment variable must be set for the node to work |
 | `uses_tool` | extracted | A calls B | 129 | the agent declares this tool by name |
 | `contains` | extracted | A contains B | 109 | the first is composed of the second |
 | `uses_model` | extracted | A runs on B | 109 | the agent is configured with this model id |
-| `defined_in` | extracted | A is defined in B | 87 | where the thing is declared in source |
+| `defined_in` | extracted | A is defined in B | 86 | where the thing is declared in source |
 | `documents` | extracted | A documents B | 72 | the document derives from, and describes, this entity |
 | `runs` | extracted | A runs B | 69 | an entrypoint — a script, a process, a dyno — executes this |
 | `reads_table` | extracted | A reads or writes B | 22 | the module names this table |
@@ -81,7 +81,7 @@ Both stores sit in `.graph/` inside the bundle — a dot-directory, so the vault
 - `.graph/graph.json` — the derived snapshot: every node, every extracted relation, stamped with the build that produced it. Regenerate with `npm run wiki:build`; never edit it.
 - `.graph/relations.json` — the asserted relations: `from`, `to`, `rel`, `evidence`, `by`, `at`. Written only through the gate.
 
-The export pipeline copies markdown only, so a derived map of PRIVATE structure cannot ride along to the public mirror ([export pipeline](/operations/export-pipeline.md), [ADR 0003](/decisions/0003-path-based-visibility.md)).
+A bundle is published as markdown only, so a derived map of PRIVATE structure never rides along: whoever receives it rebuilds the graph from what it actually holds ([ADR 0003](/decisions/0003-path-based-visibility.md)).
 
 ## Working it
 

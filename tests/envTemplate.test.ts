@@ -13,8 +13,7 @@ import { isPlaceholderValue, loadEnv, parseEnvFile } from '../lib/loadEnv.ts';
 import { providerKeyPresent } from '../lib/models/providerMap.ts';
 import { hasSupabaseCredentials } from '../lib/persistence/supabaseProvider.ts';
 
-// The overlay's template exists only in the source repo; in the public repo
-// it IS the root .env.example.
+// Every env template the checkout has (a source checkout may carry a second).
 const TEMPLATES = ['.env.example', 'scripts/export-public/overlay/.env.example'].filter((p) => existsSync(p));
 
 const SENSITIVE = [

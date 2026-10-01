@@ -411,8 +411,7 @@ const SHIPPED_DIRS = ['examples', 'templates'] as const;
  * The A2A server used to read `config.guards` directly, which meant guards were
  * honoured on exactly ONE composition: a top-level syndicate. Compose the same
  * syndicate as a sub-agent — `yaml_reference:`, the repo's own idiom, already
- * used by augustin_desk.yaml, financial_router.yaml and the portfolio-performance
- * syndicate — and `compileSubagent` loads the nested config, `compileGraph` never
+ * used across the shipped templates — and `compileSubagent` loads the nested config, `compileGraph` never
  * looks at `guards`, and the server only ever consults the PARENT's list. The
  * nested syndicate's `guards: [science]` was dropped with no warning, because
  * `resolveGuards`' unknown-name path cannot fire on a list nobody read.
