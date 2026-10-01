@@ -55,9 +55,8 @@ import {
   requestContextStorage,
 } from './executor.ts';
 import type { A2AContext, SurfaceContext } from './executor.ts';
-
-/** X-User-Id and X-Surface-* values: short and key-safe, or refused. */
-const HEADER_VALUE_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+import { HEADER_VALUE_PATTERN, SCOPE_KEY_PATTERN } from './identity.ts';
+import type { IdentityScheme } from './identity.ts';
 const SURFACE_HEADERS = [
   ['x-surface', 'name'],
   ['x-surface-guild', 'guild'],
@@ -107,9 +106,14 @@ export interface A2AAppOptions {
    * Identity plug point (ADR 0017): authenticate the request your way (a JWT,
    * a gateway header, mTLS) and return the opaque scope key data is stored
    * under. Return undefined (or throw) to refuse with 401. Runs after the
-   * bearer check, when one is configured. Overrides `keyMode`'s scoping.
+   * bearer check, when one is configured. Replaces `keyMode`'s scoping but
+   * not its billing: under 'byok' the caller's X-API-Key still pays unless
+   * the identity supplies a key. Built-in authenticators: lib/a2a/identity.ts.
    */
   resolveRequest?: (req: Request) => RequestIdentity | undefined | Promise<RequestIdentity | undefined>;
+  /** What the agent card declares for `resolveRequest` (the built-in
+   *  authenticators supply it). A 'header' scheme requires `serverSecret`. */
+  identityScheme?: IdentityScheme;
   /**
    * Credentials plug point (ADR 0017/0023): the API key for a provider, for
    * this request — from a secret manager, per tenant, anywhere. Undefined
@@ -167,9 +171,13 @@ export interface RequestIdentity {
   apiKey?: string;
   /** The provider `apiKey` belongs to. */
   provider?: string;
+  /** Which caller this is, for logs (a caller name, 'jwt', …). */
+  caller?: string;
+  /** The scope owns `<scopeKey>/…` beneath it (a caller's end users), so an
+   *  erasure with no end user removes those too. */
+  ownsNested?: boolean;
 }
 
-const SCOPE_KEY_PATTERN = /^[A-Za-z0-9._/-]{1,160}$/;
 const legacyCompat = { enabled: true };
 
 /**
@@ -210,7 +218,16 @@ interface Handlers {
  */
 export function compileAgentCard(
   config: SyndicateYamlConfig,
-  opts: { baseUrl: string; routePrefix?: string; bearer: boolean; version: string; byok?: boolean },
+  opts: {
+    baseUrl: string;
+    routePrefix?: string;
+    /** The server secret is checked (A2A_SERVER_SECRET). */
+    bearer: boolean;
+    /** The plugged-in authenticator's scheme, when there is one. */
+    identity?: IdentityScheme;
+    version: string;
+    byok?: boolean;
+  },
 ): AgentCard {
   const base = `${opts.baseUrl.replace(/\/$/, '')}${opts.routePrefix ?? ''}`;
   const securitySchemes: AgentCard['securitySchemes'] = {};
@@ -226,11 +243,27 @@ export function compileAgentCard(
       },
     };
   }
-  if (opts.bearer) {
+  if (opts.identity?.type === 'bearer') {
+    // The authenticator reads the bearer itself (caller tokens, a JWT).
+    securitySchemes.bearer = {
+      scheme: {
+        $case: 'httpAuthSecurityScheme',
+        value: { description: opts.identity.description, scheme: 'bearer', bearerFormat: opts.identity.bearerFormat ?? '' },
+      },
+    };
+  } else if (opts.bearer) {
     securitySchemes.bearer = {
       scheme: {
         $case: 'httpAuthSecurityScheme',
         value: { description: 'The server secret (A2A_SERVER_SECRET).', scheme: 'bearer', bearerFormat: '' },
+      },
+    };
+  }
+  if (opts.identity?.type === 'header') {
+    securitySchemes.identity = {
+      scheme: {
+        $case: 'apiKeySecurityScheme',
+        value: { description: opts.identity.description, location: 'header', name: opts.identity.name },
       },
     };
   }
@@ -291,7 +324,14 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
   }));
   const baseUrl = options.publicUrl || `http://localhost:${options.port ?? 4000}`;
   const keyMode = options.keyMode ?? 'server';
-  const byok = keyMode === 'byok' && !options.resolveRequest;
+  // Billing and scoping are separate (ADR 0025): 'byok' always means the
+  // caller's X-API-Key pays; it decides the scope only when no
+  // authenticator is plugged in (the pre-0.16 key-hash silo).
+  const byokBilling = keyMode === 'byok';
+  const byokScoping = byokBilling && !options.resolveRequest;
+  if (options.identityScheme?.type === 'header' && !options.serverSecret) {
+    throw new Error('A trusted-header authenticator needs serverSecret: without it any client could set the header.');
+  }
 
   // ── The default syndicate ──────────────────────────────────────────────────
   const config = options.defaultSyndicate.startsWith('registry:')
@@ -389,7 +429,14 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
     });
     const version = executor.configHashFor().slice(0, 12);
     const cardFor = (base: string) =>
-      compileAgentCard(cfg, { baseUrl: base, routePrefix, bearer: !!options.serverSecret, version, byok });
+      compileAgentCard(cfg, {
+        baseUrl: base,
+        routePrefix,
+        bearer: !!options.serverSecret,
+        identity: options.resolveRequest ? options.identityScheme : undefined,
+        version,
+        byok: byokBilling,
+      });
     const card = cardFor(baseUrl);
     const taskStore = options.storage?.taskStore?.(agentId) ?? new InMemoryTaskStore();
     const handler = new DefaultRequestHandler(card, taskStore, executor);
@@ -473,6 +520,21 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
   let warnedIgnoredKey = false;
   app.use(async (req, res, next) => {
     if (isCardRequest(req)) {
+      // A card is behind the same credential as the agent, never public:
+      // with no server-secret gate, the authenticator itself must accept
+      // the request (a model key is still not needed to read a card).
+      if (options.resolveRequest && !options.serverSecret) {
+        let identity: RequestIdentity | undefined;
+        try {
+          identity = await options.resolveRequest(req);
+        } catch (err: unknown) {
+          warn(`resolveRequest refused ${req.method} ${req.path}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        if (!identity) {
+          rejectAuth(req, res, 'Unauthorized');
+          return;
+        }
+      }
       next();
       return;
     }
@@ -514,8 +576,28 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
         res.status(500).json({ error: 'Server identity configuration error.' });
         return;
       }
+      // Billing follows keyMode, whoever the caller is: under 'byok' the
+      // caller's own X-API-Key funds its X-Provider unless the identity
+      // supplied a key (a per-tenant key from a secret manager, say).
+      let apiKey = identity.apiKey ?? '';
+      let provider = identity.provider ?? ((req.headers['x-provider'] as string | undefined) || 'google');
+      if (!apiKey && byokBilling) {
+        apiKey = (req.headers['x-api-key'] as string | undefined) ?? '';
+        if (!apiKey) {
+          rejectAuth(req, res, 'Unauthorized: Missing X-API-Key header');
+          return;
+        }
+      }
+      if (identity.apiKey && !identity.provider) provider = 'google';
       requestContextStorage.run(
-        { apiKey: identity.apiKey ?? '', provider: identity.provider ?? 'google', scopeKey: identity.scopeKey, surface },
+        {
+          apiKey,
+          provider,
+          scopeKey: identity.scopeKey,
+          surface,
+          caller: identity.caller,
+          ownsNested: identity.ownsNested ?? false,
+        },
         () => next(),
       );
       return;
@@ -535,7 +617,7 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
     const apiKey = req.headers['x-api-key'] as string | undefined;
     const provider = (req.headers['x-provider'] as string | undefined) || 'google';
 
-    if (byok) {
+    if (byokScoping) {
       if (!apiKey) {
         rejectAuth(req, res, 'Unauthorized: Missing X-API-Key header');
         return;
@@ -543,7 +625,10 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
       // The caller's key funds its provider, and its hash prefixes the scope
       // so no key holder can reach another's data.
       const scopeKey = deriveUserId({ apiKey, siteUserId });
-      requestContextStorage.run({ apiKey, provider, siteUserId, scopeKey, surface }, () => next());
+      requestContextStorage.run(
+        { apiKey, provider, siteUserId, scopeKey, surface, caller: 'shared-secret', ownsNested: !siteUserId },
+        () => next(),
+      );
       return;
     }
 
@@ -582,9 +667,10 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
   // facts, sessions (with their subagent rows), ledger turns, spans and
   // payloads — in one operation, with per-store counts. Scoped to the
   // default syndicate's memory namespace; `?all=1` covers every namespace.
-  // A BYOK caller with no X-User-Id erases its key's silo and every
-  // end-user silo beneath it. The scope comes from the authenticated
-  // context, so a caller can erase only what it could write.
+  // A caller whose scope owns nested end-user scopes (a caller token, or a
+  // BYOK key silo) and sends no X-User-Id erases its scope and every one
+  // beneath it. The scope comes from the authenticated context, so a caller
+  // can erase only what it could write.
   app.delete('/memory', async (req, res) => {
     if (!erase) {
       res.status(501).json({ error: 'Erasure needs durable storage; this server has none configured.' });
@@ -599,7 +685,7 @@ export async function createA2AApp(options: A2AAppOptions): Promise<A2AApp> {
     try {
       const counts = await erase(ctx.scopeKey, {
         namespace: all ? undefined : memoryAppName(config),
-        includeNested: byok && !ctx.siteUserId,
+        includeNested: !!ctx.ownsNested,
       });
       log(`Erasure for scope ${ctx.scopeKey}${all ? ' (all namespaces)' : ''}: ${JSON.stringify(counts)}`);
       res.json({ deleted: counts });

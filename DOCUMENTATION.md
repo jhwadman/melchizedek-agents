@@ -365,34 +365,60 @@ options. `demo/a2a_demo.mjs` is a complete client.
 | `POST /<agentId>/a2a/jsonrpc`, `/<agentId>/a2a/rest` | bearer | another syndicate (`A2A_SERVED_AGENTS` restricts which) |
 | `DELETE /memory` | bearer | erase everything stored for the calling scope: facts, sessions (with subagent rows) and ledger rows, with per-store counts; `?all=1` covers every memory namespace |
 
-"bearer" applies only when `A2A_SERVER_SECRET` is set. In BYOK mode every
-task route also needs `X-API-Key`. The card declares what is required in
-`securitySchemes`.
+"bearer" means the credential `A2A_AUTH` asks for (below); with no
+`A2A_SERVER_SECRET` and no authenticator the server binds `127.0.0.1` only.
+In BYOK mode every task route also needs `X-API-Key`. The card declares
+what is required in `securitySchemes`.
 
-#### Who pays, and whose data it is
+#### Who the caller is, and whose data it is
 
-`A2A_KEY_MODE` (option `keyMode`) decides:
+`A2A_AUTH` picks a built-in authenticator (`lib/a2a/identity.ts`, export
+`melchizedek-agents/a2a/identity`), and the authenticator decides the
+scope key every session and memory is stored under:
+
+- **`secret`** (default): every caller presents `A2A_SERVER_SECRET`, and
+  the calling backend names its end user in `X-User-Id`.
+- **`callers`**: one bearer token per calling backend. `A2A_CALLERS` lists
+  `name:sha256[:scope]` entries separated by `;`, so the configuration holds
+  only token hashes. A caller owns its scope (its name, unless one is given),
+  and an `X-User-Id` it sends nests beneath it. The scope does not depend on
+  any model key. Mint a caller with
+  `npx melchizedek-serve --new-caller <name> [--scope <scope>] [--token-file <path>]`.
+  While `A2A_SERVER_SECRET` is still set it keeps working beside the tokens,
+  with its old scoping, so callers move over one at a time.
+- **`jwt`**: a JWT from your identity provider: `A2A_JWT_JWKS_URL` (or an
+  HS256 `A2A_JWT_SECRET`), with `A2A_JWT_ISSUER` and `A2A_JWT_AUDIENCE`
+  required and `exp` checked. The scope is the `sub` claim
+  (`A2A_JWT_SCOPE_CLAIM`), under `A2A_JWT_TENANT_CLAIM` when set.
+  `X-User-Id` is ignored: the token is the user.
+- **`header`**: a gateway in front authenticates users and names them in
+  `A2A_TRUSTED_USER_HEADER`. Requires `A2A_SERVER_SECRET`, which only the
+  gateway may hold, so no other client can set the header.
+
+In code, spread an authenticator into the factory:
+`createA2AApp({ ...callerTokens(parseCallers(spec)), keyMode: 'byok', … })`,
+or pass your own `resolveRequest`.
+
+#### Who pays
+
+`A2A_KEY_MODE` (option `keyMode`), whatever the authenticator:
 
 - **`server`** (default): the server's own provider keys pay for every
   model call (or your `credentials` plug point supplies a key per request).
-  Data is stored under `X-User-Id`, or `default` without it.
 - **`byok`**: the caller's `X-API-Key` funds agents on the provider named
   by `X-Provider`; agents on other providers, tools and memory extraction
-  still run on the server's keys. Data is stored under a hash of that key,
-  plus `X-User-Id` beneath it, so key holders cannot reach one another's
-  data. This was the only behaviour before 0.16: a deployment holding data
-  from then must keep `byok` until that data is re-keyed.
-
-With `createA2AApp({ resolveRequest })` your own identity system (a JWT
-check, a gateway header) returns the scope key instead, and both header
-contracts are ignored.
+  still run on the server's keys. Under `A2A_AUTH=secret` only, the key's
+  hash also scopes the data (`a2a-<hash>`, with `X-User-Id` beneath it).
+  That was the only behaviour before 0.16. A deployment holding data from
+  then keeps reaching it with `byok`, or by moving to `A2A_AUTH=callers`
+  with each caller's scope set to its existing `a2a-<hash>` silo.
 
 #### Headers
 
 | Header | Meaning |
 |---|---|
-| `Authorization: Bearer <secret>` | the server secret |
-| `X-User-Id` | the end user this request is for (`[A-Za-z0-9._-]{1,64}`); sessions and memory are stored under it. Authenticate your users before sending it. |
+| `Authorization: Bearer <token>` | the server secret, this caller's token, or a JWT, per `A2A_AUTH` |
+| `X-User-Id` | the end user this request is for (`[A-Za-z0-9._-]{1,64}`); sessions and memory are stored under it (under a caller token, beneath the caller's scope; ignored with a JWT). Authenticate your users before sending it. |
 | `X-API-Key` | BYOK mode only: the caller's model key (see above) |
 | `X-Provider` | BYOK mode only: which provider `X-API-Key` belongs to (default `google`) |
 | `X-Surface`, `X-Surface-Guild`, `-Channel`, `-User` | optional, telemetry only |

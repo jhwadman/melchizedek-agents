@@ -106,6 +106,26 @@ the starter pack and the templates), not the repo's full history.
 
 ### New
 
+- **Built-in authenticators** (`melchizedek-agents/a2a/identity`, ADR
+  0025), chosen in the bin with `A2A_AUTH`:
+  - `callers`: one bearer token per calling backend. `A2A_CALLERS` holds
+    `name:sha256[:scope]`, so the config stores only token hashes. A caller
+    owns a scope that does not depend on any model key, so rotating a
+    provider key no longer strands sessions and memory. Mint a caller with
+    `melchizedek-serve --new-caller <name> [--scope s] [--token-file f]`. A
+    still-set `A2A_SERVER_SECRET` keeps working beside the tokens with its
+    old scoping, so callers move over one at a time; give a caller its
+    existing `a2a-<hash>` silo as its scope and no data moves.
+  - `jwt`: your identity provider's tokens, verified with `jose` (JWKS or
+    HS256; issuer, audience and expiry required); the scope is the user
+    claim, optionally under a tenant claim.
+  - `header`: a trusted user header from an authenticating gateway, accepted
+    only together with the server secret.
+  - In code: `createA2AApp({ ...callerTokens(parseCallers(spec)) })`, or
+    `jwtIdentity`, `trustedHeader`, `sharedSecret`, `firstOf`.
+- **`keyMode: 'byok'` now holds under any authenticator**: the caller's
+  `X-API-Key` pays whoever the caller is. A `resolveRequest` used to switch
+  BYOK billing off. The key-hash scope applies only without an authenticator.
 - **Remote agents: `a2a_agent_url:` on a subagent** — an agent served over
   A2A (1.0 or 0.3) becomes a delegation tool or a plan-dispatch route.
   Credentials from `A2A_AGENT_TOKENS`; `ALLOW_PRIVATE_A2A` for local hosts.

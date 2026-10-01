@@ -39,7 +39,7 @@ It reads the agent card, then sends two messages in one conversation, so the sec
 }
 ```
 
-Headers: `Content-Type: application/json`, `X-User-Id: <your app's user id>`, and `Authorization: Bearer <A2A_SERVER_SECRET>` when the server has a secret. A server in BYOK mode (`A2A_KEY_MODE=byok`) also needs `X-API-Key: <your model key>`; its card says so.
+Headers: `Content-Type: application/json`, `X-User-Id: <your app's user id>`, and `Authorization: Bearer <A2A_SERVER_SECRET>` when the server has a secret (or this caller's own token when the server runs `A2A_AUTH=callers`). A server in BYOK mode (`A2A_KEY_MODE=byok`) also needs `X-API-Key: <your model key>`; its card says so.
 
 `contextId` goes **inside** `message`. Every call with the same value continues one conversation (one session). A `contextId` placed beside `message` is ignored by the protocol, and each call then starts a new session.
 

@@ -41,6 +41,11 @@ export interface A2AContext {
   /** Telemetry-only surface identity (X-Surface-*). Never reaches the
    *  session key, the memory silo, or any prompt. */
   surface?: SurfaceContext;
+  /** Which authenticated caller this is (a caller name, 'jwt', …), for logs. */
+  caller?: string;
+  /** The scope owns the scopes nested beneath it (`<scope>/<user>`): an
+   *  erasure with no end user then removes those too. */
+  ownsNested?: boolean;
 }
 
 export interface SurfaceContext {

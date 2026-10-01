@@ -28,11 +28,11 @@ Two tiers, never mixed ([ADR 0005](/decisions/0005-entity-graph-layer.md)):
 
 | Kind | Id form | Now | What it is |
 |---|---|---|---|
+| `module` | `module:<name>` | 110 | one source module |
 | `agent` | `agent:<name>` | 109 | one orchestrator or subagent inside a syndicate |
-| `module` | `module:<name>` | 109 | one source module |
-| `doc` | `/dir/doc.md` | 88 | a concept document in the bundle — identity is its bundle path |
-| `env` | `env:<name>` | 76 | an environment variable the code reads |
-| `file` | `file:<name>` | 64 | a repo file that is not a source module (DDL, config, prose) |
+| `doc` | `/dir/doc.md` | 89 | a concept document in the bundle — identity is its bundle path |
+| `env` | `env:<name>` | 83 | an environment variable the code reads |
+| `file` | `file:<name>` | 65 | a repo file that is not a source module (DDL, config, prose) |
 | `script` | `script:<name>` | 51 | an npm script entrypoint |
 | `tool` | `tool:<name>` | 40 | a tool an agent may declare by name |
 | `syndicate` | `syndicate:<name>` | 39 | one agent-team definition (a YAML) |
@@ -50,10 +50,10 @@ A document keeps its OKF identity — the bundle path — so the two namespaces 
 
 | Relation | Tier | Reads as | Now | Meaning |
 |---|---|---|---|---|
-| `imports` | extracted | A imports B | 315 | a static import edge between source files |
-| `links_to` | extracted | A links to B | 179 | a resolved markdown link between documents |
-| `derives_from` | extracted | A derives from B | 157 | declared in the document’s `sources:` frontmatter |
-| `requires_env` | extracted | A requires B | 129 | this environment variable must be set for the node to work |
+| `imports` | extracted | A imports B | 319 | a static import edge between source files |
+| `links_to` | extracted | A links to B | 182 | a resolved markdown link between documents |
+| `derives_from` | extracted | A derives from B | 162 | declared in the document’s `sources:` frontmatter |
+| `requires_env` | extracted | A requires B | 136 | this environment variable must be set for the node to work |
 | `uses_tool` | extracted | A calls B | 129 | the agent declares this tool by name |
 | `contains` | extracted | A contains B | 109 | the first is composed of the second |
 | `uses_model` | extracted | A runs on B | 109 | the agent is configured with this model id |

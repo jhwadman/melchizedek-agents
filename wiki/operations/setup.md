@@ -33,7 +33,7 @@ With [Ollama](https://ollama.com) serving `qwen3:8b` (the smallest pulled model 
 
 ## Path B — A2A HTTP server (~15 min)
 
-`npm run start:a2a -- <syndicate>.yaml` on `$PORT` (default 4000). The server's own keys pay unless `A2A_KEY_MODE=byok`; without `A2A_SERVER_SECRET` it binds `127.0.0.1` only. The boot log names the URLs, the auth mode and the session backend — the contract is in [A2A](/protocols/a2a.md).
+`npm run start:a2a -- <syndicate>.yaml` on `$PORT` (default 4000). The server's own keys pay unless `A2A_KEY_MODE=byok`; `A2A_AUTH` picks how callers authenticate (shared secret, per-caller tokens, JWT or a gateway header, [ADR 0025](/decisions/0025-built-in-authenticators.md)); with no credential configured it binds `127.0.0.1` only. The boot log names the URLs, the auth mode and the session backend — the contract is in [A2A](/protocols/a2a.md).
 
 ## Path C — cloud (~30 min)
 

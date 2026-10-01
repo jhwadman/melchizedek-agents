@@ -167,8 +167,10 @@ application calls like any other API:
    chooses. That header is what keeps one user's sessions and memory out
    of another's. The server's own provider keys pay for inference. (To
    make callers fund their own, set `A2A_KEY_MODE=byok`; each request
-   then also carries `X-API-Key`. To plug in your own identity system,
-   use `createA2AApp({ resolveRequest })`.)
+   then also carries `X-API-Key`.) To give each calling backend its own
+   token instead of the shared secret, set `A2A_AUTH=callers` and mint
+   one per caller with `npx melchizedek-serve --new-caller <name>`; for
+   your identity provider's JWTs, `A2A_AUTH=jwt` (DOCUMENTATION.md §6).
 4. `demo/a2a_demo.mjs` is a complete working client; `DOCUMENTATION.md`
    §6 is the HTTP reference, and `DELETE /memory` erases everything
    stored for a user — facts, transcripts and ledger rows — before you

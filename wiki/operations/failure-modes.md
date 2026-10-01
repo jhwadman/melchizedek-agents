@@ -36,7 +36,7 @@ The [A2A server](/protocols/a2a.md) is in BYOK mode (`A2A_KEY_MODE=byok`), where
 
 ## `Unauthorized: Missing or invalid Authorization Bearer token`
 
-`A2A_SERVER_SECRET` is set server-side but absent from the request. Send `Authorization: Bearer <secret>`. Unsetting it makes the server bind `127.0.0.1` only. Thirty failed attempts from one IP in 15 minutes block that IP for the window (`A2A_AUTH_FAILURE_MAX`).
+The request carries no bearer, or one the configured `A2A_AUTH` does not accept: the server secret, this caller's token from `A2A_CALLERS` (stored as its SHA-256, so compare hashes, not tokens), or a JWT whose issuer, audience or expiry fails. A refused JWT logs its reason as `resolveRequest refused …`. Send `Authorization: Bearer <credential>`. Unsetting it makes the server bind `127.0.0.1` only. Thirty failed attempts from one IP in 15 minutes block that IP for the window (`A2A_AUTH_FAILURE_MAX`).
 
 ## `STEP_LIMIT`, `DEADLINE_EXCEEDED`, `CANCELED`
 

@@ -12,6 +12,7 @@ sources:
   - resource: scripts/a2a_server.ts
   - resource: lib/a2a/app.ts
   - resource: lib/a2a/remoteAgent.ts
+  - resource: lib/a2a/identity.ts
 ---
 
 # A2A
@@ -26,14 +27,21 @@ A syndicate can also CALL an A2A agent: a subagent with `a2a_agent_url:` is a re
 
 ## Identity and keys
 
-Plug points ([ADR 0017](/decisions/0017-plug-points.md)) decide who the caller is and who pays:
+Two separate questions, each a plug point ([ADR 0017](/decisions/0017-plug-points.md)): who the caller is, which decides whose data a request touches, and who pays for the models. `A2A_AUTH` answers the first ([ADR 0025](/decisions/0025-built-in-authenticators.md)); the built-in authenticators live in `lib/a2a/identity.ts` and are what `createA2AApp`'s `resolveRequest` takes.
 
-- `A2A_SERVER_SECRET` — the bearer every request presents. Without it the server binds loopback only; with `PUBLIC_URL` set it refuses to start without one, or with the `.env.example` placeholder.
-- `A2A_KEY_MODE=server` (default) — the server's own provider keys pay; sessions and memory are stored under `X-User-Id`, else `default`.
-- `A2A_KEY_MODE=byok` — the caller's `X-API-Key` funds agents on the provider named by `X-Provider`; its hash prefixes the stored scope, with `X-User-Id` beneath it. Data written before the plug points exists only under these key-hash scopes.
-- `resolveRequest` (library option) — the adopter's identity system returns the scope key itself.
+- `A2A_AUTH=secret` (default) — every caller presents the one `A2A_SERVER_SECRET`; the calling backend names its end user in `X-User-Id`. Without a secret the server binds loopback only; with `PUBLIC_URL` set it refuses to start without one, or with the `.env.example` placeholder.
+- `A2A_AUTH=callers` — one bearer token per calling backend, listed in `A2A_CALLERS` as `name:sha256[:scope]`. The config holds only each token's hash. A caller owns its scope, and an `X-User-Id` it sends nests beneath it. A scope is stable across model-key rotation, and callers given the same scope share data, which is how a deployment keeps its existing key-hash silo. `A2A_SERVER_SECRET`, while still set, keeps working beside the tokens with its old scoping, so callers move over one at a time. `melchizedek-serve --new-caller <name> [--scope s] [--token-file f]` mints a token.
+- `A2A_AUTH=jwt` — a JWT from the deployment's identity provider (`A2A_JWT_JWKS_URL`, or an HS256 `A2A_JWT_SECRET`), with issuer, audience and expiry required. The scope is the user claim (`sub`), under the tenant claim when `A2A_JWT_TENANT_CLAIM` is set. A claim value that is not key-safe is stored as `h-` plus a SHA-256 prefix.
+- `A2A_AUTH=header` — an authenticating gateway in front sets `A2A_TRUSTED_USER_HEADER`. It requires `A2A_SERVER_SECRET`, which only the gateway holds, so no other client can set the header.
 
-Data is stored under the syndicate's `memory_namespace` when it declares one, else `melchizedek-a2a` ([ADR 0020](/decisions/0020-memory-contract.md)). `DELETE /memory` erases everything held for the calling scope: facts, sessions with their subagent rows, and ledger rows.
+Billing is `A2A_KEY_MODE`, whatever the authenticator:
+
+- `server` (default) — the server's own provider keys pay.
+- `byok` — the caller's `X-API-Key` funds agents on the provider named by `X-Provider`, and a request without one is refused. Under `A2A_AUTH=secret` only, the key's hash also prefixes the stored scope (`a2a-<hash>[/<user>]`), which is where data written before the plug points lives.
+
+The agent card declares the schemes the configured authenticator enforces.
+
+Data is stored under the syndicate's `memory_namespace` when it declares one, else `melchizedek-a2a` ([ADR 0020](/decisions/0020-memory-contract.md)). `DELETE /memory` erases everything held for the calling scope: facts, sessions with their subagent rows, and ledger rows. A caller-token or key-hash scope that sends no `X-User-Id` also erases its end users' scopes beneath it.
 
 ## Which agents are served
 

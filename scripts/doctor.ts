@@ -62,7 +62,18 @@ if (fixAt !== -1) {
     process.exit(0);
   }
   for (const f of files) {
-    const filePath = path.isAbsolute(f) ? f : path.join(agentsDir, f);
+    // Relative to the agents directory (what the doctor prints), or to the
+    // current directory (what a shell completes, e.g. config/agents/x.yaml).
+    const filePath = path.isAbsolute(f)
+      ? f
+      : !fs.existsSync(path.join(agentsDir, f)) && fs.existsSync(path.resolve(f))
+        ? path.resolve(f)
+        : path.join(agentsDir, f);
+    if (!fs.existsSync(filePath)) {
+      console.error(`${f}: no such file (looked in ${agentsDir} and the current directory)`);
+      process.exitCode = 1;
+      continue;
+    }
     const r = assignMemoryNamespace(filePath);
     console.log(
       r.status === 'assigned'
@@ -70,7 +81,7 @@ if (fixAt !== -1) {
         : `${f}: already declares "${r.namespace}" (unchanged).`,
     );
   }
-  process.exit(0);
+  process.exit(process.exitCode ?? 0);
 }
 
 if (matrix) {

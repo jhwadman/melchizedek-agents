@@ -13,7 +13,20 @@
  *                             secret is set, 127.0.0.1 when none is.
  *   PUBLIC_URL                external base URL for agent cards; also marks a
  *                             deployment as public (secret + hardening required)
- *   A2A_SERVER_SECRET         bearer secret every request must present
+ *   A2A_SERVER_SECRET         bearer secret every request must present (A2A_AUTH=secret);
+ *                             with A2A_AUTH=callers it stays valid beside the caller
+ *                             tokens, with its old scoping, until you remove it
+ *   A2A_AUTH                  who a caller is (ADR 0025): secret (default) | callers |
+ *                             jwt | header
+ *   A2A_CALLERS               callers: `name:sha256[:scope]; …` — one token per calling
+ *                             backend. Mint: melchizedek-serve --new-caller <name>
+ *   A2A_JWT_JWKS_URL          jwt: your identity provider's JWKS (or A2A_JWT_SECRET, HS256)
+ *   A2A_JWT_ISSUER            jwt: required iss
+ *   A2A_JWT_AUDIENCE          jwt: required aud
+ *   A2A_JWT_SCOPE_CLAIM       jwt: the user claim (sub)
+ *   A2A_JWT_TENANT_CLAIM      jwt: optional tenant claim; scope becomes <tenant>/<user>
+ *   A2A_TRUSTED_USER_HEADER   header: the header your authenticating gateway sets
+ *                             (requires A2A_SERVER_SECRET, which only the gateway holds)
  *   ALLOW_UNAUTHENTICATED     "true" to bind a non-loopback HOST with no secret
  *   ALLOW_UNHARDENED_DB       "true" to accept an unhardened Supabase schema
  *   A2A_TASK_TIMEOUT_MS       per-task wall-clock budget (900000; 0 = none)
@@ -23,10 +36,10 @@
  *   A2A_AUTH_FAILURE_MAX      failed authentications per window per IP (30)
  *   A2A_TRUST_PROXY           Express trust-proxy: hop count, true/false, or subnets (1)
  *   A2A_BODY_LIMIT            JSON body limit ("1mb")
- *   A2A_KEY_MODE              server (default): models run on the server's keys and
- *                             data is scoped by X-User-Id; byok: the caller's
- *                             X-API-Key pays and its hash scopes the data (the
- *                             pre-0.16 behaviour — see the boot warning)
+ *   A2A_KEY_MODE              server (default): models run on the server's keys;
+ *                             byok: the caller's X-API-Key pays. Under A2A_AUTH=secret
+ *                             the mode also scopes data: X-User-Id in server mode,
+ *                             the key's hash in byok (the pre-0.16 behaviour)
  *   A2A_SERVED_AGENTS         comma list: the only agent ids /:agentId/ serves;
  *                             only these may fall back to examples/ and templates/
  *   A2A_REGISTRY_AGENTS       comma list: bare ids that load from adk_agent_registry
@@ -37,12 +50,23 @@
  *                             Without it: Supabase when its credentials are set,
  *                             else process memory.
  */
-import { realpathSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { realpathSync, writeFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { setLogLevel, LogLevel } from '@google/adk';
 
 import { createA2AApp } from '../lib/a2a/app.ts';
+import {
+  callerTokens,
+  firstOf,
+  hashCallerToken,
+  jwtIdentity,
+  parseCallers,
+  sharedSecret,
+  trustedHeader,
+} from '../lib/a2a/identity.ts';
+import type { Authenticator } from '../lib/a2a/identity.ts';
 import { postgresStorage } from '../lib/storage/postgres/index.ts';
 import { isPlaceholderValue, loadEnv } from '../lib/loadEnv.ts';
 import { flushTracing } from '../lib/observability/tracer.ts';
@@ -96,8 +120,55 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
   if (secret && secret.length < MIN_SECRET_LENGTH) {
     console.warn(`[A2A] ⚠ A2A_SERVER_SECRET is shorter than ${MIN_SECRET_LENGTH} characters; use a long random value.`);
   }
+  const list = (name: string) =>
+    process.env[name] ? process.env[name]!.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+  const keyModeRaw = (process.env.A2A_KEY_MODE ?? 'server').trim().toLowerCase();
+  if (keyModeRaw !== 'server' && keyModeRaw !== 'byok') fatal(`A2A_KEY_MODE must be 'server' or 'byok' (got '${keyModeRaw}')`);
+  const keyMode = keyModeRaw as 'server' | 'byok';
+
+  // ── Identity: who a caller is, and whose data a request touches (ADR 0025) ─
+  const authKind = (process.env.A2A_AUTH ?? 'secret').trim().toLowerCase();
+  let authenticator: Authenticator | undefined;
+  let identityLabel = '';
+  try {
+    if (authKind === 'callers') {
+      const spec = process.env.A2A_CALLERS?.trim();
+      if (!spec) fatal('A2A_AUTH=callers needs A2A_CALLERS (name:sha256[:scope]; …). Mint a caller: melchizedek-serve --new-caller <name>');
+      const callers = parseCallers(spec);
+      authenticator = secret ? firstOf(callerTokens(callers), sharedSecret({ secret, keyMode })) : callerTokens(callers);
+      identityLabel = `caller tokens (${callers.map((c) => c.name).join(', ')})${secret ? ' + the legacy A2A_SERVER_SECRET' : ''}`;
+    } else if (authKind === 'jwt') {
+      const issuer = list('A2A_JWT_ISSUER');
+      const audience = list('A2A_JWT_AUDIENCE');
+      if (!issuer || !audience) fatal('A2A_AUTH=jwt needs A2A_JWT_ISSUER and A2A_JWT_AUDIENCE.');
+      authenticator = jwtIdentity({
+        jwksUrl: process.env.A2A_JWT_JWKS_URL?.trim() || undefined,
+        secret: process.env.A2A_JWT_SECRET?.trim() || undefined,
+        issuer: issuer.length === 1 ? issuer[0] : issuer,
+        audience: audience.length === 1 ? audience[0] : audience,
+        scopeClaim: process.env.A2A_JWT_SCOPE_CLAIM?.trim() || undefined,
+        tenantClaim: process.env.A2A_JWT_TENANT_CLAIM?.trim() || undefined,
+      });
+      identityLabel = `JWT (iss ${issuer.join(', ')})`;
+    } else if (authKind === 'header') {
+      const header = process.env.A2A_TRUSTED_USER_HEADER?.trim();
+      if (!header) fatal('A2A_AUTH=header needs A2A_TRUSTED_USER_HEADER.');
+      if (!secret) fatal('A2A_AUTH=header needs A2A_SERVER_SECRET: only the gateway holding it may set the user header.');
+      authenticator = trustedHeader({ header });
+      identityLabel = `gateway header ${header} behind the bearer secret`;
+    } else if (authKind !== 'secret') {
+      fatal(`A2A_AUTH must be secret, callers, jwt or header (got '${authKind}')`);
+    }
+  } catch (err: unknown) {
+    fatal(err instanceof Error ? err.message : String(err));
+  }
+  // Caller tokens and JWTs are bearer credentials checked by the
+  // authenticator; the shared secret is then not a gate of its own.
+  const bearerGate = authKind === 'secret' || authKind === 'header';
+  const authenticated = !!secret || !!authenticator;
+
   let host = process.env.HOST?.trim() || undefined;
-  if (!secret) {
+  if (!authenticated) {
     if (publicUrl) fatal('PUBLIC_URL is set but A2A_SERVER_SECRET is missing. Refusing to start an unauthenticated public server.');
     if (host && !isLoopback(host) && process.env.ALLOW_UNAUTHENTICATED !== 'true') {
       fatal(`HOST=${host} would expose an unauthenticated server. Set A2A_SERVER_SECRET, or ALLOW_UNAUTHENTICATED=true to accept the risk.`);
@@ -107,13 +178,8 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
     console.warn(`[A2A] ⚠ A2A_SERVER_SECRET is not set: authentication is off and the server binds ${host} only.`);
   }
 
-  const list = (name: string) =>
-    process.env[name] ? process.env[name]!.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
   const servedAgents = list('A2A_SERVED_AGENTS');
   const registryAgents = list('A2A_REGISTRY_AGENTS');
-  const keyModeRaw = (process.env.A2A_KEY_MODE ?? 'server').trim().toLowerCase();
-  if (keyModeRaw !== 'server' && keyModeRaw !== 'byok') fatal(`A2A_KEY_MODE must be 'server' or 'byok' (got '${keyModeRaw}')`);
-  const keyMode = keyModeRaw as 'server' | 'byok';
 
   // Storage: Postgres when DATABASE_URL is set (every durable store, safe
   // across instances); otherwise createA2AApp's default (Supabase, else memory).
@@ -131,7 +197,8 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
       defaultSyndicate: syndicateName,
       publicUrl,
       port,
-      serverSecret: secret,
+      serverSecret: bearerGate ? secret : undefined,
+      ...(authenticator ?? {}),
       requireHardenedDb: !!publicUrl && process.env.ALLOW_UNHARDENED_DB !== 'true',
       taskTimeoutMs: envInt('A2A_TASK_TIMEOUT_MS', 15 * 60 * 1000),
       maxConcurrentTasks: envInt('A2A_MAX_CONCURRENT_TASKS', 0),
@@ -148,7 +215,7 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
     if ((err as any)?.code === 'ENOENT') throw err;
     fatal(err instanceof Error ? err.message : String(err));
   }
-  const authMode = `${secret ? 'bearer secret' : 'no secret (loopback only)'}; keys: ${keyMode === 'byok' ? "caller's X-API-Key (byok)" : "server's own"}`;
+  const authMode = `${identityLabel || (secret ? 'bearer secret' : 'no secret (loopback only)')}; keys: ${keyMode === 'byok' ? "caller's X-API-Key (byok)" : "server's own"}`;
   // The secret is not needed past this point; drop the reference.
   secret = undefined;
 
@@ -169,7 +236,7 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
   console.log(`[A2A]   storage  ${pgStorage ? 'postgres (multi-instance safe)' : sessionBackend === 'durable' ? 'supabase (tasks are per process: one replica)' : 'in-memory (lost on restart; one replica)'}`);
   console.log(`[A2A]   agents   ${servedAgents ? servedAgents.join(', ') : 'the default, plus any file in the agents directory at /:agentId/ (A2A_SERVED_AGENTS restricts)'}`);
   if (registryAgents) console.log(`[A2A]   registry ${registryAgents.join(', ')} (bare ids loaded from adk_agent_registry)`);
-  if (keyMode === 'server' && sessionBackend === 'durable') {
+  if (keyMode === 'server' && sessionBackend === 'durable' && authKind === 'secret') {
     console.warn('[A2A] ⚠ Key mode is "server": sessions and memory are scoped by X-User-Id (else "default").');
     console.warn('[A2A]   Data written by earlier versions lives under key-hash silos (a2a-<hash>/…) that');
     console.warn('[A2A]   only A2A_KEY_MODE=byok reaches. Keep byok until that data is migrated.');
@@ -217,7 +284,42 @@ const invokedAsMain = (() => {
 if (invokedAsMain) {
   const arg = process.argv[2];
   if (arg === '--help' || arg === '-h') {
-    console.log('Usage: melchizedek-serve [<syndicate>.yaml | registry:<id>]\n\nServes a syndicate over A2A. Environment variables are listed at the top of scripts/a2a_server.ts and in .env.example.');
+    console.log([
+      'Usage: melchizedek-serve [<syndicate>.yaml | registry:<id>]',
+      '       melchizedek-serve --new-caller <name> [--scope <scope>] [--token-file <path>]',
+      '',
+      'Serves a syndicate over A2A. Environment variables are listed at the top of',
+      'scripts/a2a_server.ts and in .env.example.',
+      '',
+      '--new-caller mints a bearer token for one calling backend (A2A_AUTH=callers)',
+      'and prints the A2A_CALLERS entry, which holds only the token\'s SHA-256.',
+      '--scope keeps the caller on an existing scope (e.g. its a2a-<hash> silo).',
+      '--token-file writes the token to a new file (mode 600) instead of printing it.',
+    ].join('\n'));
+    process.exit(0);
+  }
+  if (arg === '--new-caller') {
+    const flag = (name: string) => {
+      const i = process.argv.indexOf(name);
+      return i > 0 ? process.argv[i + 1] : undefined;
+    };
+    const name = process.argv[3];
+    const scope = flag('--scope');
+    const tokenFile = flag('--token-file');
+    const token = randomBytes(32).toString('base64url');
+    const entry = `${name}:${hashCallerToken(token)}${scope ? `:${scope}` : ''}`;
+    try {
+      parseCallers(entry);
+    } catch (err: unknown) {
+      fatal(err instanceof Error ? err.message : String(err));
+    }
+    if (tokenFile) {
+      writeFileSync(tokenFile, `${token}\n`, { mode: 0o600, flag: 'wx' });
+      console.log(`Token for '${name}' written to ${tokenFile} (mode 600). Hand it to the caller, then delete the file.`);
+    } else {
+      console.log(`Token for '${name}' — give it to the caller as its bearer token. It is shown once and never stored:\n  ${token}`);
+    }
+    console.log(`\nAdd this entry to A2A_CALLERS (entries separated by ';'):\n  ${entry}`);
     process.exit(0);
   }
   startServer(arg || 'syndicate.yaml').catch((error) => {

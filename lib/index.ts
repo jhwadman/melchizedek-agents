@@ -46,6 +46,17 @@ export type { CompileOptions } from './compile.ts';
 export { createA2AApp, compileAgentCard } from './a2a/app.ts';
 export type { A2AApp, A2AAppOptions, RequestIdentity } from './a2a/app.ts';
 export type { A2AContext } from './a2a/executor.ts';
+export {
+  callerTokens,
+  firstOf,
+  hashCallerToken,
+  jwtIdentity,
+  parseCallers,
+  scopeSegment,
+  sharedSecret,
+  trustedHeader,
+} from './a2a/identity.ts';
+export type { Authenticator, CallerEntry, IdentityScheme, JwtIdentityOptions } from './a2a/identity.ts';
 export { RemoteA2AAgent, remoteAgentTool } from './a2a/remoteAgent.ts';
 export type { RemoteAnswer } from './a2a/remoteAgent.ts';
 

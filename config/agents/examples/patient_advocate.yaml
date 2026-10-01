@@ -39,6 +39,7 @@
 
 syndicate_name: "Patient Advocate"
 memory_system: "long-term"
+memory_namespace: "patient_advocate.2wdlpxe2"
 
 orchestrator:
   name: "Asclepius"

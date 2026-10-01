@@ -43,6 +43,7 @@
 # ============================================================
 syndicate_name: Account Memory
 memory_system: long-term
+memory_namespace: "account_memory.ljykz7ih"
 max_steps: 12
 variables:
   never_store: "prices, stock levels, product specifications or anything else a system of record holds and can be read again; payment details, passwords, government identifiers, health information; the assistant's own suggestions unless the user adopted them"
