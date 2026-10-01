@@ -44,7 +44,7 @@ export { compileGraph, compileSubagent } from './compile.ts';
 export type { CompileOptions } from './compile.ts';
 
 // ── Serve it over A2A, or call a remote A2A agent ───────────────────────────
-export { createA2AApp, compileAgentCard } from './a2a/app.ts';
+export { createA2AApp, compileAgentCard, currentRequestContext } from './a2a/app.ts';
 export type { A2AApp, A2AAppOptions, RequestIdentity } from './a2a/app.ts';
 export type { A2AContext } from './a2a/executor.ts';
 export {

@@ -124,7 +124,21 @@ function fatal(message: string): never {
   process.exit(1);
 }
 
-export async function startServer(syndicateName: string = 'syndicate.yaml'): Promise<Server> {
+/**
+ * What a deployment adds on top of the environment-driven server: its own
+ * routes and any createA2AApp option. A private deployment imports
+ * `startServer` from `melchizedek-agents/server`, registers its tools with
+ * `registerTool`, and passes its routes here, so it inherits every
+ * environment variable this file reads (ADR 0022).
+ */
+export interface ServerExtensions {
+  /** Mounted after authentication, before the built-in routes. */
+  routes?: (app: import('express').Express) => void;
+  /** Any other createA2AApp option; wins over what the environment sets. */
+  options?: Partial<Parameters<typeof createA2AApp>[0]>;
+}
+
+export async function startServer(syndicateName: string = 'syndicate.yaml', extensions: ServerExtensions = {}): Promise<Server> {
   loadEnv(import.meta.url);
   // Conversation content stays out of stdout unless the operator opts in:
   // the root span carries the full user message and answer.
@@ -268,6 +282,11 @@ export async function startServer(syndicateName: string = 'syndicate.yaml'): Pro
       log: (m: string) => emit('info', `[A2A] ${m}`),
       warn: (m: string) => emit('warn', `[A2A] ⚠ ${m}`),
       ...(jsonLogs() ? { onTaskEnd: (r) => emit('info', `task ${r.status}`, { event: 'task', ...r }) } : {}),
+      ...extensions.options,
+      routes: (app) => {
+        extensions.routes?.(app);
+        extensions.options?.routes?.(app);
+      },
     });
   } catch (err: unknown) {
     if ((err as any)?.code === 'ENOENT') throw err;

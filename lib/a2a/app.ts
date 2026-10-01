@@ -197,6 +197,15 @@ export interface RequestIdentity {
 const legacyCompat = { enabled: true };
 
 /**
+ * The authenticated caller of the request being handled, for adopter routes
+ * (`routes` option): its scope key, caller name and whether it holds an
+ * operator credential. Undefined outside a request or before authentication.
+ */
+export function currentRequestContext(): A2AContext | undefined {
+  return requestContextStorage.getStore();
+}
+
+/**
  * The A2A user for a request: the caller's scope key, as resolved by the
  * identity middleware. The task store keys tasks by this owner, so one
  * caller cannot read, follow or cancel another's task by its id.

@@ -28,6 +28,7 @@
     "./a2a/remote": "./dist/lib/a2a/remoteAgent.js",
     "./a2a/identity": "./dist/lib/a2a/identity.js",
     "./a2a/policy": "./dist/lib/a2a/policy.js",
+    "./server": "./dist/scripts/a2a_server.js",
     "./guards": "./dist/lib/guards/index.js",
     "./storage/postgres": "./dist/lib/storage/postgres/index.js",
     "./grounding": "./dist/lib/grounding.js",
@@ -69,6 +70,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
+    "prepare": "npm run build",
     "prepublishOnly": "npm test",
     "doctor": "node --disable-warning=DEP0040 --experimental-strip-types scripts/doctor.ts",
     "skills:install": "node --disable-warning=DEP0040 --experimental-strip-types scripts/skills_install.ts install",
