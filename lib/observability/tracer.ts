@@ -317,10 +317,26 @@ export function initializeTracing() {
   }
   const provider = new NodeTracerProvider({ spanProcessors, ...(resource ? { resource } : {}) });
   provider.register();
+  // `register()` points the proxy of the @opentelemetry/api copy the SDK
+  // resolves. An installed package can resolve a DIFFERENT copy for this
+  // module (npm nests one under melchizedek-agents when versions differ), and
+  // the module-level `tracer` below is a proxy on THAT copy: unpointed, every
+  // span it starts is a no-op and the ledger silently stays empty. Point our
+  // own proxy too; with one shared copy this repeats what register() did.
+  (trace as any)._proxyTracerProvider?.setDelegate?.(provider);
   adoptAdkTracerApi(provider);
   tracerProvider = provider;
 
   isOtelInitialized = true;
+
+  // Fail loudly, not silently: a tracer that does not record means no
+  // ledger rows, no metrics from spans and no OTLP export.
+  const probe = trace.getTracer('melchizedek-tracer').startSpan('melchizedek.tracer.probe');
+  const recording = probe.isRecording();
+  probe.end();
+  if (!recording && (telemetryExporter || otlp)) {
+    console.warn('[TELEMETRY] ⚠ spans are not recording: telemetry is configured but nothing will be exported (two @opentelemetry/api copies?).');
+  }
 }
 
 const tracer = trace.getTracer('melchizedek-tracer');
